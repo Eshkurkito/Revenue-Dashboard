@@ -119,20 +119,18 @@ def render_resumen_comparativo(raw):
             if col not in df_comp.columns:
                 df_comp[col] = 0
         # Asegura que las columnas existen antes de calcular ocupación
-        if "noches_ocupadas" not in df_comp.columns:
-            df_comp["noches_ocupadas"] = 0
-        if "noches_disponibles" not in df_comp.columns:
-            df_comp["noches_disponibles"] = 0
-        if "noches_ocupadas_ly" not in df_comp.columns:
-            df_comp["noches_ocupadas_ly"] = 0
-        if "noches_disponibles_ly" not in df_comp.columns:
-            df_comp["noches_disponibles_ly"] = 0
+        for col in ["noches_ocupadas", "noches_disponibles"]:
+            if col not in df_comp.columns:
+                df_comp[col] = 0
+        for col in ["noches_ocupadas_ly", "noches_disponibles_ly"]:
+            if col not in df_comp.columns:
+                df_comp[col] = 0
 
         df_comp["ocupacion"] = (
-            df_comp["noches_ocupadas"] / df_comp["noches_disponibles"].replace(0, pd.NA)
+            df_comp["noches_ocupadas"].astype(float) / df_comp["noches_disponibles"].replace(0, pd.NA).astype(float)
         )
         df_comp["ocupacion_ly"] = (
-            df_comp["noches_ocupadas_ly"] / df_comp["noches_disponibles_ly"].replace(0, pd.NA)
+            df_comp["noches_ocupadas_ly"].astype(float) / df_comp["noches_disponibles_ly"].replace(0, pd.NA).astype(float)
         )
         # Ingresos finales
         by_prop_final, _ = compute_kpis(
