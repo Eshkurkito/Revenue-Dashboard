@@ -11,11 +11,8 @@ def render_consulta_normal(raw):
         st.header("Parámetros")
         cutoff_normal = st.date_input("Fecha de corte", value=date.today(), key="cutoff_normal")
         c1, c2 = st.columns(2)
-        fecha_fin_mes = pd.Timestamp.today().to_period("M").end_time
-        if hasattr(fecha_fin_mes, 'to_pydatetime'):
-            fecha_fin_mes = fecha_fin_mes.to_pydatetime().date()
-        else:
-            fecha_fin_mes = fecha_fin_mes.date()
+        # Robust extraction of end-of-month date
+        fecha_fin_mes = pd.Timestamp.today().to_period("M").to_timestamp(how="end").date()
         start_normal, end_normal = period_inputs(
             "Inicio del periodo", "Fin del periodo",
             date(date.today().year, date.today().month, 1),
