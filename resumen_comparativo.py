@@ -46,6 +46,10 @@ def render_resumen_comparativo(raw):
         filter_props=props_rc if props_rc else None,
     )
 
+    # Debug: muestra las columnas de by_prop_rc
+    st.write("Columnas by_prop_rc:", by_prop_rc.columns.tolist())
+    st.write("Primeras filas by_prop_rc:", by_prop_rc.head())
+
     # KPIs año anterior (si compara)
     if compare_rc:
         cutoff_rc_ly = pd.to_datetime(cutoff_rc) - pd.DateOffset(years=1)
@@ -128,12 +132,19 @@ def render_resumen_comparativo(raw):
         if "noches_disponibles_ly" not in df_comp.columns:
             df_comp["noches_disponibles_ly"] = 0
 
-        df_comp["ocupacion"] = (
-            df_comp["noches_ocupadas"].astype(float) / df_comp["noches_disponibles"].replace(0, pd.NA).astype(float)
-        )
-        df_comp["ocupacion_ly"] = (
-            df_comp["noches_ocupadas_ly"].astype(float) / df_comp["noches_disponibles_ly"].replace(0, pd.NA).astype(float)
-        )
+        if "noches_ocupadas" in df_comp.columns and "noches_disponibles" in df_comp.columns:
+            df_comp["ocupacion"] = (
+                df_comp["noches_ocupadas"].astype(float) / df_comp["noches_disponibles"].replace(0, pd.NA).astype(float)
+            )
+        else:
+            df_comp["ocupacion"] = pd.NA
+
+        if "noches_ocupadas_ly" in df_comp.columns and "noches_disponibles_ly" in df_comp.columns:
+            df_comp["ocupacion_ly"] = (
+                df_comp["noches_ocupadas_ly"].astype(float) / df_comp["noches_disponibles_ly"].replace(0, pd.NA).astype(float)
+            )
+        else:
+            df_comp["ocupacion_ly"] = pd.NA
         # Ingresos finales
         by_prop_final, _ = compute_kpis(
             df_all=raw,

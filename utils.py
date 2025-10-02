@@ -110,6 +110,11 @@ def compute_kpis(
         "adr": adr,
         "revpar": revpar,
     }
+    # Asegura que las columnas existen en el DataFrame de salida
+    for col in ["Alojamiento", "Noches ocupadas", "Ingresos", "ADR"]:
+        if col not in by_prop.columns:
+            by_prop[col] = 0
+
     return by_prop, tot
 
 def compute_portal_share(
