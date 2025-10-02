@@ -67,8 +67,12 @@ def render_resumen_comparativo(raw):
             how="left"
         )
         # Nueva columna de ocupación actual y año anterior
-        df_comp["ocupacion"] = df_comp["noches_ocupadas"] / df_comp["noches_disponibles"]
-        df_comp["ocupacion_ly"] = df_comp["noches_ocupadas_ly"] / df_comp["noches_disponibles_ly"]
+        df_comp["noches_ocupadas"] = df_comp.get("noches_ocupadas", 0)
+        df_comp["noches_disponibles"] = df_comp.get("noches_disponibles", 0)
+        df_comp["noches_ocupadas_ly"] = df_comp.get("noches_ocupadas_ly", 0)
+        df_comp["noches_disponibles_ly"] = df_comp.get("noches_disponibles_ly", 0)
+        df_comp["ocupacion"] = df_comp["noches_ocupadas"] / df_comp["noches_disponibles"].replace(0, pd.NA)
+        df_comp["ocupacion_ly"] = df_comp["noches_ocupadas_ly"] / df_comp["noches_disponibles_ly"].replace(0, pd.NA)
         # Añadir columnas de diferencia solo para noches ocupadas, ingresos y adr
         for col in ["noches_ocupadas", "ingresos", "adr"]:
             col_ly = f"{col}_ly"
