@@ -17,21 +17,27 @@ st.title("📊 OTB Analytics – KPIs & Dashboard")
 st.caption("Sube tus Excel una vez, configura parámetros en la barra lateral y usa cualquiera de los modos.")
 
 # -------- Sidebar: carga de datos --------
-st.sidebar.header("Menú principal")
+st.sidebar.header("Carga de datos")
 
-if "raw" not in st.session_state:
-    uploaded_file = st.sidebar.file_uploader("Carga tu archivo Excel/CSV", type=["xlsx", "csv"])
-    if uploaded_file is not None:
+# Subida de archivo
+uploaded_file = st.sidebar.file_uploader("Carga tu archivo Excel/CSV", type=["xlsx", "csv"])
+
+# Botón para confirmar el archivo
+if uploaded_file is not None:
+    if st.sidebar.button("Usar este archivo"):
         if uploaded_file.name.endswith(".xlsx"):
             st.session_state.raw = pd.read_excel(uploaded_file)
         else:
             st.session_state.raw = pd.read_csv(uploaded_file)
-    else:
+        st.success("Archivo cargado correctamente.")
+else:
+    if "raw" not in st.session_state:
         st.session_state.raw = None
 
 raw = st.session_state.raw
 
 # Menú de modos
+st.sidebar.header("Menú principal")
 mode = st.sidebar.selectbox(
     "Selecciona modo",
     [
