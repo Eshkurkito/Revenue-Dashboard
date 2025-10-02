@@ -59,8 +59,26 @@ def render_resumen_comparativo(raw):
             inventory_override=int(inv_rc_prev) if inv_rc_prev > 0 else None,
             filter_props=props_rc if props_rc else None,
         )
+        # Unir por alojamiento y calcular diferencias
+        df_comp = by_prop_rc.merge(
+            by_prop_rc_ly,
+            on="Alojamiento",
+            suffixes=("", "_ly"),
+            how="left"
+        )
+        # Añadir columnas de diferencia
+        for col in ["noches_ocupadas", "noches_disponibles", "ocupacion_pct", "ingresos", "adr", "revpar"]:
+            df_comp[f"diff_{col}"] = df_comp[col] - df_comp.get(f"{col}_ly", 0)
+        # Formato condicional para colores
+        def color_diff(val):
+            if pd.isnull(val):
+                return ""
+            return f"background-color: {'#b6fcb6' if val > 0 else '#ffb6b6'}"  # verde si >0, rojo si <=0
+        styled_df = df_comp.style.applymap(color_diff, subset=[f"diff_{col}" for col in ["noches_ocupadas", "noches_disponibles", "ocupacion_pct", "ingresos", "adr", "revpar"]])
     else:
         total_rc_ly = None
+        df_comp = by_prop_rc.copy()
+        styled_df = df_comp.style
 
     st.subheader("Resumen comparativo")
     help_block("Resumen Comparativo")
@@ -81,14 +99,19 @@ def render_resumen_comparativo(raw):
 
     st.divider()
     st.subheader("Detalle por alojamiento")
-    if by_prop_rc.empty:
+    if df_comp.empty:
         st.warning("Sin noches ocupadas en el periodo a la fecha de corte.")
     else:
-        st.dataframe(by_prop_rc, use_container_width=True)
-        csv = by_prop_rc.to_csv(index=False).encode("utf-8-sig")
+        st.write("Las columnas 'diff_' muestran la diferencia respecto al año anterior. Verde = superior, rojo = inferior.")
+        st.dataframe(styled_df, use_container_width=True)
+        # Exportar a Excel
+        import io
+        output = io.BytesIO()
+        df_comp.to_excel(output, index=False, sheet_name="Comparativo")
+        output.seek(0)
         st.download_button(
-            "📥 Descargar detalle (CSV)",
-            data=csv,
-            file_name="detalle_comparativo_por_alojamiento.csv",
-            mime="text/csv"
+            "📥 Descargar detalle (Excel)",
+            data=output,
+            file_name="detalle_comparativo_por_alojamiento.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
