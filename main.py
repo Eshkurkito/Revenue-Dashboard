@@ -82,7 +82,7 @@ with st.sidebar:
     st.header("Parámetros")
     cutoff_normal = st.date_input("Fecha de corte", value=date.today(), key="cutoff_normal")
     c1, c2 = st.columns(2)
-    fecha_fin_mes = pd.Timestamp.today().to_period("M").to_timestamp(how="end").date()
+    fecha_fin_mes = (pd.Timestamp.today() + pd.offsets.MonthEnd(0)).date()
     start_normal, end_normal = period_inputs(
         "Inicio del periodo", "Fin del periodo",
         date(date.today().year, date.today().month, 1),
