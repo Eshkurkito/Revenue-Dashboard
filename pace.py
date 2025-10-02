@@ -19,11 +19,20 @@ def render_pace(raw):
         # Gestión de grupos
         from utils import save_group_csv, load_groups, group_selector
         groups = load_groups()
-        group_names = list(groups.keys())
-        selected_group = st.selectbox("Grupo guardado", group_names) if group_names else None
+        group_names = ["Ninguno"] + sorted(list(groups.keys()))
+        selected_group = st.selectbox("Grupo guardado", group_names)
 
-        if selected_group:
+        if selected_group and selected_group != "Ninguno":
             props_pace = groups[selected_group]
+            # Botón para eliminar grupo
+            if st.button(f"Eliminar grupo '{selected_group}'"):
+                import pandas as pd
+                from utils import GROUPS_PATH
+                df_groups = pd.read_csv(GROUPS_PATH)
+                df_groups = df_groups[df_groups["Grupo"] != selected_group]
+                df_groups.to_csv(GROUPS_PATH, index=False)
+                st.success(f"Grupo '{selected_group}' eliminado.")
+                st.experimental_rerun()
         else:
             props_pace = group_selector(
                 "Filtrar alojamientos (opcional)",
