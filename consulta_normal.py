@@ -9,10 +9,14 @@ def render_consulta_normal(raw):
     # Normaliza los nombres de columna
     raw.columns = [col.strip() for col in raw.columns]
 
-    if "Alojamiento" not in raw.columns:
-        st.warning("No se encontró la columna 'Alojamiento'. Sube un archivo válido o revisa el nombre de la columna.")
-        st.stop()
-    if "Agente/Intermediario" not in raw.columns:
+    # Mapeo flexible para 'Agente/Intermediario'
+    col_portal = None
+    for col in raw.columns:
+        if col.lower().replace(" ", "") == "agente/intermediario".lower().replace(" ", ""):
+            col_portal = col
+            break
+
+    if not col_portal:
         st.error("No se encontró la columna 'Agente/Intermediario'. Las columnas detectadas son: " + ", ".join(raw.columns))
         st.stop()
 
@@ -129,3 +133,4 @@ def render_consulta_normal(raw):
         )
 
     st.write("Columnas detectadas:", list(raw.columns))
+    raw[col_portal]
