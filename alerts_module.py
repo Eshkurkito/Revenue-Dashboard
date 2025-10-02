@@ -502,7 +502,7 @@ def render_alerts_module(df: pd.DataFrame, config: dict | None = None, today: da
                 logs.append({
                     "ts": datetime.now().strftime("%Y-%m-%d %H:%M"),
                     "tab": tab_label,
-                    "fin_mes": pd.Timestamp.today().to_period("M").end_time.to_pydatetime().date(),
+                    "fin_mes": pd.Timestamp.today().to_period("M").to_timestamp(how="end").date(),
                     "key": sel_id,
                     "unidad": row.get("Unidad", ""),
                     "fecha_llegada": row.get("Fecha llegada", ""),

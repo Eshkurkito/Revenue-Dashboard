@@ -15,7 +15,7 @@ def render_cuadro_mando_pro(raw):
         pro_start, pro_end = period_inputs(
             "Inicio del periodo", "Fin del periodo",
             date(date.today().year, date.today().month, 1),
-            pd.Timestamp.today().to_period("M").end_time.to_pydatetime().date(),
+            pd.Timestamp.today().to_period("M").to_timestamp(how="end").date(),
             "pro_period"
         )
         inv_pro = st.number_input("Inventario actual (opcional)", min_value=0, value=0, step=1, key="pro_inv")
