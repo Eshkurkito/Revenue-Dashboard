@@ -42,8 +42,6 @@ def render_consulta_normal(raw):
             props_normal = groups[selected_group]
             # Botón para eliminar grupo
             if st.button(f"Eliminar grupo '{selected_group}'"):
-                import pandas as pd
-                from utils import GROUPS_PATH
                 df = pd.read_csv(GROUPS_PATH)
                 df = df[df["Grupo"] != selected_group]
                 df.to_csv(GROUPS_PATH, index=False)
