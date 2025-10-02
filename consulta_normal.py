@@ -72,6 +72,17 @@ def render_consulta_normal(raw):
             save_group_csv(group_name, props_normal)
             st.success(f"Grupo '{group_name}' guardado.")
 
+    # Calcula noches ocupadas si no existe la columna
+    if "Noches ocupadas" not in raw.columns:
+        if "Fecha entrada" in raw.columns and "Fecha salida" in raw.columns:
+            # Calcula noches ocupadas como la diferencia de días
+            raw["Noches ocupadas"] = (
+                pd.to_datetime(raw["Fecha salida"]) - pd.to_datetime(raw["Fecha entrada"])
+            ).dt.days
+        else:
+            st.error("No se encontraron las columnas 'Fecha entrada' y 'Fecha salida' para calcular noches ocupadas.")
+            st.stop()
+
     # Cálculo base
     by_prop_n, total_n = compute_kpis(
         df_all=raw,
@@ -139,4 +150,3 @@ def render_consulta_normal(raw):
         )
 
     st.write("Columnas detectadas:", list(raw.columns))
-    raw[col_portal]
