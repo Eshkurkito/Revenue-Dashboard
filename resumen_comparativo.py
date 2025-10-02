@@ -148,6 +148,38 @@ def render_resumen_comparativo(raw):
             return f"background-color: {'#b6fcb6' if val > 0 else '#ffb6b6'}"
         styled_df = df_comp.style.applymap(color_diff, subset=["diff_ingresos_finales"])
 
+    # Al final del bloque if/else, justo antes de mostrar la tabla:
+    # Selecciona solo las columnas relevantes y ordénalas
+    cols_to_show = [
+        "Alojamiento",
+        "noches_ocupadas", "ingresos", "adr",
+        "noches_ocupadas_ly", "ingresos_ly", "adr_ly",
+        "ocupacion", "ocupacion_ly",
+        "diff_noches_ocupadas", "diff_ingresos", "diff_adr", "diff_ocupacion",
+        "ingresos_finales", "diff_ingresos_finales"
+    ]
+    # Filtra las columnas que realmente existen en el DataFrame
+    cols_to_show = [col for col in cols_to_show if col in df_comp.columns]
+    df_comp = df_comp[cols_to_show].copy()
+
+    # Formatea ocupación como porcentaje con dos decimales, evitando None
+    for col in ["ocupacion", "ocupacion_ly"]:
+        if col in df_comp.columns:
+            df_comp[col] = (df_comp[col].fillna(0) * 100).round(2).astype(str) + "%"
+
+    # Formato condicional solo en las columnas de diferencia
+    diff_cols = [col for col in df_comp.columns if col.startswith("diff_")]
+    def color_diff(val):
+        try:
+            v = float(str(val).replace("%", ""))
+        except:
+            return ""
+        if pd.isnull(v):
+            return ""
+        return f"background-color: {'#b6fcb6' if v > 0 else '#ffb6b6'}"
+
+    styled_df = df_comp.style.applymap(color_diff, subset=diff_cols)
+
     st.subheader("Resumen comparativo")
     help_block("Resumen Comparativo")
     c1, c2, c3 = st.columns(3)
@@ -177,7 +209,7 @@ def render_resumen_comparativo(raw):
             "La columna 'diff_ingresos_finales' compara ingresos a fecha de corte vs ingresos finales."
         )
         st.dataframe(styled_df, use_container_width=True)
-        # Exportar a Excel
+        # Exportar a Excel solo las columnas relevantes
         import io
         output = io.BytesIO()
         df_comp.to_excel(output, index=False, sheet_name="Comparativo")
