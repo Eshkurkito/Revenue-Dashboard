@@ -16,12 +16,28 @@ def render_resumen_comparativo(raw):
             (pd.Timestamp.today().to_period("M").end_time).date(),
             "rc"
         )
-        props_rc = group_selector(
-            "Filtrar alojamientos (opcional)",
-            list(raw["Alojamiento"].unique()),
-            key_prefix="props_rc",
-            default=[]
-        )
+
+        # Gestión de grupos
+        from utils import save_group_csv, load_groups, group_selector
+        groups = load_groups()
+        group_names = list(groups.keys())
+        selected_group = st.selectbox("Grupo guardado", group_names) if group_names else None
+
+        if selected_group:
+            props_rc = groups[selected_group]
+        else:
+            props_rc = group_selector(
+                "Filtrar alojamientos (opcional)",
+                list(raw["Alojamiento"].unique()),
+                key_prefix="props_rc",
+                default=[]
+            )
+
+        group_name = st.text_input("Nombre del grupo para guardar")
+        if st.button("Guardar grupo de pisos") and group_name and props_rc:
+            save_group_csv(group_name, props_rc)
+            st.success(f"Grupo '{group_name}' guardado.")
+
         compare_rc = st.checkbox(
             "Comparar con año anterior (mismo día/mes)", value=True, key="cmp_rc"
         )

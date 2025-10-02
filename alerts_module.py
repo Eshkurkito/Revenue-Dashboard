@@ -7,6 +7,8 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from utils import save_group_csv, load_groups, group_selector
+
 
 # ==============================
 # Helpers: columnas y ventanas
@@ -523,3 +525,27 @@ def render_alerts_module(df: pd.DataFrame, config: dict | None = None, today: da
                     mime="text/csv",
                     key=f"dl_log_{tab_label}"
                 )
+
+    # Sidebar: selección y guardado de grupo
+    groups = load_groups()
+    group_names = list(groups.keys())
+    selected_group = st.selectbox("Grupo guardado", group_names) if group_names else None
+
+    if selected_group:
+        props_rc = groups[selected_group]
+    else:
+        props_rc = group_selector(
+            "Filtrar alojamientos (opcional)",
+            list(df["Alojamiento"].unique()),
+            key_prefix="props_rc",
+            default=[]
+        )
+
+    group_name = st.text_input("Nombre del grupo para guardar")
+    if st.button("Guardar grupo de pisos") and group_name and props_rc:
+        save_group_csv(group_name, props_rc)
+        st.success(f"Grupo '{group_name}' guardado.")
+
+    # Filtra el DataFrame por el grupo seleccionado
+    if props_rc:
+        df = df[df["Alojamiento"].isin(props_rc)]

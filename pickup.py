@@ -18,12 +18,28 @@ def render_pickup(raw):
             (pd.Timestamp.today().to_period("M").end_time).date(),
             "pickup"
         )
-        props_pickup = group_selector(
-            "Filtrar alojamientos (opcional)",
-            list(raw["Alojamiento"].unique()),
-            key_prefix="props_pickup",
-            default=[]
-        )
+
+        # Gestión de grupos
+        from utils import save_group_csv, load_groups, group_selector
+        groups = load_groups()
+        group_names = list(groups.keys())
+        selected_group = st.selectbox("Grupo guardado", group_names) if group_names else None
+
+        if selected_group:
+            props_pickup = groups[selected_group]
+        else:
+            props_pickup = group_selector(
+                "Filtrar alojamientos (opcional)",
+                list(raw["Alojamiento"].unique()),
+                key_prefix="props_pickup",
+                default=[]
+            )
+
+        group_name = st.text_input("Nombre del grupo para guardar")
+        if st.button("Guardar grupo de pisos") and group_name and props_pickup:
+            save_group_csv(group_name, props_pickup)
+            st.success(f"Grupo '{group_name}' guardado.")
+
         inv_pickup = st.number_input(
             "Inventario (opcional)",
             min_value=0, value=0, step=1, key="inv_pickup"

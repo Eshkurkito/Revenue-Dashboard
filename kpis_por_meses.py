@@ -10,12 +10,28 @@ def render_kpis_por_meses(raw):
     with st.sidebar:
         st.header("Parámetros")
         cutoff_m = st.date_input("Fecha de corte", value=date.today(), key="cutoff_m")
-        props_m = group_selector(
-            "Filtrar alojamientos (opcional)",
-            list(raw["Alojamiento"].unique()),
-            key_prefix="props_m",
-            default=[]
-        )
+
+        # Gestión de grupos
+        from utils import save_group_csv, load_groups, group_selector
+        groups = load_groups()
+        group_names = list(groups.keys())
+        selected_group = st.selectbox("Grupo guardado", group_names) if group_names else None
+
+        if selected_group:
+            props_m = groups[selected_group]
+        else:
+            props_m = group_selector(
+                "Filtrar alojamientos (opcional)",
+                list(raw["Alojamiento"].unique()),
+                key_prefix="props_m",
+                default=[]
+            )
+
+        group_name = st.text_input("Nombre del grupo para guardar")
+        if st.button("Guardar grupo de pisos") and group_name and props_m:
+            save_group_csv(group_name, props_m)
+            st.success(f"Grupo '{group_name}' guardado.")
+
         st.markdown("—")
         compare_m = st.checkbox(
             "Comparar con año anterior (mismo mes)", value=True, key="cmp_m"

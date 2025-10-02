@@ -15,12 +15,28 @@ def render_pace(raw):
             (pd.Timestamp.today().to_period("M").end_time).date(),
             "pace"
         )
-        props_pace = group_selector(
-            "Filtrar alojamientos (opcional)",
-            list(raw["Alojamiento"].unique()),
-            key_prefix="props_pace",
-            default=[]
-        )
+
+        # Gestión de grupos
+        from utils import save_group_csv, load_groups, group_selector
+        groups = load_groups()
+        group_names = list(groups.keys())
+        selected_group = st.selectbox("Grupo guardado", group_names) if group_names else None
+
+        if selected_group:
+            props_pace = groups[selected_group]
+        else:
+            props_pace = group_selector(
+                "Filtrar alojamientos (opcional)",
+                list(raw["Alojamiento"].unique()),
+                key_prefix="props_pace",
+                default=[]
+            )
+
+        group_name = st.text_input("Nombre del grupo para guardar")
+        if st.button("Guardar grupo de pisos") and group_name and props_pace:
+            save_group_csv(group_name, props_pace)
+            st.success(f"Grupo '{group_name}' guardado.")
+
         inv_pace = st.number_input(
             "Inventario (opcional)",
             min_value=0, value=0, step=1, key="inv_pace"

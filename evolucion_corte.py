@@ -15,18 +15,33 @@ def render_evolucion_corte(raw):
             (pd.Timestamp.today().to_period("M").end_time).date(),
             "evo"
         )
-        props_evo = group_selector(
-            "Filtrar alojamientos (opcional)",
-            list(raw["Alojamiento"].unique()),
-            key_prefix="props_evo",
-            default=[]
-        )
         inv_evo = st.number_input(
             "Inventario (opcional)",
             min_value=0, value=0, step=1, key="inv_evo"
         )
         days_back = st.slider("Días hacia atrás", min_value=7, max_value=120, value=30, step=1, key="evo_days")
         metric_choice = st.radio("Métrica", ["Ocupación %", "ADR (€)", "RevPAR (€)"], horizontal=True, key="evo_metric")
+
+        # Gestión de grupos
+        from utils import save_group_csv, load_groups, group_selector
+        groups = load_groups()
+        group_names = list(groups.keys())
+        selected_group = st.selectbox("Grupo guardado", group_names) if group_names else None
+
+        if selected_group:
+            props_evo = groups[selected_group]
+        else:
+            props_evo = group_selector(
+                "Filtrar alojamientos (opcional)",
+                list(raw["Alojamiento"].unique()),
+                key_prefix="props_evo",
+                default=[]
+            )
+
+        group_name = st.text_input("Nombre del grupo para guardar")
+        if st.button("Guardar grupo de pisos") and group_name and props_evo:
+            save_group_csv(group_name, props_evo)
+            st.success(f"Grupo '{group_name}' guardado.")
 
     # Evolución por fecha de corte
     rows_evo = []

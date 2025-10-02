@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import date
-from utils import period_inputs, group_selector, help_block
+from utils import period_inputs, help_block
 
 def render_prediccion_pace(raw):
     if raw is None:
@@ -15,12 +15,28 @@ def render_prediccion_pace(raw):
             (pd.Timestamp.today().to_period("M").end_time).date(),
             "predpace"
         )
-        props_predpace = group_selector(
-            "Filtrar alojamientos (opcional)",
-            list(raw["Alojamiento"].unique()),
-            key_prefix="props_predpace",
-            default=[]
-        )
+
+        # Gestión de grupos
+        from utils import save_group_csv, load_groups, group_selector
+        groups = load_groups()
+        group_names = list(groups.keys())
+        selected_group = st.selectbox("Grupo guardado", group_names) if group_names else None
+
+        if selected_group:
+            props_predpace = groups[selected_group]
+        else:
+            props_predpace = group_selector(
+                "Filtrar alojamientos (opcional)",
+                list(raw["Alojamiento"].unique()),
+                key_prefix="props_predpace",
+                default=[]
+            )
+
+        group_name = st.text_input("Nombre del grupo para guardar")
+        if st.button("Guardar grupo de pisos") and group_name and props_predpace:
+            save_group_csv(group_name, props_predpace)
+            st.success(f"Grupo '{group_name}' guardado.")
+
         inv_predpace = st.number_input(
             "Inventario (opcional)",
             min_value=0, value=0, step=1, key="inv_predpace"

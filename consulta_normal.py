@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import date
-from utils import compute_kpis, period_inputs, group_selector, help_block, compute_portal_share
+from utils import compute_kpis, period_inputs, group_selector, help_block, compute_portal_share, save_group_csv, load_groups
 
 def render_consulta_normal(raw):
     if raw is None:
@@ -21,12 +21,6 @@ def render_consulta_normal(raw):
             "Sobrescribir inventario (nº alojamientos)",
             min_value=0, value=0, step=1, key="inv_normal"
         )
-        props_normal = group_selector(
-            "Filtrar alojamientos (opcional)",
-            list(raw["Alojamiento"].unique()),
-            key_prefix="props_normal",
-            default=[]
-        )
         st.markdown("—")
         compare_normal = st.checkbox(
             "Comparar con año anterior (mismo día/mes)", value=False, key="cmp_normal"
@@ -35,6 +29,27 @@ def render_consulta_normal(raw):
             "Inventario año anterior (opcional)",
             min_value=0, value=0, step=1, key="inv_normal_prev"
         )
+
+        # Gestión de grupos
+        st.header("Gestión de grupos")
+        groups = load_groups()
+        group_names = list(groups.keys())
+        selected_group = st.selectbox("Grupo guardado", group_names) if group_names else None
+
+        if selected_group:
+            props_normal = groups[selected_group]
+        else:
+            props_normal = group_selector(
+                "Filtrar alojamientos (opcional)",
+                list(raw["Alojamiento"].unique()),
+                key_prefix="props_normal",
+                default=[]
+            )
+
+        group_name = st.text_input("Nombre del grupo para guardar")
+        if st.button("Guardar grupo de pisos") and group_name and props_normal:
+            save_group_csv(group_name, props_normal)
+            st.success(f"Grupo '{group_name}' guardado.")
 
     # Cálculo base
     by_prop_n, total_n = compute_kpis(

@@ -8,6 +8,19 @@ from pathlib import Path
 # ===== Grupos de alojamientos (CSV reutilizable) =====
 GROUPS_PATH = Path("data/grupos.csv")
 
+def save_group_csv(name: str, props: list[str], path: Path = GROUPS_PATH):
+    df = pd.DataFrame({"Grupo": [name]*len(props), "Alojamiento": props})
+    if path.exists():
+        df_old = pd.read_csv(path)
+        df = pd.concat([df_old, df], ignore_index=True)
+    df.to_csv(path, index=False)
+
+def load_groups(path: Path = GROUPS_PATH) -> dict:
+    if not path.exists():
+        return {}
+    df = pd.read_csv(path)
+    return {g: df[df["Grupo"] == g]["Alojamiento"].tolist() for g in df["Grupo"].unique()}
+
 @st.cache_data(show_spinner=False)
 def save_group_csv(name: str, props: list[str], path: str | Path = GROUPS_PATH):
     df = pd.DataFrame({"Grupo": [name]*len(props), "Alojamiento": props})

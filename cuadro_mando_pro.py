@@ -18,15 +18,31 @@ def render_cuadro_mando_pro(raw):
             (pd.Timestamp.today().to_period("M").end_time).date(),
             "pro_period"
         )
-        props_pro = group_selector(
-            "Alojamientos (opcional)",
-            list(raw["Alojamiento"].unique()),
-            key_prefix="pro_props",
-            default=[]
-        )
         inv_pro = st.number_input("Inventario actual (opcional)", min_value=0, value=0, step=1, key="pro_inv")
         inv_pro_ly = st.number_input("Inventario LY (opcional)", min_value=0, value=0, step=1, key="pro_inv_ly")
         ref_years_pro = st.slider("Años de referencia Pace", min_value=1, max_value=3, value=2, key="pro_ref_years")
+
+        # Gestión de grupos
+        st.header("Gestión de grupos")
+        from utils import save_group_csv, load_groups, group_selector
+        groups = load_groups()
+        group_names = list(groups.keys())
+        selected_group = st.selectbox("Grupo guardado", group_names) if group_names else None
+
+        if selected_group:
+            props_pro = groups[selected_group]
+        else:
+            props_pro = group_selector(
+                "Alojamientos (opcional)",
+                list(raw["Alojamiento"].unique()),
+                key_prefix="pro_props",
+                default=[]
+            )
+
+        group_name = st.text_input("Nombre del grupo para guardar")
+        if st.button("Guardar grupo de pisos") and group_name and props_pro:
+            save_group_csv(group_name, props_pro)
+            st.success(f"Grupo '{group_name}' guardado.")
 
     st.subheader("📊 Cuadro de mando (PRO)")
 
