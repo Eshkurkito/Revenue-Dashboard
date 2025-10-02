@@ -6,8 +6,14 @@ from utils import compute_kpis, period_inputs, group_selector, help_block, compu
 def render_consulta_normal(raw):
     if raw is None:
         st.stop()
+    # Normaliza los nombres de columna
+    raw.columns = [col.strip() for col in raw.columns]
+
     if "Alojamiento" not in raw.columns:
         st.warning("No se encontró la columna 'Alojamiento'. Sube un archivo válido o revisa el nombre de la columna.")
+        st.stop()
+    if "Agente/Intermediario" not in raw.columns:
+        st.error("No se encontró la columna 'Agente/Intermediario'. Las columnas detectadas son: " + ", ".join(raw.columns))
         st.stop()
 
     with st.sidebar:
@@ -121,3 +127,5 @@ def render_consulta_normal(raw):
             file_name="detalle_por_alojamiento.csv",
             mime="text/csv"
         )
+
+    st.write("Columnas detectadas:", list(raw.columns))
