@@ -93,6 +93,12 @@ def render_consulta_normal(raw):
     c5.metric("ADR (€)", f"{total_n['adr']:.2f}")
     c6.metric("RevPAR (€)", f"{total_n['revpar']:.2f}")
 
+    # Cálculo de ADR usando "Alquiler con IVA (€)"
+    total_ingresos = raw["Alquiler con IVA (€)"].sum()
+    total_noches = raw["Noches ocupadas"].sum()  # O la columna que corresponda
+
+    adr = total_ingresos / total_noches if total_noches > 0 else 0
+
     # Distribución por portal (si existe columna)
     port_df = compute_portal_share(
         df_all=raw,
