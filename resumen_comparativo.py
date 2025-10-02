@@ -87,7 +87,7 @@ def render_resumen_comparativo(raw):
         # Ingresos finales: recalcular usando compute_kpis sin cutoff
         by_prop_final, _ = compute_kpis(
             df_all=raw,
-            cutoff=None,
+            cutoff=pd.Timestamp.max,  # <-- aquí el cambio
             period_start=pd.to_datetime(start_rc),
             period_end=pd.to_datetime(end_rc),
             inventory_override=int(inv_rc) if inv_rc > 0 else None,
@@ -115,7 +115,7 @@ def render_resumen_comparativo(raw):
         # Ingresos finales
         by_prop_final, _ = compute_kpis(
             df_all=raw,
-            cutoff=None,
+            cutoff=pd.Timestamp.max,  # <-- aquí el cambio
             period_start=pd.to_datetime(start_rc),
             period_end=pd.to_datetime(end_rc),
             inventory_override=int(inv_rc) if inv_rc > 0 else None,
