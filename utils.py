@@ -133,4 +133,13 @@ def compute_portal_share(
     portal_counts = df_cut["Portal"].value_counts().reset_index()
     portal_counts.columns = ["Portal", "Reservas"]
     portal_counts["% Reservas"] = portal_counts["Reservas"] / portal_counts["Reservas"].sum() * 100
+
     return portal_counts
+
+def pace_series(*args, **kwargs):
+    # TODO: Implementa la lógica real aquí
+    return pd.DataFrame()
+
+def pace_forecast_month(*args, **kwargs):
+    # TODO: Implementa la lógica real aquí
+    return {}
