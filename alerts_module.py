@@ -65,7 +65,7 @@ def normalize_columns(df: pd.DataFrame, config: Optional[dict] = None) -> Tuple[
             + ", ".join(missing)
             + ". Configura config_cols en session_state o pasa 'config' al módulo."
         )
-        raise ValueError("Column mapping missing: " + ", ".join(missing))
+        raise ValueError("Falta mapeo de columnas: " + ", ".join(missing))
 
     out = pd.DataFrame()
     out["unidad"] = df[effective["unidad"]].astype(str).str.strip()
