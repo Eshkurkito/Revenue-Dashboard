@@ -87,12 +87,15 @@ def render_resumen_comparativo(raw):
         # Ingresos finales: recalcular usando compute_kpis sin cutoff
         by_prop_final, _ = compute_kpis(
             df_all=raw,
-            cutoff=pd.Timestamp.max,  # <-- aquí el cambio
+            cutoff=pd.Timestamp.max,
             period_start=pd.to_datetime(start_rc),
             period_end=pd.to_datetime(end_rc),
             inventory_override=int(inv_rc) if inv_rc > 0 else None,
             filter_props=props_rc if props_rc else None,
         )
+        # Asegurar columna 'ingresos' existe
+        if "ingresos" not in by_prop_final.columns:
+            by_prop_final["ingresos"] = 0
         df_comp = df_comp.merge(
             by_prop_final[["Alojamiento", "ingresos"]].rename(columns={"ingresos": "ingresos_finales"}),
             on="Alojamiento",
