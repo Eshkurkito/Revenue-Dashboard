@@ -119,12 +119,14 @@ def render_resumen_comparativo(raw):
             if col not in df_comp.columns:
                 df_comp[col] = 0
         # Asegura que las columnas existen antes de calcular ocupación
-        for col in ["noches_ocupadas", "noches_disponibles"]:
-            if col not in df_comp.columns:
-                df_comp[col] = 0
-        for col in ["noches_ocupadas_ly", "noches_disponibles_ly"]:
-            if col not in df_comp.columns:
-                df_comp[col] = 0
+        if "noches_ocupadas" not in df_comp.columns:
+            df_comp["noches_ocupadas"] = 0
+        if "noches_disponibles" not in df_comp.columns:
+            df_comp["noches_disponibles"] = 0
+        if "noches_ocupadas_ly" not in df_comp.columns:
+            df_comp["noches_ocupadas_ly"] = 0
+        if "noches_disponibles_ly" not in df_comp.columns:
+            df_comp["noches_disponibles_ly"] = 0
 
         df_comp["ocupacion"] = (
             df_comp["noches_ocupadas"].astype(float) / df_comp["noches_disponibles"].replace(0, pd.NA).astype(float)
