@@ -146,8 +146,9 @@ def compute_portal_share(
     period_start: pd.Timestamp,
     period_end: pd.Timestamp,
     filter_props: Optional[List[str]] = None,
+    portal_col: str = "Agente/Intermediario",
 ) -> Optional[pd.DataFrame]:
-    if "Portal" not in df_all.columns:
+    if portal_col not in df_all.columns:
         return None
     df_cut = df_all[df_all["Fecha alta"] <= cutoff].copy()
     if filter_props:
@@ -158,7 +159,7 @@ def compute_portal_share(
     ]
     if df_cut.empty:
         return pd.DataFrame(columns=["Portal", "Reservas", "% Reservas"])
-    portal_counts = df_cut["Portal"].value_counts().reset_index()
+    portal_counts = df_cut[portal_col].value_counts().reset_index()
     portal_counts.columns = ["Portal", "Reservas"]
     portal_counts["% Reservas"] = portal_counts["Reservas"] / portal_counts["Reservas"].sum() * 100
 

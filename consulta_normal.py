@@ -117,10 +117,11 @@ def render_consulta_normal(raw):
         period_start=pd.to_datetime(start_normal),
         period_end=pd.to_datetime(end_normal),
         filter_props=props_normal if props_normal else None,
+        portal_col=col_portal  # <-- Añade este argumento si tu función lo acepta
     )
-    st.subheader("Distribución por portal (reservas en el periodo)")
+    st.subheader(f"Distribución por {col_portal} (reservas en el periodo)")
     if port_df is None:
-        st.info("No se encontró la columna 'Agente/Intermediario'. Si tiene otro nombre, dímelo y lo mapeo.")
+        st.info(f"No se encontró la columna '{col_portal}'. Si tiene otro nombre, dímelo y lo mapeo.")
     elif port_df.empty:
         st.warning("No hay reservas del periodo a la fecha de corte para calcular distribución por portal.")
     else:
