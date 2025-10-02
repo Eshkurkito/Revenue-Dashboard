@@ -66,19 +66,19 @@ def render_resumen_comparativo(raw):
             suffixes=("", "_ly"),
             how="left"
         )
-        # Asegurar columnas necesarias existen
-        for col in ["noches_ocupadas", "noches_disponibles", "ingresos", "adr"]:
-            if col not in df_comp.columns:
-                df_comp[col] = 0
-            if f"{col}_ly" not in df_comp.columns:
-                df_comp[f"{col}_ly"] = 0
+        # Rellena solo los NaN en las columnas relevantes
+        for col in ["noches_ocupadas", "noches_disponibles", "ingresos", "adr",
+                    "noches_ocupadas_ly", "noches_disponibles_ly", "ingresos_ly", "adr_ly"]:
+            if col in df_comp.columns:
+                df_comp[col] = df_comp[col].fillna(0)
         # Nueva columna de ocupación actual y año anterior
         df_comp["ocupacion"] = df_comp["noches_ocupadas"] / df_comp["noches_disponibles"].replace(0, pd.NA)
         df_comp["ocupacion_ly"] = df_comp["noches_ocupadas_ly"] / df_comp["noches_disponibles_ly"].replace(0, pd.NA)
         # Añadir columnas de diferencia solo para noches ocupadas, ingresos y adr
         for col in ["noches_ocupadas", "ingresos", "adr"]:
             col_ly = f"{col}_ly"
-            df_comp[f"diff_{col}"] = df_comp[col].fillna(0) - df_comp[col_ly].fillna(0)
+            if col in df_comp.columns and col_ly in df_comp.columns:
+                df_comp[f"diff_{col}"] = df_comp[col] - df_comp[col_ly]
         # Diferencia de ocupación
         df_comp["diff_ocupacion"] = (df_comp["ocupacion"] - df_comp["ocupacion_ly"]).fillna(0)
         # Ingresos finales: recalcular usando compute_kpis sin cutoff
@@ -90,7 +90,7 @@ def render_resumen_comparativo(raw):
             inventory_override=int(inv_rc) if inv_rc > 0 else None,
             filter_props=props_rc if props_rc else None,
         )
-        # Asegurar columna 'ingresos' existe en by_prop_final
+        # Merge ingresos finales
         if "ingresos" not in by_prop_final.columns:
             by_prop_final["ingresos"] = 0
         df_comp = df_comp.merge(
@@ -98,11 +98,10 @@ def render_resumen_comparativo(raw):
             on="Alojamiento",
             how="left"
         )
-        # Asegurar columnas 'ingresos' e 'ingresos_finales' existen en df_comp
-        if "ingresos" not in df_comp.columns:
-            df_comp["ingresos"] = 0
-        if "ingresos_finales" not in df_comp.columns:
-            df_comp["ingresos_finales"] = 0
+        # Rellena NaN en ingresos finales
+        for col in ["ingresos", "ingresos_finales"]:
+            if col in df_comp.columns:
+                df_comp[col] = df_comp[col].fillna(0)
         df_comp["diff_ingresos_finales"] = (df_comp["ingresos_finales"] - df_comp["ingresos"]).fillna(0)
         # Formato condicional solo para las diferencias relevantes
         def color_diff(val):
