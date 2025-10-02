@@ -15,7 +15,7 @@ def render_pickup(raw):
         period_start, period_end = period_inputs(
             "Inicio del periodo", "Fin del periodo",
             date(date.today().year, date.today().month, 1),
-            (pd.Timestamp.today().to_period("M").end_time).date(),
+            pd.Timestamp.today().to_period("M").end_time.to_pydatetime().date(),
             "pickup"
         )
 

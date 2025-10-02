@@ -13,7 +13,7 @@ def render_resumen_comparativo(raw):
         start_rc, end_rc = period_inputs(
             "Inicio del periodo", "Fin del periodo",
             date(date.today().year, date.today().month, 1),
-            (pd.Timestamp.today().to_period("M").end_time).date(),
+            pd.Timestamp.today().to_period("M").end_time.to_pydatetime().date(),
             "rc"
         )
 
