@@ -66,22 +66,19 @@ def render_resumen_comparativo(raw):
             suffixes=("", "_ly"),
             how="left"
         )
+        # Asegurar columnas necesarias existen
+        for col in ["noches_ocupadas", "noches_disponibles", "ingresos", "adr"]:
+            if col not in df_comp.columns:
+                df_comp[col] = 0
+            if f"{col}_ly" not in df_comp.columns:
+                df_comp[f"{col}_ly"] = 0
         # Nueva columna de ocupación actual y año anterior
-        df_comp["noches_ocupadas"] = df_comp.get("noches_ocupadas", 0)
-        df_comp["noches_disponibles"] = df_comp.get("noches_disponibles", 0)
-        df_comp["noches_ocupadas_ly"] = df_comp.get("noches_ocupadas_ly", 0)
-        df_comp["noches_disponibles_ly"] = df_comp.get("noches_disponibles_ly", 0)
         df_comp["ocupacion"] = df_comp["noches_ocupadas"] / df_comp["noches_disponibles"].replace(0, pd.NA)
         df_comp["ocupacion_ly"] = df_comp["noches_ocupadas_ly"] / df_comp["noches_disponibles_ly"].replace(0, pd.NA)
         # Añadir columnas de diferencia solo para noches ocupadas, ingresos y adr
         for col in ["noches_ocupadas", "ingresos", "adr"]:
             col_ly = f"{col}_ly"
-            if col in df_comp.columns and col_ly in df_comp.columns:
-                df_comp[f"diff_{col}"] = df_comp[col].fillna(0) - df_comp[col_ly].fillna(0)
-            elif col in df_comp.columns:
-                df_comp[f"diff_{col}"] = df_comp[col].fillna(0)
-            else:
-                df_comp[f"diff_{col}"] = 0
+            df_comp[f"diff_{col}"] = df_comp[col].fillna(0) - df_comp[col_ly].fillna(0)
         # Diferencia de ocupación
         df_comp["diff_ocupacion"] = (df_comp["ocupacion"] - df_comp["ocupacion_ly"]).fillna(0)
         # Ingresos finales: recalcular usando compute_kpis sin cutoff
@@ -93,7 +90,7 @@ def render_resumen_comparativo(raw):
             inventory_override=int(inv_rc) if inv_rc > 0 else None,
             filter_props=props_rc if props_rc else None,
         )
-        # Asegurar columna 'ingresos' existe
+        # Asegurar columna 'ingresos' existe en by_prop_final
         if "ingresos" not in by_prop_final.columns:
             by_prop_final["ingresos"] = 0
         df_comp = df_comp.merge(
@@ -101,6 +98,11 @@ def render_resumen_comparativo(raw):
             on="Alojamiento",
             how="left"
         )
+        # Asegurar columnas 'ingresos' e 'ingresos_finales' existen en df_comp
+        if "ingresos" not in df_comp.columns:
+            df_comp["ingresos"] = 0
+        if "ingresos_finales" not in df_comp.columns:
+            df_comp["ingresos_finales"] = 0
         df_comp["diff_ingresos_finales"] = (df_comp["ingresos_finales"] - df_comp["ingresos"]).fillna(0)
         # Formato condicional solo para las diferencias relevantes
         def color_diff(val):
@@ -113,41 +115,55 @@ def render_resumen_comparativo(raw):
     else:
         total_rc_ly = None
         df_comp = by_prop_rc.copy()
+        # Asegurar columnas necesarias existen
+        for col in ["noches_ocupadas", "noches_disponibles", "ingresos"]:
+            if col not in df_comp.columns:
+                df_comp[col] = 0
         # Nueva columna de ocupación
-        df_comp["ocupacion"] = df_comp["noches_ocupadas"] / df_comp["noches_disponibles"]
+        df_comp["ocupacion"] = df_comp["noches_ocupadas"] / df_comp["noches_disponibles"].replace(0, pd.NA)
         # Ingresos finales
         by_prop_final, _ = compute_kpis(
             df_all=raw,
-            cutoff=pd.Timestamp.max,  # <-- aquí el cambio
+            cutoff=pd.Timestamp.max,
             period_start=pd.to_datetime(start_rc),
             period_end=pd.to_datetime(end_rc),
             inventory_override=int(inv_rc) if inv_rc > 0 else None,
             filter_props=props_rc if props_rc else None,
         )
+        if "ingresos" not in by_prop_final.columns:
+            by_prop_final["ingresos"] = 0
         df_comp = df_comp.merge(
             by_prop_final[["Alojamiento", "ingresos"]].rename(columns={"ingresos": "ingresos_finales"}),
             on="Alojamiento",
             how="left"
         )
+        if "ingresos" not in df_comp.columns:
+            df_comp["ingresos"] = 0
+        if "ingresos_finales" not in df_comp.columns:
+            df_comp["ingresos_finales"] = 0
         df_comp["diff_ingresos_finales"] = (df_comp["ingresos_finales"] - df_comp["ingresos"]).fillna(0)
+        def color_diff(val):
+            if pd.isnull(val):
+                return ""
+            return f"background-color: {'#b6fcb6' if val > 0 else '#ffb6b6'}"
         styled_df = df_comp.style.applymap(color_diff, subset=["diff_ingresos_finales"])
 
     st.subheader("Resumen comparativo")
     help_block("Resumen Comparativo")
     c1, c2, c3 = st.columns(3)
     c4, c5, c6 = st.columns(3)
-    c1.metric("Noches ocupadas", f"{total_rc['noches_ocupadas']:,}".replace(",", "."),
-              delta=f"{(total_rc['noches_ocupadas'] - (total_rc_ly['noches_ocupadas'] if total_rc_ly else 0)):+,.0f}".replace(",", ".") if total_rc_ly else None)
-    c2.metric("Noches disponibles", f"{total_rc['noches_disponibles']:,}".replace(",", "."),
-              delta=f"{(total_rc['noches_disponibles'] - (total_rc_ly['noches_disponibles'] if total_rc_ly else 0)):+,.0f}".replace(",", ".") if total_rc_ly else None)
-    c3.metric("Ocupación", f"{total_rc['ocupacion_pct']:.2f}%",
-              delta=f"{(total_rc['ocupacion_pct'] - (total_rc_ly['ocupacion_pct'] if total_rc_ly else 0)):+.2f}%" if total_rc_ly else None)
-    c4.metric("Ingresos (€)", f"{total_rc['ingresos']:.2f}",
-              delta=f"{(total_rc['ingresos'] - (total_rc_ly['ingresos'] if total_rc_ly else 0)):+.2f}" if total_rc_ly else None)
-    c5.metric("ADR (€)", f"{total_rc['adr']:.2f}",
-              delta=f"{(total_rc['adr'] - (total_rc_ly['adr'] if total_rc_ly else 0)):+.2f}" if total_rc_ly else None)
-    c6.metric("RevPAR (€)", f"{total_rc['revpar']:.2f}",
-              delta=f"{(total_rc['revpar'] - (total_rc_ly['revpar'] if total_rc_ly else 0)):+.2f}" if total_rc_ly else None)
+    c1.metric("Noches ocupadas", f"{total_rc.get('noches_ocupadas',0):,}".replace(",", "."),
+              delta=f"{(total_rc.get('noches_ocupadas',0) - (total_rc_ly.get('noches_ocupadas',0) if total_rc_ly else 0)):+,.0f}".replace(",", ".") if total_rc_ly else None)
+    c2.metric("Noches disponibles", f"{total_rc.get('noches_disponibles',0):,}".replace(",", "."),
+              delta=f"{(total_rc.get('noches_disponibles',0) - (total_rc_ly.get('noches_disponibles',0) if total_rc_ly else 0)):+,.0f}".replace(",", ".") if total_rc_ly else None)
+    c3.metric("Ocupación", f"{total_rc.get('ocupacion_pct',0):.2f}%",
+              delta=f"{(total_rc.get('ocupacion_pct',0) - (total_rc_ly.get('ocupacion_pct',0) if total_rc_ly else 0)):+.2f}%" if total_rc_ly else None)
+    c4.metric("Ingresos (€)", f"{total_rc.get('ingresos',0):.2f}",
+              delta=f"{(total_rc.get('ingresos',0) - (total_rc_ly.get('ingresos',0) if total_rc_ly else 0)):+.2f}" if total_rc_ly else None)
+    c5.metric("ADR (€)", f"{total_rc.get('adr',0):.2f}",
+              delta=f"{(total_rc.get('adr',0) - (total_rc_ly.get('adr',0) if total_rc_ly else 0)):+.2f}" if total_rc_ly else None)
+    c6.metric("RevPAR (€)", f"{total_rc.get('revpar',0):.2f}",
+              delta=f"{(total_rc.get('revpar',0) - (total_rc_ly.get('revpar',0) if total_rc_ly else 0)):+.2f}" if total_rc_ly else None)
 
     st.divider()
     st.subheader("Detalle por alojamiento")
