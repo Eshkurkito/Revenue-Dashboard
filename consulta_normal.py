@@ -93,7 +93,7 @@ def render_consulta_normal(raw):
     )
     st.subheader("Distribución por portal (reservas en el periodo)")
     if port_df is None:
-        st.info("No se encontró la columna 'Portal'. Si tiene otro nombre, dímelo y lo mapeo.")
+        st.info("No se encontró la columna 'Agente/Intermediario'. Si tiene otro nombre, dímelo y lo mapeo.")
     elif port_df.empty:
         st.warning("No hay reservas del periodo a la fecha de corte para calcular distribución por portal.")
     else:
