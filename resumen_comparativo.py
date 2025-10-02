@@ -66,9 +66,15 @@ def render_resumen_comparativo(raw):
             suffixes=("", "_ly"),
             how="left"
         )
-        # Añadir columnas de diferencia
+        # Añadir columnas de diferencia, comprobando existencia y usando fillna(0)
         for col in ["noches_ocupadas", "noches_disponibles", "ocupacion_pct", "ingresos", "adr", "revpar"]:
-            df_comp[f"diff_{col}"] = df_comp[col] - df_comp.get(f"{col}_ly", 0)
+            col_ly = f"{col}_ly"
+            if col in df_comp.columns and col_ly in df_comp.columns:
+                df_comp[f"diff_{col}"] = df_comp[col].fillna(0) - df_comp[col_ly].fillna(0)
+            elif col in df_comp.columns:
+                df_comp[f"diff_{col}"] = df_comp[col].fillna(0)
+            else:
+                df_comp[f"diff_{col}"] = 0
         # Formato condicional para colores
         def color_diff(val):
             if pd.isnull(val):
