@@ -24,6 +24,10 @@ def load_groups(path: Path = GROUPS_PATH) -> dict:
 @st.cache_data(show_spinner=False)
 def save_group_csv(name: str, props: list[str], path: str | Path = GROUPS_PATH):
     df = pd.DataFrame({"Grupo": [name]*len(props), "Alojamiento": props})
+    # Ensure parent directory exists
+    path = Path(path)
+    if not path.parent.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(path, index=False)
 
 def group_selector(label: str, all_props: list[str], key_prefix: str, default: Optional[list[str]] = None) -> list[str]:
