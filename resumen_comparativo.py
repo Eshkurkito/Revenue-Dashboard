@@ -47,27 +47,28 @@ def render_resumen_comparativo(raw):
         "ADR":"ADR actual", "Ocupación %":"Ocupación actual %", "Ingresos":"Ingresos actuales (€)"
     })
 
-    # LY (mismo periodo y cutoff -1 año)
-    ly_df = _by_prop_with_occ(
-        raw,
-        pd.to_datetime(cutoff_rc) - pd.DateOffset(years=1),
-        pd.to_datetime(start_rc) - pd.DateOffset(years=1),
-        pd.to_datetime(end_rc)   - pd.DateOffset(years=1),
-        props_rc
-    ).rename(columns={
-        "ADR":"ADR LY", "Ocupación %":"Ocupación LY %", "Ingresos":"Ingresos LY (€)"
-    })
+    props_rc = group_selector(
+        "Filtrar alojamientos (opcional)",
+        sorted([str(x) for x in raw["Alojamiento"].unique()]),
+        key_prefix="props_rc",
+        default=[]
+    )
 
-    # LY final (resultado): mismo periodo LY, pero corte = fin del periodo LY
-    ly_final_df = _by_prop_with_occ(
+    # LY KPIs: mismo periodo LY, corte = fin del periodo LY
+    ly_df = _by_prop_with_occ(
         raw,
         pd.to_datetime(end_rc)   - pd.DateOffset(years=1),  # corte = fin del periodo LY
         pd.to_datetime(start_rc) - pd.DateOffset(years=1),
         pd.to_datetime(end_rc)   - pd.DateOffset(years=1),
         props_rc
-    )
-    # De este solo necesitamos los ingresos finales
-    ly_final_df = ly_final_df[["Alojamiento","Ingresos"]].rename(columns={"Ingresos":"Ingresos finales LY (€)"})
+    ).rename(columns={
+        "ADR": "ADR LY",
+        "Ocupación %": "Ocupación LY %",
+        "Ingresos": "Ingresos LY (€)"
+    })
+
+    # LY final (resultado): solo ingresos finales
+    ly_final_df = ly_df[["Alojamiento","Ingresos LY (€)"]].rename(columns={"Ingresos LY (€)":"Ingresos finales LY (€)"})
 
     # Merge total
     resumen = now_df.merge(ly_df, on="Alojamiento", how="outer") \
