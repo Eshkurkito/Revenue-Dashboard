@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 from datetime import date
-from utils import compute_kpis, period_inputs, group_selector, help_block, compute_portal_share, save_group_csv, load_groups
+from utils import compute_kpis, period_inputs, group_selector, help_block, compute_portal_share, save_group_csv, load_groups, GROUPS_PATH
 
 def render_consulta_normal(raw):
     if raw is None:
