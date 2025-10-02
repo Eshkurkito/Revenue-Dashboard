@@ -3,6 +3,11 @@ import streamlit as st
 from datetime import date
 from utils import period_inputs
 
+# --- Define la función aquí ---
+def cargar_dataframe():
+    # Devuelve un DataFrame vacío por defecto
+    return pd.DataFrame()
+
 from consulta_normal import render_consulta_normal
 from resumen_comparativo import render_resumen_comparativo
 from kpis_por_meses import render_kpis_por_meses
@@ -34,8 +39,7 @@ if uploaded_file is not None:
         st.success("Archivo cargado correctamente.")
 else:
     if "raw" not in st.session_state:
-        st.session_state.raw = None
-
+        st.session_state.raw = cargar_dataframe()  # Reemplaza por tu función de carga
 raw = st.session_state.raw
 
 # Menú de modos

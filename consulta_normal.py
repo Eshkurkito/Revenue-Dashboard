@@ -13,7 +13,6 @@ def render_consulta_normal(raw):
         c1, c2 = st.columns(2)
         # Robust extraction of end-of-month date
         fecha_fin_mes = (pd.Timestamp.today() + pd.offsets.MonthEnd(0)).date()
-        # Usar un key_prefix único para evitar duplicados
         start_normal, end_normal = period_inputs(
             "Inicio del periodo", "Fin del periodo",
             date(date.today().year, date.today().month, 1),
@@ -41,7 +40,6 @@ def render_consulta_normal(raw):
 
         if selected_group and selected_group != "Ninguno":
             props_normal = groups[selected_group]
-            # Botón para eliminar grupo
             if st.button(f"Eliminar grupo '{selected_group}'"):
                 df = pd.read_csv(GROUPS_PATH)
                 df = df[df["Grupo"] != selected_group]
