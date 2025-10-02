@@ -6,6 +6,9 @@ from utils import compute_kpis, period_inputs, group_selector, help_block, compu
 def render_consulta_normal(raw):
     if raw is None:
         st.stop()
+    if "Alojamiento" not in raw.columns:
+        st.warning("No se encontró la columna 'Alojamiento'. Sube un archivo válido o revisa el nombre de la columna.")
+        st.stop()
 
     with st.sidebar:
         st.header("Parámetros")
