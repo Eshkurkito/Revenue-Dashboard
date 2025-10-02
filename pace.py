@@ -27,7 +27,7 @@ def render_pace(raw):
         else:
             props_pace = group_selector(
                 "Filtrar alojamientos (opcional)",
-                sorted([str(x) for x in raw["Alojamiento"].unique()]),
+                sorted([str(x) for x in raw["Alojamiento"].dropna().unique()]),
                 key_prefix="props_pace",
                 default=[]
             )

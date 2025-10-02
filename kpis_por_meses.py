@@ -22,7 +22,7 @@ def render_kpis_por_meses(raw):
         else:
             props_m = group_selector(
                 "Filtrar alojamientos (opcional)",
-                sorted([str(x) for x in raw["Alojamiento"].unique()]),
+                sorted([str(x) for x in raw["Alojamiento"].dropna().unique()]),
                 key_prefix="props_m",
                 default=[]
             )

@@ -27,7 +27,7 @@ def render_prediccion_pace(raw):
         else:
             props_predpace = group_selector(
                 "Filtrar alojamientos (opcional)",
-                sorted([str(x) for x in raw["Alojamiento"].unique()]),
+                sorted([str(x) for x in raw["Alojamiento"].dropna().unique()]),
                 key_prefix="props_predpace",
                 default=[]
             )
