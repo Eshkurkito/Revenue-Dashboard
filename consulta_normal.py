@@ -41,7 +41,7 @@ def render_consulta_normal(raw):
         else:
             props_normal = group_selector(
                 "Filtrar alojamientos (opcional)",
-                list(raw["Alojamiento"].unique()),
+                sorted(list(raw["Alojamiento"].unique())),
                 key_prefix="props_normal",
                 default=[]
             )

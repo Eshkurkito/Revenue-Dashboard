@@ -33,7 +33,7 @@ def render_evolucion_corte(raw):
         else:
             props_evo = group_selector(
                 "Filtrar alojamientos (opcional)",
-                list(raw["Alojamiento"].unique()),
+                sorted(list(raw["Alojamiento"].unique())),
                 key_prefix="props_evo",
                 default=[]
             )

@@ -28,7 +28,7 @@ def render_resumen_comparativo(raw):
         else:
             props_rc = group_selector(
                 "Filtrar alojamientos (opcional)",
-                list(raw["Alojamiento"].unique()),
+                sorted(list(raw["Alojamiento"].unique())),
                 key_prefix="props_rc",
                 default=[]
             )

@@ -30,7 +30,7 @@ def render_pickup(raw):
         else:
             props_pickup = group_selector(
                 "Filtrar alojamientos (opcional)",
-                list(raw["Alojamiento"].unique()),
+                sorted(list(raw["Alojamiento"].unique())),
                 key_prefix="props_pickup",
                 default=[]
             )

@@ -34,7 +34,7 @@ def render_cuadro_mando_pro(raw):
         else:
             props_pro = group_selector(
                 "Alojamientos (opcional)",
-                list(raw["Alojamiento"].unique()),
+                sorted(list(raw["Alojamiento"].unique())),
                 key_prefix="pro_props",
                 default=[]
             )

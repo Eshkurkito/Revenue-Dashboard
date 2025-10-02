@@ -534,9 +534,10 @@ def render_alerts_module(df: pd.DataFrame, config: dict | None = None, today: da
     if selected_group:
         props_rc = groups[selected_group]
     else:
+                # ...en cada módulo, en el sidebar...
         props_rc = group_selector(
             "Filtrar alojamientos (opcional)",
-            list(df["Alojamiento"].unique()),
+            sorted(list(df["Alojamiento"].unique())),
             key_prefix="props_rc",
             default=[]
         )
