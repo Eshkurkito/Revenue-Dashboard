@@ -536,7 +536,7 @@ def render_alerts_module(df: pd.DataFrame, config: dict | None = None, today: da
     else:
         props_rc = group_selector(
             "Filtrar alojamientos (opcional)",
-            sorted([str(x) for x in df["Alojamiento"].unique()]),
+            sorted([str(x) for x in df["Alojamiento"].dropna().unique()]),
             key_prefix="props_rc",
             default=[]
         )
