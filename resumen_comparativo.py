@@ -66,8 +66,11 @@ def render_resumen_comparativo(raw):
             suffixes=("", "_ly"),
             how="left"
         )
-        # Añadir columnas de diferencia, comprobando existencia y usando fillna(0)
-        for col in ["noches_ocupadas", "noches_disponibles", "ocupacion_pct", "ingresos", "adr", "revpar"]:
+        # Nueva columna de ocupación actual y año anterior
+        df_comp["ocupacion"] = df_comp["noches_ocupadas"] / df_comp["noches_disponibles"]
+        df_comp["ocupacion_ly"] = df_comp["noches_ocupadas_ly"] / df_comp["noches_disponibles_ly"]
+        # Añadir columnas de diferencia solo para noches ocupadas, ingresos y adr
+        for col in ["noches_ocupadas", "ingresos", "adr"]:
             col_ly = f"{col}_ly"
             if col in df_comp.columns and col_ly in df_comp.columns:
                 df_comp[f"diff_{col}"] = df_comp[col].fillna(0) - df_comp[col_ly].fillna(0)
@@ -75,16 +78,52 @@ def render_resumen_comparativo(raw):
                 df_comp[f"diff_{col}"] = df_comp[col].fillna(0)
             else:
                 df_comp[f"diff_{col}"] = 0
-        # Formato condicional para colores
+        # Diferencia de ocupación
+        df_comp["diff_ocupacion"] = (df_comp["ocupacion"] - df_comp["ocupacion_ly"]).fillna(0)
+        # Ingresos finales: recalcular usando compute_kpis sin cutoff
+        by_prop_final, _ = compute_kpis(
+            df_all=raw,
+            cutoff=None,
+            period_start=pd.to_datetime(start_rc),
+            period_end=pd.to_datetime(end_rc),
+            inventory_override=int(inv_rc) if inv_rc > 0 else None,
+            filter_props=props_rc if props_rc else None,
+        )
+        df_comp = df_comp.merge(
+            by_prop_final[["Alojamiento", "ingresos"]].rename(columns={"ingresos": "ingresos_finales"}),
+            on="Alojamiento",
+            how="left"
+        )
+        df_comp["diff_ingresos_finales"] = (df_comp["ingresos_finales"] - df_comp["ingresos"]).fillna(0)
+        # Formato condicional solo para las diferencias relevantes
         def color_diff(val):
             if pd.isnull(val):
                 return ""
-            return f"background-color: {'#b6fcb6' if val > 0 else '#ffb6b6'}"  # verde si >0, rojo si <=0
-        styled_df = df_comp.style.applymap(color_diff, subset=[f"diff_{col}" for col in ["noches_ocupadas", "noches_disponibles", "ocupacion_pct", "ingresos", "adr", "revpar"]])
+            return f"background-color: {'#b6fcb6' if val > 0 else '#ffb6b6'}"
+        styled_df = df_comp.style.applymap(color_diff, subset=[
+            "diff_noches_ocupadas", "diff_ingresos", "diff_adr", "diff_ocupacion", "diff_ingresos_finales"
+        ])
     else:
         total_rc_ly = None
         df_comp = by_prop_rc.copy()
-        styled_df = df_comp.style
+        # Nueva columna de ocupación
+        df_comp["ocupacion"] = df_comp["noches_ocupadas"] / df_comp["noches_disponibles"]
+        # Ingresos finales
+        by_prop_final, _ = compute_kpis(
+            df_all=raw,
+            cutoff=None,
+            period_start=pd.to_datetime(start_rc),
+            period_end=pd.to_datetime(end_rc),
+            inventory_override=int(inv_rc) if inv_rc > 0 else None,
+            filter_props=props_rc if props_rc else None,
+        )
+        df_comp = df_comp.merge(
+            by_prop_final[["Alojamiento", "ingresos"]].rename(columns={"ingresos": "ingresos_finales"}),
+            on="Alojamiento",
+            how="left"
+        )
+        df_comp["diff_ingresos_finales"] = (df_comp["ingresos_finales"] - df_comp["ingresos"]).fillna(0)
+        styled_df = df_comp.style.applymap(color_diff, subset=["diff_ingresos_finales"])
 
     st.subheader("Resumen comparativo")
     help_block("Resumen Comparativo")
@@ -108,7 +147,12 @@ def render_resumen_comparativo(raw):
     if df_comp.empty:
         st.warning("Sin noches ocupadas en el periodo a la fecha de corte.")
     else:
-        st.write("Las columnas 'diff_' muestran la diferencia respecto al año anterior. Verde = superior, rojo = inferior.")
+        st.write(
+            "Las columnas 'diff_' muestran la diferencia respecto al año anterior. "
+            "Verde = superior, rojo = inferior. "
+            "La columna 'ocupacion' es noches ocupadas / noches disponibles. "
+            "La columna 'diff_ingresos_finales' compara ingresos a fecha de corte vs ingresos finales."
+        )
         st.dataframe(styled_df, use_container_width=True)
         # Exportar a Excel
         import io
