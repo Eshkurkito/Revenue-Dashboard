@@ -109,18 +109,35 @@ def render_resumen_comparativo(raw):
     if compare_rc:
         ly_start = pd.to_datetime(start_rc) - pd.DateOffset(years=1)
         ly_end = pd.to_datetime(end_rc) - pd.DateOffset(years=1)
-        df_ly = raw[
+        ly_cutoff = pd.to_datetime(cutoff_rc) - pd.DateOffset(years=1)
+
+        # Ingresos LY (a fecha de corte LY)
+        df_ly_corte = raw[
+            (pd.to_datetime(raw["Fecha entrada"]) >= ly_start) &
+            (pd.to_datetime(raw["Fecha entrada"]) <= ly_cutoff)
+        ]
+        if props_rc:
+            df_ly_corte = df_ly_corte[df_ly_corte["Alojamiento"].isin(props_rc)]
+        detalle_ly_corte = calcular_kpis_por_alojamiento(df_ly_corte, ly_start, ly_cutoff)
+
+        # Ingresos finales LY (a fin de periodo LY)
+        df_ly_final = raw[
             (pd.to_datetime(raw["Fecha entrada"]) >= ly_start) &
             (pd.to_datetime(raw["Fecha entrada"]) <= ly_end)
         ]
         if props_rc:
-            df_ly = df_ly[df_ly["Alojamiento"].isin(props_rc)]
-        detalle_ly = calcular_kpis_por_alojamiento(df_ly, ly_start, ly_end)
+            df_ly_final = df_ly_final[df_ly_final["Alojamiento"].isin(props_rc)]
+        detalle_ly_final = calcular_kpis_por_alojamiento(df_ly_final, ly_start, ly_end)
+
         # Merge ambos detalles
         detalle = detalle_actual.merge(
-            detalle_ly[["Alojamiento", "noches_ocupadas", "Ocupación", "ADR", "ingresos"]],
+            detalle_ly_corte[["Alojamiento", "noches_ocupadas", "Ocupación", "ADR", "ingresos"]],
             on="Alojamiento", how="left", suffixes=('', '_LY')
+        ).merge(
+            detalle_ly_final[["Alojamiento", "ingresos"]],
+            on="Alojamiento", how="left", suffixes=('', '_LY_FINAL')
         )
+
         # Renombra para claridad
         detalle.rename(columns={
             "noches_ocupadas": "Noches ocupadas",
@@ -130,7 +147,8 @@ def render_resumen_comparativo(raw):
             "ADR": "ADR",
             "ADR_LY": "ADR LY",
             "ingresos": "Ingresos",
-            "ingresos_LY": "Ingresos LY"
+            "ingresos_LY": "Ingresos LY",
+            "ingresos_LY_FINAL": "Ingresos finales LY"
         }, inplace=True)
     else:
         detalle = detalle_actual.copy()
@@ -138,6 +156,7 @@ def render_resumen_comparativo(raw):
         detalle["Ocupación LY"] = None
         detalle["ADR LY"] = None
         detalle["Ingresos LY"] = None
+        detalle["Ingresos finales LY"] = None
 
     # Añade columna de ingresos finales LY (puedes adaptar la lógica si tienes otra fuente)
     detalle["Ingresos finales LY"] = detalle["Ingresos LY"]
