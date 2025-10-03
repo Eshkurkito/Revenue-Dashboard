@@ -134,3 +134,32 @@ def render_kpis_por_meses(raw):
         file_name=f"kpis_mensuales_{year}.csv",
         mime="text/csv"
     )
+
+    # Descarga Excel con formato
+    import io
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+        df_final.to_excel(writer, index=False, sheet_name="KPIs")
+        wb = writer.book
+        ws = writer.sheets["KPIs"]
+        # Ajusta ancho de columnas
+        for j, col in enumerate(df_final.columns):
+            ws.set_column(j, j, 18)
+        # Formatos
+        fmt_pct = wb.add_format({"num_format": "0.00%", "align": "center"})
+        fmt_eur = wb.add_format({"num_format": "€ #,##0.00", "align": "center"})
+        fmt_int = wb.add_format({"num_format": "0", "align": "center"})
+        # Aplica formato por columna
+        for idx, col in enumerate(df_final.columns):
+            if "Ocupación" in col:
+                ws.set_column(idx, idx, 18, fmt_pct)
+            elif "Ingresos" in col or "ADR" in col or "RevPAR" in col:
+                ws.set_column(idx, idx, 18, fmt_eur)
+            elif "Noches" in col:
+                ws.set_column(idx, idx, 18, fmt_int)
+    st.download_button(
+        "📥 Descargar Excel",
+        data=buffer.getvalue(),
+        file_name=f"kpis_mensuales_{year}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
