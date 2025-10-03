@@ -162,6 +162,12 @@ def render_resumen_comparativo(raw):
     })
 
     # Colores verde/rojo según mejora o empeora respecto LY
+    def color_row(row, col, ly_col):
+        try:
+            return [color_diff(row[col], row[ly_col])]
+        except KeyError:
+            return [""]
+    
     for col, ly_col in [
         ("Noches ocupadas", "Noches ocupadas LY"),
         ("Ocupación", "Ocupación LY"),
@@ -171,7 +177,7 @@ def render_resumen_comparativo(raw):
     ]:
         if col in detalle.columns and ly_col in detalle.columns:
             detalle_styler = detalle_styler.apply(
-                lambda fila: [color_diff(fila[col], fila[ly_col])], axis=1, subset=[col]
+                lambda row: color_row(row, col, ly_col), axis=1, subset=[col]
             )
 
     st.subheader("Detalle por alojamiento")
