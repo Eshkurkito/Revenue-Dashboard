@@ -95,20 +95,17 @@ def render_resumen_comparativo(raw):
     # Filtra por fechas del periodo actual
     df_actual = raw[
         (pd.to_datetime(raw["Fecha entrada"]) >= pd.to_datetime(start_rc)) &
-        (pd.to_datetime(raw["Fecha entrada"]) <= pd.to_datetime(end_rc))
+        (pd.to_datetime(raw["Fecha entrada"]) <= pd.to_datetime(cutoff_rc))
     ]
     if props_rc:
         df_actual = df_actual[df_actual["Alojamiento"].isin(props_rc)]
 
-    detalle_actual = calcular_kpis_por_alojamiento(df_actual, pd.to_datetime(start_rc), pd.to_datetime(end_rc))
+    detalle_actual = calcular_kpis_por_alojamiento(df_actual, pd.to_datetime(start_rc), pd.to_datetime(cutoff_rc))
 
     # Si comparar con LY
     if compare_rc:
         ly_start = pd.to_datetime(start_rc) - pd.DateOffset(years=1)
-        ly_end = pd.to_datetime(end_rc) - pd.DateOffset(years=1)
         ly_cutoff = pd.to_datetime(cutoff_rc) - pd.DateOffset(years=1)
-
-        # Ingresos LY (a fecha de corte LY)
         df_ly_corte = raw[
             (pd.to_datetime(raw["Fecha entrada"]) >= ly_start) &
             (pd.to_datetime(raw["Fecha entrada"]) <= ly_cutoff)
@@ -118,6 +115,7 @@ def render_resumen_comparativo(raw):
         detalle_ly_corte = calcular_kpis_por_alojamiento(df_ly_corte, ly_start, ly_cutoff)
 
         # Ingresos finales LY (a fin de periodo LY)
+        ly_end = pd.to_datetime(end_rc) - pd.DateOffset(years=1)
         df_ly_final = raw[
             (pd.to_datetime(raw["Fecha entrada"]) >= ly_start) &
             (pd.to_datetime(raw["Fecha entrada"]) <= ly_end)
