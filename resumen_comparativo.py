@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 from datetime import date
-from utils import period_inputs, group_selector
+from utils import period_inputs, group_selector, save_group_csv, load_groups, GROUPS_PATH
 
 def compute_kpis(
     df_all: pd.DataFrame,
@@ -11,14 +11,14 @@ def compute_kpis(
     inventory_override: int = None,
     filter_props: list = None,
 ):
-    df_cut = df_all[df_all["Fecha alta"] <= cutoff].copy()
+    df_cut = df_all[pd.to_datetime(df_all["Fecha alta"]) <= cutoff].copy()
     if filter_props:
         df_cut = df_cut[df_cut["Alojamiento"].isin(filter_props)]
     df_cut = df_cut.dropna(subset=["Fecha entrada", "Fecha salida"]).copy()
 
     inv_detected = len(set(filter_props)) if filter_props else df_all["Alojamiento"].nunique()
     inv_eff = int(inventory_override) if (inventory_override is not None and int(inventory_override) > 0) else int(inv_detected)
-    days = (period_end - period_start).days + 1
+    days = (pd.to_datetime(period_end) - pd.to_datetime(period_start)).days + 1
     noches_disponibles = inv_eff * days if days > 0 else 0
 
     if df_cut.empty:
@@ -44,7 +44,7 @@ def compute_kpis(
     ov_end = arr_s.clip(upper=end_excl_ns)
     ov_days = (ov_end - ov_start).dt.days.clip(lower=0)
 
-    price = df_cut["Alquiler con IVA (€)"].astype(float)
+    price = pd.to_numeric(df_cut["Alquiler con IVA (€)"], errors="coerce").fillna(0)
     share = ov_days / total_nights.replace(0, 1)
     income = price * share
 
@@ -72,7 +72,7 @@ def compute_kpis(
     return by_prop, tot
 
 def render_resumen_comparativo(raw):
-    if raw is None:
+    if raw is None or raw.empty:
         st.warning("No hay datos cargados.")
         st.stop()
 
@@ -85,12 +85,36 @@ def render_resumen_comparativo(raw):
             (pd.Timestamp.today().to_period("M").end_time).date(),
             "resumen_comp"
         )
-        props_rc = group_selector(
-            "Alojamientos (opcional)",
-            list(raw["Alojamiento"].unique()),
-            key_prefix="resumen_comp",
-            default=[]
-        )
+
+        # --- Sistema de grupos ---
+        st.header("Gestión de grupos")
+        groups = load_groups()
+        group_names = ["Ninguno"] + sorted(list(groups.keys()))
+        selected_group = st.selectbox("Grupo guardado", group_names)
+
+        if selected_group and selected_group != "Ninguno":
+            props_rc = groups[selected_group]
+            if st.button(f"Eliminar grupo '{selected_group}'"):
+                df = pd.read_csv(GROUPS_PATH)
+                df = df[df["Grupo"] != selected_group]
+                df.to_csv(GROUPS_PATH, index=False)
+                st.success(f"Grupo '{selected_group}' eliminado.")
+                st.experimental_rerun()
+        else:
+            if "Alojamiento" not in raw.columns:
+                st.warning("No se encontró la columna 'Alojamiento'. Sube un archivo válido o revisa el nombre de la columna.")
+                st.stop()
+            props_rc = group_selector(
+                "Filtrar alojamientos (opcional)",
+                sorted([str(x) for x in raw["Alojamiento"].dropna().unique()]),
+                key_prefix="props_rc",
+                default=[]
+            )
+
+        group_name = st.text_input("Nombre del grupo para guardar")
+        if st.button("Guardar grupo de pisos") and group_name and props_rc:
+            save_group_csv(group_name, props_rc)
+            st.success(f"Grupo '{group_name}' guardado.")
 
     st.subheader("📊 Resumen comparativo por alojamiento")
 
@@ -180,10 +204,10 @@ def render_resumen_comparativo(raw):
         resumen.style
         .apply(_style_row, axis=1)
         .format({
-            "ADR actual": "{:.2f}", "ADR LY": "{:.2f}",
-            "Ocupación actual %": "{:.2f}", "Ocupación LY %": "{:.2f}",
-            "Ingresos actuales (€)": "{:.2f}", "Ingresos LY (€)": "{:.2f}",
-            "Ingresos finales LY (€)": "{:.2f}",
+            "ADR actual": "{:.2f} €", "ADR LY": "{:.2f} €",
+            "Ocupación actual %": "{:.2f}%", "Ocupación LY %": "{:.2f}%",
+            "Ingresos actuales (€)": "{:.2f} €", "Ingresos LY (€)": "{:.2f} €",
+            "Ingresos finales LY (€)": "{:.2f} €",
         })
     )
     st.dataframe(styler, use_container_width=True)
