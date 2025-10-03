@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import date, timedelta
-from utils import compute_kpis, period_inputs, group_selector, help_block
+from utils import compute_kpis, period_inputs, group_selector, help_block, load_groups
 
 def render_evolucion_corte(raw):
     if raw is None:
