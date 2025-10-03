@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import date
+from datetime import date, timedelta
 from utils import compute_kpis, period_inputs, group_selector, help_block, load_groups
 
 def render_evolucion_corte(raw):
@@ -8,21 +8,19 @@ def render_evolucion_corte(raw):
         st.stop()
 
     with st.sidebar:
-        st.header("Parámetros")
+        st.header("Rango de corte")
+        cut_start = st.date_input("Inicio de corte", value=date.today() - timedelta(days=30), key="evo_cut_start")
+        cut_end   = st.date_input("Fin de corte",   value=date.today(), key="evo_cut_end")
+
+        st.header("Periodo objetivo")
         period_start, period_end = period_inputs(
             "Inicio del periodo", "Fin del periodo",
             date(date.today().year, date.today().month, 1),
             date.today(),
-            "evo"
+            "evo_target"
         )
-        inv_evo = st.number_input(
-            "Inventario (opcional)",
-            min_value=0, value=0, step=1, key="inv_evo"
-        )
-        days_back = st.slider("Días hacia atrás", min_value=7, max_value=120, value=30, step=1, key="evo_days")
-        metric_choice = st.radio("Métrica", ["Ocupación %", "ADR (€)", "RevPAR (€)"], horizontal=True, key="evo_metric")
 
-        # Gestión de grupos solo lectura
+        # Selector de grupo y filtro por alojamiento
         groups = load_groups()
         group_names = ["Todos"] + sorted(list(groups.keys()))
         selected_group = st.selectbox("Grupo guardado", group_names)
@@ -31,7 +29,6 @@ def render_evolucion_corte(raw):
         else:
             props_evo = groups[selected_group] if selected_group else []
 
-        # Filtro adicional por alojamiento dentro del grupo seleccionado
         st.header("Filtrar alojamientos (opcional)")
         props_evo = st.multiselect(
             "Alojamientos a mostrar",
@@ -40,10 +37,21 @@ def render_evolucion_corte(raw):
             key="evo_selector"
         )
 
-    # Evolución por fecha de corte
+        inv_evo = st.number_input(
+            "Inventario (opcional)",
+            min_value=0, value=0, step=1, key="inv_evo"
+        )
+        metric_choice = st.radio("Métrica", ["Ocupación %", "ADR (€)", "RevPAR (€)"], horizontal=True, key="evo_metric")
+
+    # Serie de fechas de corte
+    cut_start_ts = pd.to_datetime(cut_start)
+    cut_end_ts   = pd.to_datetime(cut_end)
+    if cut_start_ts > cut_end_ts:
+        st.error("El inicio del rango de corte no puede ser posterior al fin.")
+        st.stop()
+
     rows_evo = []
-    cut_start = (pd.to_datetime(date.today()) - pd.Timedelta(days=int(days_back))).normalize()
-    for c in pd.date_range(cut_start, pd.to_datetime(date.today()).normalize(), freq="D"):
+    for c in pd.date_range(cut_start_ts, cut_end_ts, freq="D"):
         _, tot_tmp = compute_kpis(
             df_all=raw,
             cutoff=c,
@@ -52,17 +60,17 @@ def render_evolucion_corte(raw):
             inventory_override=int(inv_evo) if inv_evo > 0 else None,
             filter_props=props_evo if props_evo else None,
         )
-        rows_evo.append({"Corte": c, **tot_tmp})
+        rows_evo.append({"Corte": c.normalize(), **tot_tmp})
     df_evo = pd.DataFrame(rows_evo)
 
-    st.subheader("Evolución por fecha de corte")
+    st.subheader("📈 Evolución por fecha de corte")
     help_block("Evolución por fecha de corte")
 
     if not df_evo.empty:
         key_map = {"Ocupación %":"ocupacion_pct","ADR (€)":"adr","RevPAR (€)":"revpar"}
         k = key_map[metric_choice]
         plot = pd.DataFrame({metric_choice: df_evo[k].values}, index=df_evo["Corte"])
-        st.line_chart(plot, height=260)
+        st.line_chart(plot, height=280)
 
         # Formato para mostrar
         df_show = df_evo[["Corte","ocupacion_pct","adr","revpar","ingresos"]].rename(
@@ -86,7 +94,7 @@ def render_evolucion_corte(raw):
             mime="text/csv",
         )
 
-        # Descarga Excel con formato
+        # Descarga Excel con formato y nombre arriba a la izquierda
         import io
         buffer = io.BytesIO()
         df_excel = df_show.copy()
@@ -101,11 +109,14 @@ def render_evolucion_corte(raw):
                 ws.set_column(j, j, 18)
             fmt_pct = wb.add_format({"num_format": "0.00%", "align": "center"})
             fmt_eur = wb.add_format({"num_format": "€ #,##0.00", "align": "center"})
+            fmt_int = wb.add_format({"num_format": "0", "align": "center"})
             for idx, col in enumerate(df_excel.columns):
                 if "Ocupación" in col:
                     ws.set_column(idx, idx, 18, fmt_pct)
                 elif "ADR" in col or "RevPAR" in col or "Ingresos" in col:
                     ws.set_column(idx, idx, 18, fmt_eur)
+                elif "Noches" in col:
+                    ws.set_column(idx, idx, 18, fmt_int)
             # Nombre de alojamientos o grupo arriba a la izquierda
             nombre_alojamientos = ", ".join(props_evo) if props_evo else f"Grupo: {selected_group}"
             ws.write(0, 0, nombre_alojamientos, wb.add_format({"bold": True, "font_color": "#003366"}))
