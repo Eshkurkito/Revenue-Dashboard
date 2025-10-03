@@ -166,7 +166,6 @@ def render_resumen_comparativo(raw):
         "Noches ocupadas LY": "{:.0f}",
     })
 
-    # Aplica colores en todas las columnas comparativas
     for col, ly_col in [
         ("Noches ocupadas", "Noches ocupadas LY"),
         ("Ocupación", "Ocupación LY"),
@@ -176,7 +175,11 @@ def render_resumen_comparativo(raw):
     ]:
         if col in detalle.columns and ly_col in detalle.columns:
             detalle_styler = detalle_styler.apply(
-                lambda row: color_row(row, col, ly_col), axis=1, subset=[col]
+                lambda s: [
+                    color_diff(val, ly_val)
+                    for val, ly_val in zip(s, detalle[ly_col])
+                ],
+                subset=[col]
             )
 
     st.subheader("Detalle por alojamiento")
@@ -186,7 +189,7 @@ def render_resumen_comparativo(raw):
     import io
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        detalle_styler.to_excel(writer, sheet_name="Detalle", index=False)
+        detalle.to_excel(writer, sheet_name="Detalle", index=False)
         workbook = writer.book
         worksheet = writer.sheets["Detalle"]
         for idx, col in enumerate(detalle.columns):
