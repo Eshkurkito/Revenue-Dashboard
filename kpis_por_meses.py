@@ -193,8 +193,9 @@ def render_kpis_por_meses(raw):
                     "type": "formula", "criteria": f"={a_cell}<{ly_cell}", "format": fmt_red
                 })
 
-        # Nombre del grupo/apartamento arriba a la izquierda
-        ws.write(0, 0, f"Grupo: {selected_group}", wb.add_format({"bold": True, "font_color": "#003366"}))
+        # Nombre de alojamientos a mostrar o grupo seleccionado arriba a la izquierda
+        nombre_alojamientos = ", ".join(props_rc) if props_rc else f"Grupo: {selected_group}"
+        ws.write(0, 0, nombre_alojamientos, wb.add_format({"bold": True, "font_color": "#003366"}))
 
     st.download_button(
         "📥 Descargar Excel",
