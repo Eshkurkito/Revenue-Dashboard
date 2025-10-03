@@ -9,23 +9,37 @@ def calcular_kpis_por_alojamiento(df):
         pd.to_datetime(df["Fecha salida"]) - pd.to_datetime(df["Fecha entrada"])
     ).dt.days
 
+    # Calcula noches disponibles por alojamiento (máximo noches ocupadas en el periodo)
+    noches_disponibles = df.groupby("Alojamiento")["Noches ocupadas"].max()
     # Agrupa por alojamiento
     agrupado = df.groupby("Alojamiento").agg(
         noches_ocupadas=("Noches ocupadas", "sum"),
         ingresos=("Alquiler con IVA (€)", "sum"),
-        reservas=("Alojamiento", "count")
+        reservas=("Alojamiento", "count"),
+        noches_disponibles=("Noches ocupadas", "max")
     ).reset_index()
 
     # Calcula ADR
     agrupado["ADR"] = agrupado["ingresos"] / agrupado["noches_ocupadas"]
-    agrupado["Ocupación"] = 100  # Si no tienes noches disponibles, pon 100% por defecto
-
-    # Formato
-    agrupado["ADR"] = agrupado["ADR"].apply(lambda x: f"{x:.2f} €" if pd.notnull(x) else "")
-    agrupado["ingresos"] = agrupado["ingresos"].apply(lambda x: f"{x:.2f} €" if pd.notnull(x) else "")
-    agrupado["Ocupación"] = agrupado["Ocupación"].apply(lambda x: f"{x:.2f}%" if pd.notnull(x) else "")
+    # Calcula ocupación
+    agrupado["Ocupación"] = 100 * agrupado["noches_ocupadas"] / agrupado["noches_disponibles"]
 
     return agrupado
+
+def euro_fmt(val):
+    if pd.isnull(val):
+        return ""
+    return f"{val:,.2f} €"
+
+def pct_fmt(val):
+    if pd.isnull(val):
+        return ""
+    return f"{val:.2f}%"
+
+def color_diff(val, ly_val):
+    if pd.isnull(val) or pd.isnull(ly_val):
+        return ""
+    return "background-color: #d4f7d4" if val >= ly_val else "background-color: #ffd6d6"
 
 def render_resumen_comparativo(raw):
     if raw is None:
@@ -99,13 +113,15 @@ def render_resumen_comparativo(raw):
         detalle_ly = calcular_kpis_por_alojamiento(df_ly)
         # Merge ambos detalles
         detalle = detalle_actual.merge(
-            detalle_ly[["Alojamiento", "noches_ocupadas", "ADR", "ingresos"]],
+            detalle_ly[["Alojamiento", "noches_ocupadas", "Ocupación", "ADR", "ingresos"]],
             on="Alojamiento", how="left", suffixes=('', '_LY')
         )
         # Renombra para claridad
         detalle.rename(columns={
             "noches_ocupadas": "Noches ocupadas",
             "noches_ocupadas_LY": "Noches ocupadas LY",
+            "Ocupación": "Ocupación",
+            "Ocupación_LY": "Ocupación LY",
             "ADR": "ADR",
             "ADR_LY": "ADR LY",
             "ingresos": "Ingresos",
@@ -114,8 +130,65 @@ def render_resumen_comparativo(raw):
     else:
         detalle = detalle_actual.copy()
         detalle["Noches ocupadas LY"] = None
+        detalle["Ocupación LY"] = None
         detalle["ADR LY"] = None
         detalle["Ingresos LY"] = None
 
+    # Añade columna de ingresos finales LY (puedes adaptar la lógica si tienes otra fuente)
+    detalle["Ingresos finales LY"] = detalle["Ingresos LY"]
+
+    # Ordena columnas intercaladas
+    columnas_finales = [
+        "Alojamiento",
+        "Noches ocupadas", "Noches ocupadas LY",
+        "Ocupación", "Ocupación LY",
+        "ADR", "ADR LY",
+        "Ingresos", "Ingresos LY",
+        "Ingresos finales LY"
+    ]
+    detalle = detalle[columnas_finales]
+
+    # Formato y colores con Styler
+    detalle_styler = detalle.style.format({
+        "ADR": euro_fmt,
+        "ADR LY": euro_fmt,
+        "Ingresos": euro_fmt,
+        "Ingresos LY": euro_fmt,
+        "Ingresos finales LY": euro_fmt,
+        "Ocupación": pct_fmt,
+        "Ocupación LY": pct_fmt,
+        "Noches ocupadas": "{:.0f}",
+        "Noches ocupadas LY": "{:.0f}",
+    })
+
+    # Colores verde/rojo según mejora o empeora respecto LY
+    for col, ly_col in [
+        ("Noches ocupadas", "Noches ocupadas LY"),
+        ("Ocupación", "Ocupación LY"),
+        ("ADR", "ADR LY"),
+        ("Ingresos", "Ingresos LY"),
+        ("Ingresos finales LY", "Ingresos finales LY")
+    ]:
+        if col in detalle.columns and ly_col in detalle.columns:
+            detalle_styler = detalle_styler.apply(
+                lambda x: [color_diff(x[col], x[ly_col]) for i in x.index], axis=1, subset=[col]
+            )
+
     st.subheader("Detalle por alojamiento")
-    st.dataframe(detalle, use_container_width=True)
+    st.dataframe(detalle_styler, use_container_width=True)
+
+    # Exportar a Excel con formato
+    import io
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        detalle_styler.to_excel(writer, sheet_name="Detalle", index=False)
+        workbook = writer.book
+        worksheet = writer.sheets["Detalle"]
+        for idx, col in enumerate(detalle.columns):
+            worksheet.set_column(idx, idx, 18)
+    st.download_button(
+        "📥 Descargar detalle por alojamiento (Excel)",
+        data=output.getvalue(),
+        file_name="detalle_comparativo.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
