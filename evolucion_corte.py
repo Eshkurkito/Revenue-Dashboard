@@ -27,13 +27,24 @@ def render_evolucion_corte(raw):
             "evo_target"
         )
 
-        # Filtro de alojamientos con grupos y orden alfabético
-        props_e = group_selector(
-            "Filtrar alojamientos (opcional)",
-            sorted(list(raw["Alojamiento"].dropna().unique())),
-            key_prefix="props_evo",
-            default=[]
+        # Grupo de alojamientos
+        st.header("Grupo de alojamientos")
+        groups = load_groups()
+        group_names = ["Todos"] + sorted(list(groups.keys()))
+        selected_group = st.selectbox("Grupo guardado", group_names)
+        if selected_group == "Todos":
+            props_group = sorted(list(raw["Alojamiento"].dropna().unique()))
+        else:
+            props_group = groups[selected_group] if selected_group in groups else []
+
+        st.header("Filtrar alojamientos (opcional)")
+        props_e = st.multiselect(
+            "Alojamientos a mostrar",
+            options=props_group,
+            default=props_group,
+            key="props_evo"
         )
+
         inv_e      = st.number_input("Inventario actual (opcional)", min_value=0, value=0, step=1, key="inv_evo")
         inv_e_prev = st.number_input("Inventario año anterior (opcional)", min_value=0, value=0, step=1, key="inv_evo_prev")
 
