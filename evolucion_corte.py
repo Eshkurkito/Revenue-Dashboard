@@ -12,7 +12,7 @@ def render_evolucion_corte(raw):
         period_start, period_end = period_inputs(
             "Inicio del periodo", "Fin del periodo",
             date(date.today().year, date.today().month, 1),
-            (pd.Timestamp.today() + pd.offsets.MonthEnd(0)).date(),
+            date.today(),
             "evo"
         )
         inv_evo = st.number_input(
