@@ -159,6 +159,7 @@ def render_resumen_comparativo(raw):
         "ADR LY": euro_fmt,
         "Ingresos": euro_fmt,
         "Ingresos LY": euro_fmt,
+        "Ingresos finales LY": euro_fmt,
         "Ocupación": pct_fmt,
         "Ocupación LY": pct_fmt,
         "Noches ocupadas": "{:.0f}",
