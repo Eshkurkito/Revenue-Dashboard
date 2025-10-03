@@ -4,37 +4,32 @@ import streamlit as st
 from datetime import date, timedelta
 from typing import Optional, List, Tuple, Dict, Any
 from pathlib import Path
+import os
 
 # ===== Grupos de alojamientos (CSV reutilizable) =====
 
-GROUPS_PATH = Path("data/grupos.csv")
+GROUPS_CSV = "grupos_guardados.csv"  # Se guarda en la raíz del repositorio
 
-@st.cache_data(show_spinner=False)
-def save_group_csv(name: str, props: list[str], path: str | Path = GROUPS_PATH):
-    df = pd.DataFrame({"Grupo": [name]*len(props), "Alojamiento": props})
-    path = Path(path)
-    # Asegura que el directorio existe
-    if not path.parent.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
-        df_old = pd.read_csv(path)
-        df = pd.concat([df_old, df], ignore_index=True)
-    df.to_csv(path, index=False)
+def save_group_csv(group_name, props_list):
+    if os.path.exists(GROUPS_CSV):
+        df = pd.read_csv(GROUPS_CSV)
+    else:
+        df = pd.DataFrame(columns=["Grupo", "Alojamiento"])
+    # Elimina grupo si ya existe (evita duplicados)
+    df = df[df["Grupo"] != group_name]
+    new_rows = [{"Grupo": group_name, "Alojamiento": prop} for prop in props_list]
+    df = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
+    df.to_csv(GROUPS_CSV, index=False)
 
-def load_groups(path: Path = GROUPS_PATH) -> dict:
-    if not path.exists():
+def load_groups():
+    if not os.path.exists(GROUPS_CSV):
         return {}
-    df = pd.read_csv(path)
-    return {g: df[df["Grupo"] == g]["Alojamiento"].tolist() for g in df["Grupo"].unique()}
-
-@st.cache_data(show_spinner=False)
-def save_group_csv(name: str, props: list[str], path: str | Path = GROUPS_PATH):
-    df = pd.DataFrame({"Grupo": [name]*len(props), "Alojamiento": props})
-    # Ensure parent directory exists
-    path = Path(path)
-    if not path.parent.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(path, index=False)
+    df = pd.read_csv(GROUPS_CSV)
+    groups = {}
+    for group_name in df["Grupo"].unique():
+        props = df[df["Grupo"] == group_name]["Alojamiento"].tolist()
+        groups[group_name] = props
+    return groups
 
 def group_selector(label: str, all_props: list[str], key_prefix: str, default: Optional[list[str]] = None) -> list[str]:
     selected = st.multiselect(label, options=all_props, default=default or [], key=f"{key_prefix}_selector")
