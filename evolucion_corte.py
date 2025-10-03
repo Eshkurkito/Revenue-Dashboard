@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import date
-from utils import compute_kpis, period_inputs, group_selector, help_block
+from utils import compute_kpis, period_inputs, group_selector, help_block, load_groups
 
 def render_evolucion_corte(raw):
     if raw is None:
@@ -22,35 +22,23 @@ def render_evolucion_corte(raw):
         days_back = st.slider("Días hacia atrás", min_value=7, max_value=120, value=30, step=1, key="evo_days")
         metric_choice = st.radio("Métrica", ["Ocupación %", "ADR (€)", "RevPAR (€)"], horizontal=True, key="evo_metric")
 
-        # Gestión de grupos
-        from utils import save_group_csv, load_groups, group_selector
+        # Gestión de grupos solo lectura
         groups = load_groups()
-        group_names = ["Ninguno"] + sorted(list(groups.keys()))
+        group_names = ["Todos"] + sorted(list(groups.keys()))
         selected_group = st.selectbox("Grupo guardado", group_names)
-
-        if selected_group and selected_group != "Ninguno":
-            props_evo = groups[selected_group]
-            # Botón para eliminar grupo
-            if st.button(f"Eliminar grupo '{selected_group}'"):
-                import pandas as pd
-                from utils import GROUPS_PATH
-                df_groups = pd.read_csv(GROUPS_PATH)
-                df_groups = df_groups[df_groups["Grupo"] != selected_group]
-                df_groups.to_csv(GROUPS_PATH, index=False)
-                st.success(f"Grupo '{selected_group}' eliminado.")
-                st.experimental_rerun()
+        if selected_group == "Todos":
+            props_evo = sorted([str(x) for x in raw["Alojamiento"].dropna().unique()])
         else:
-            props_evo = group_selector(
-                "Filtrar alojamientos (opcional)",
-                sorted([str(x) for x in raw["Alojamiento"].dropna().unique()]),
-                key_prefix="props_evo",
-                default=[]
-            )
+            props_evo = groups[selected_group] if selected_group else []
 
-        group_name = st.text_input("Nombre del grupo para guardar")
-        if st.button("Guardar grupo de pisos") and group_name and props_evo:
-            save_group_csv(group_name, props_evo)
-            st.success(f"Grupo '{group_name}' guardado.")
+        # Filtro adicional por alojamiento dentro del grupo seleccionado
+        st.header("Filtrar alojamientos (opcional)")
+        props_evo = st.multiselect(
+            "Alojamientos a mostrar",
+            options=props_evo,
+            default=props_evo,
+            key="evo_selector"
+        )
 
     # Evolución por fecha de corte
     rows_evo = []
@@ -75,14 +63,57 @@ def render_evolucion_corte(raw):
         k = key_map[metric_choice]
         plot = pd.DataFrame({metric_choice: df_evo[k].values}, index=df_evo["Corte"])
         st.line_chart(plot, height=260)
-        st.dataframe(df_evo[["Corte","ocupacion_pct","adr","revpar","ingresos"]]
-                     .rename(columns={"ocupacion_pct":"Ocupación %","adr":"ADR (€)","revpar":"RevPAR (€)","ingresos":"Ingresos (€)"}),
-                     use_container_width=True)
+
+        # Formato para mostrar
+        df_show = df_evo[["Corte","ocupacion_pct","adr","revpar","ingresos"]].rename(
+            columns={"ocupacion_pct":"Ocupación %","adr":"ADR (€)","revpar":"RevPAR (€)","ingresos":"Ingresos (€)"}
+        )
+        st.dataframe(
+            df_show.style.format({
+                "Ocupación %": "{:.2f}%",
+                "ADR (€)": "{:.2f} €",
+                "RevPAR (€)": "{:.2f} €",
+                "Ingresos (€)": "{:.2f} €"
+            }),
+            use_container_width=True
+        )
+
+        # Descarga CSV
         st.download_button(
             "📥 Descargar evolución (CSV)",
             data=df_evo.to_csv(index=False).encode("utf-8-sig"),
             file_name="evolucion_por_corte.csv",
             mime="text/csv",
+        )
+
+        # Descarga Excel con formato
+        import io
+        buffer = io.BytesIO()
+        df_excel = df_show.copy()
+        # Divide ocupación por 100 para formato porcentaje en Excel
+        if "Ocupación %" in df_excel.columns:
+            df_excel["Ocupación %"] = df_excel["Ocupación %"] / 100
+        with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+            df_excel.to_excel(writer, index=False, sheet_name="Evolución")
+            wb = writer.book
+            ws = writer.sheets["Evolución"]
+            for j, col in enumerate(df_excel.columns):
+                ws.set_column(j, j, 18)
+            fmt_pct = wb.add_format({"num_format": "0.00%", "align": "center"})
+            fmt_eur = wb.add_format({"num_format": "€ #,##0.00", "align": "center"})
+            for idx, col in enumerate(df_excel.columns):
+                if "Ocupación" in col:
+                    ws.set_column(idx, idx, 18, fmt_pct)
+                elif "ADR" in col or "RevPAR" in col or "Ingresos" in col:
+                    ws.set_column(idx, idx, 18, fmt_eur)
+            # Nombre de alojamientos o grupo arriba a la izquierda
+            nombre_alojamientos = ", ".join(props_evo) if props_evo else f"Grupo: {selected_group}"
+            ws.write(0, 0, nombre_alojamientos, wb.add_format({"bold": True, "font_color": "#003366"}))
+        st.download_button(
+            "📥 Descargar evolución (Excel)",
+            data=buffer.getvalue(),
+            file_name="evolucion_por_corte.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
     else:
         st.info("Sin datos para el rango seleccionado.")
