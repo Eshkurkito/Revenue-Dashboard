@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import date
-from utils import compute_kpis, period_inputs, group_selector, help_block
+from utils import compute_kpis, period_inputs, group_selector, help_block, save_group_csv, load_groups
 import numpy as np
 
 def render_pickup(raw):
@@ -20,7 +20,6 @@ def render_pickup(raw):
         )
 
         # Gestión de grupos
-        from utils import save_group_csv, load_groups, group_selector
         groups = load_groups()
         group_names = ["Ninguno"] + sorted(list(groups.keys()))
         selected_group = st.selectbox("Grupo guardado", group_names)
@@ -29,11 +28,9 @@ def render_pickup(raw):
             props_pickup = groups[selected_group]
             # Botón para eliminar grupo
             if st.button(f"Eliminar grupo '{selected_group}'"):
-                import pandas as pd
-                from utils import GROUPS_PATH
-                df_groups = pd.read_csv(GROUPS_PATH)
+                df_groups = pd.read_csv("grupos_guardados.csv")
                 df_groups = df_groups[df_groups["Grupo"] != selected_group]
-                df_groups.to_csv(GROUPS_PATH, index=False)
+                df_groups.to_csv("grupos_guardados.csv", index=False)
                 st.success(f"Grupo '{selected_group}' eliminado.")
                 st.experimental_rerun()
         else:
