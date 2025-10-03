@@ -171,7 +171,6 @@ def render_resumen_comparativo(raw):
         ("Ocupación", "Ocupación LY"),
         ("ADR", "ADR LY"),
         ("Ingresos", "Ingresos LY"),
-        ("Ingresos finales LY", "Ingresos LY")
     ]:
         if col in detalle.columns and ly_col in detalle.columns:
             detalle_styler = detalle_styler.apply(
