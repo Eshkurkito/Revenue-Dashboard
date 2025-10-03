@@ -7,9 +7,22 @@ def render_kpis_por_meses(raw):
     with st.sidebar:
         st.header("Selección de grupo de alojamientos")
         groups = load_groups()
-        group_names = sorted(list(groups.keys()))
+        # Añade opción "Todos" al principio
+        group_names = ["Todos"] + sorted(list(groups.keys()))
         selected_group = st.selectbox("Grupo guardado", group_names)
-        props_rc = groups[selected_group] if selected_group else []
+        if selected_group == "Todos":
+            props_rc = sorted([str(x) for x in raw["Alojamiento"].dropna().unique()])
+        else:
+            props_rc = groups[selected_group] if selected_group else []
+
+        # Filtro adicional por alojamiento dentro del grupo seleccionado
+        st.header("Filtrar alojamientos (opcional)")
+        props_rc = st.multiselect(
+            "Alojamientos a mostrar",
+            options=props_rc,
+            default=props_rc,
+            key="kpis_mes_selector"
+        )
 
         st.header("Periodo")
         year = st.number_input("Año", min_value=2000, max_value=date.today().year, value=date.today().year)
