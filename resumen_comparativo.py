@@ -4,20 +4,15 @@ from datetime import date
 from utils import period_inputs, group_selector, save_group_csv, load_groups, GROUPS_PATH
 
 def calcular_kpis_por_alojamiento(df, fecha_inicio, fecha_fin, fecha_corte):
-    # Filtra reservas con Fecha alta <= fecha_corte y estancia dentro del periodo
-    df_filtrado = df[
-        (pd.to_datetime(df["Fecha alta"]) <= fecha_corte) &
-        (pd.to_datetime(df["Fecha entrada"]) >= fecha_inicio) &
-        (pd.to_datetime(df["Fecha entrada"]) <= fecha_fin)
-    ].copy()
+    df_filtrado = df[pd.to_datetime(df["Fecha alta"]) <= fecha_corte].copy()
 
-    # Calcula noches ocupadas solo dentro del periodo
-    df_filtrado["Noches ocupadas"] = (
-        pd.to_datetime(df_filtrado["Fecha salida"]).clip(upper=fecha_fin) -
-        pd.to_datetime(df_filtrado["Fecha entrada"]).clip(lower=fecha_inicio)
-    ).dt.days.clip(lower=0)
+    def noches_ocupadas_row(row):
+        inicio_real = max(pd.to_datetime(row["Fecha entrada"]), fecha_inicio)
+        fin_real = min(pd.to_datetime(row["Fecha salida"]), fecha_fin)
+        noches = (fin_real - inicio_real).days
+        return max(noches, 0)
 
-    days_period = (fecha_fin - fecha_inicio).days + 1
+    df_filtrado["Noches ocupadas"] = df_filtrado.apply(noches_ocupadas_row, axis=1)
 
     agrupado = df_filtrado.groupby("Alojamiento").agg(
         noches_ocupadas=("Noches ocupadas", "sum"),
@@ -25,8 +20,9 @@ def calcular_kpis_por_alojamiento(df, fecha_inicio, fecha_fin, fecha_corte):
         reservas=("Alojamiento", "count")
     ).reset_index()
 
+    noches_posibles = (fecha_fin - fecha_inicio).days
+    agrupado["Ocupación"] = agrupado["noches_ocupadas"] / noches_posibles * 100
     agrupado["ADR"] = agrupado["ingresos"] / agrupado["noches_ocupadas"]
-    agrupado["Ocupación"] = agrupado["noches_ocupadas"] / days_period * 100
 
     return agrupado
 
@@ -111,32 +107,32 @@ def render_resumen_comparativo(raw):
     detalle_actual = calcular_kpis_por_alojamiento(
         raw,
         pd.to_datetime(start_rc),
-        pd.to_datetime(cutoff_rc),
+        pd.to_datetime(end_rc),
         pd.to_datetime(cutoff_rc)
     )
 
     # Si comparar con LY
     if compare_rc:
+        # Mismo periodo pero desplazado un año atrás
         ly_start = pd.to_datetime(start_rc) - pd.DateOffset(years=1)
-        ly_cutoff = pd.to_datetime(cutoff_rc) - pd.DateOffset(years=1)
         ly_end = pd.to_datetime(end_rc) - pd.DateOffset(years=1)
+        ly_cutoff = pd.to_datetime(cutoff_rc) - pd.DateOffset(years=1)
 
-        detalle_ly_corte = calcular_kpis_por_alojamiento(
-            raw,
-            ly_start,
-            ly_cutoff,
-            ly_cutoff
-        )
-        detalle_ly_final = calcular_kpis_por_alojamiento(
-            raw,
-            ly_start,
-            ly_end,
-            ly_end
-        )
+        df_ly_periodo = raw[
+            (pd.to_datetime(raw["Fecha entrada"]) >= ly_start) &
+            (pd.to_datetime(raw["Fecha entrada"]) <= ly_end)
+        ]
+        if props_rc:
+            df_ly_periodo = df_ly_periodo[df_ly_periodo["Alojamiento"].isin(props_rc)]
+
+        detalle_ly_periodo = calcular_kpis_por_alojamiento(df_ly_periodo, ly_start, ly_end, ly_cutoff)
+
+        # Ingresos finales LY (a fin de periodo LY)
+        detalle_ly_final = calcular_kpis_por_alojamiento(df_ly_periodo, ly_start, ly_end, ly_end)
 
         # Merge ambos detalles
         detalle = detalle_actual.merge(
-            detalle_ly_corte[["Alojamiento", "noches_ocupadas", "Ocupación", "ADR", "ingresos"]],
+            detalle_ly_periodo[["Alojamiento", "noches_ocupadas", "Ocupación", "ADR", "ingresos"]],
             on="Alojamiento", how="left", suffixes=('', '_LY')
         ).merge(
             detalle_ly_final[["Alojamiento", "ingresos"]],
