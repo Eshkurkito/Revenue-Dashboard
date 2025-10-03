@@ -4,15 +4,11 @@ from datetime import date
 from utils import period_inputs, group_selector, save_group_csv, load_groups, GROUPS_PATH
 
 def calcular_kpis_por_alojamiento(df, fecha_inicio, fecha_fin):
-    # Calcula noches ocupadas
     df["Noches ocupadas"] = (
         pd.to_datetime(df["Fecha salida"]) - pd.to_datetime(df["Fecha entrada"])
     ).dt.days
 
-    # Días en el periodo
     dias_periodo = (fecha_fin - fecha_inicio).days + 1
-    alojamientos = df["Alojamiento"].unique()
-    noches_posibles = dias_periodo * len(alojamientos)
 
     agrupado = df.groupby("Alojamiento").agg(
         noches_ocupadas=("Noches ocupadas", "sum"),
@@ -21,7 +17,8 @@ def calcular_kpis_por_alojamiento(df, fecha_inicio, fecha_fin):
     ).reset_index()
 
     agrupado["ADR"] = agrupado["ingresos"] / agrupado["noches_ocupadas"]
-    agrupado["Ocupación"] = agrupado["noches_ocupadas"] / dias_periodo * 100
+    agrupado["Noches posibles"] = dias_periodo
+    agrupado["Ocupación"] = agrupado["noches_ocupadas"] / agrupado["Noches posibles"] * 100
 
     return agrupado
 
@@ -138,7 +135,6 @@ def render_resumen_comparativo(raw):
             on="Alojamiento", how="left", suffixes=('', '_LY_FINAL')
         )
 
-        # Renombra para claridad
         detalle.rename(columns={
             "noches_ocupadas": "Noches ocupadas",
             "noches_ocupadas_LY": "Noches ocupadas LY",
@@ -158,8 +154,9 @@ def render_resumen_comparativo(raw):
         detalle["Ingresos LY"] = None
         detalle["Ingresos finales LY"] = None
 
-    # Añade columna de ingresos finales LY (puedes adaptar la lógica si tienes otra fuente)
-    detalle["Ingresos finales LY"] = detalle["Ingresos LY"]
+    # Elimina la columna "Noches posibles" si no la quieres mostrar
+    if "Noches posibles" in detalle.columns:
+        detalle.drop(columns=["Noches posibles"], inplace=True)
 
     # Ordena columnas intercaladas
     columnas_finales = [
