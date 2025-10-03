@@ -45,7 +45,41 @@ def render_kpis_por_meses(raw):
         })
 
     df_result = pd.DataFrame(resultados)
-    st.dataframe(df_result, use_container_width=True)
+
+    # Formato y colores tipo resumen comparativo
+    GREEN = "background-color: #d4edda; color: #155724; font-weight: 600;"
+    RED   = "background-color: #f8d7da; color: #721c24; font-weight: 600;"
+
+    def style_row(r: pd.Series):
+        s = pd.Series("", index=df_result.columns, dtype="object")
+        # Marca verde si mejora respecto al mes anterior, rojo si empeora
+        for col in ["Ocupación %", "Ingresos", "ADR", "RevPAR"]:
+            idx = r.name
+            if idx > 0:
+                prev = df_result.loc[idx - 1, col]
+                curr = r[col]
+                if pd.notna(curr) and pd.notna(prev):
+                    try:
+                        if float(curr) > float(prev): s[col] = GREEN
+                        elif float(curr) < float(prev): s[col] = RED
+                    except Exception:
+                        pass
+        return s
+
+    styler = (
+        df_result.style
+        .apply(style_row, axis=1)
+        .format({
+            "Noches ocupadas": "{:.0f}",
+            "Noches disponibles": "{:.0f}",
+            "Ocupación %": "{:.2f}%",
+            "Ingresos": "{:.2f} €",
+            "ADR": "{:.2f} €",
+            "RevPAR": "{:.2f} €"
+        })
+    )
+
+    st.dataframe(styler, use_container_width=True)
 
     # Descarga CSV
     st.download_button(
