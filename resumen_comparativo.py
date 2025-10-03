@@ -1,221 +1,237 @@
 import pandas as pd
 import streamlit as st
 from datetime import date
-from utils import period_inputs, group_selector, save_group_csv, load_groups, GROUPS_PATH
+from utils import period_inputs, group_selector
 
-def calcular_kpis_por_alojamiento(df, fecha_inicio, fecha_fin, fecha_corte):
-    df_filtrado = df[pd.to_datetime(df["Fecha alta"]) <= fecha_corte].copy()
+def compute_kpis(
+    df_all: pd.DataFrame,
+    cutoff: pd.Timestamp,
+    period_start: pd.Timestamp,
+    period_end: pd.Timestamp,
+    inventory_override: int = None,
+    filter_props: list = None,
+):
+    df_cut = df_all[df_all["Fecha alta"] <= cutoff].copy()
+    if filter_props:
+        df_cut = df_cut[df_cut["Alojamiento"].isin(filter_props)]
+    df_cut = df_cut.dropna(subset=["Fecha entrada", "Fecha salida"]).copy()
 
-    def noches_ocupadas_row(row):
-        inicio_real = max(pd.to_datetime(row["Fecha entrada"]), fecha_inicio)
-        fin_real = min(pd.to_datetime(row["Fecha salida"]), fecha_fin)
-        noches = (fin_real - inicio_real).days
-        return max(noches, 0)
+    inv_detected = len(set(filter_props)) if filter_props else df_all["Alojamiento"].nunique()
+    inv_eff = int(inventory_override) if (inventory_override is not None and int(inventory_override) > 0) else int(inv_detected)
+    days = (period_end - period_start).days + 1
+    noches_disponibles = inv_eff * days if days > 0 else 0
 
-    df_filtrado["Noches ocupadas"] = df_filtrado.apply(noches_ocupadas_row, axis=1)
+    if df_cut.empty:
+        total = {
+            "noches_ocupadas": 0,
+            "noches_disponibles": noches_disponibles,
+            "ocupacion_pct": 0.0,
+            "ingresos": 0.0,
+            "adr": 0.0,
+            "revpar": 0.0,
+        }
+        return pd.DataFrame(columns=["Alojamiento", "Noches ocupadas", "Ingresos", "ADR"]), total
 
-    agrupado = df_filtrado.groupby("Alojamiento").agg(
-        noches_ocupadas=("Noches ocupadas", "sum"),
-        ingresos=("Alquiler con IVA (€)", "sum"),
-        reservas=("Alojamiento", "count")
-    ).reset_index()
+    one_day = pd.Timedelta(days=1)
+    start_ns = pd.to_datetime(period_start)
+    end_excl_ns = pd.to_datetime(period_end) + one_day
 
-    noches_posibles = (fecha_fin - fecha_inicio).days
-    agrupado["Ocupación"] = agrupado["noches_ocupadas"] / noches_posibles * 100
-    agrupado["ADR"] = agrupado["ingresos"] / agrupado["noches_ocupadas"]
+    arr_e = pd.to_datetime(df_cut["Fecha entrada"])
+    arr_s = pd.to_datetime(df_cut["Fecha salida"])
 
-    return agrupado
+    total_nights = (arr_s - arr_e).dt.days.clip(lower=0)
+    ov_start = arr_e.clip(lower=start_ns)
+    ov_end = arr_s.clip(upper=end_excl_ns)
+    ov_days = (ov_end - ov_start).dt.days.clip(lower=0)
 
-def euro_fmt(val):
-    if pd.isnull(val):
-        return ""
-    return f"{val:,.2f} €"
+    price = df_cut["Alquiler con IVA (€)"].astype(float)
+    share = ov_days / total_nights.replace(0, 1)
+    income = price * share
 
-def pct_fmt(val):
-    if pd.isnull(val):
-        return ""
-    return f"{val:.2f}%"
+    props = df_cut["Alojamiento"].astype(str)
+    df_agg = pd.DataFrame({"Alojamiento": props, "Noches": ov_days, "Ingresos": income})
+    by_prop = df_agg.groupby("Alojamiento", as_index=False).sum(numeric_only=True)
+    by_prop.rename(columns={"Noches": "Noches ocupadas"}, inplace=True)
+    by_prop["ADR"] = by_prop["Ingresos"] / by_prop["Noches ocupadas"].replace(0, 1)
+    by_prop = by_prop.sort_values("Alojamiento")
 
-def color_diff(val, ly_val):
-    if pd.isnull(val) or pd.isnull(ly_val):
-        return ""
-    return "background-color: #d4f7d4" if val >= ly_val else "background-color: #ffd6d6"
+    noches_ocupadas = int(by_prop["Noches ocupadas"].sum())
+    ingresos = float(by_prop["Ingresos"].sum())
+    adr = float(ingresos / noches_ocupadas) if noches_ocupadas > 0 else 0.0
+    ocupacion_pct = (noches_ocupadas / noches_disponibles * 100) if noches_disponibles > 0 else 0.0
+    revpar = ingresos / noches_disponibles if noches_disponibles > 0 else 0.0
 
-def color_row(row, col, ly_col):
-    try:
-        return [color_diff(row[col], row[ly_col])]
-    except Exception:
-        return [""]
+    tot = {
+        "noches_ocupadas": noches_ocupadas,
+        "noches_disponibles": noches_disponibles,
+        "ocupacion_pct": ocupacion_pct,
+        "ingresos": ingresos,
+        "adr": adr,
+        "revpar": revpar,
+    }
+    return by_prop, tot
 
 def render_resumen_comparativo(raw):
     if raw is None:
+        st.warning("No hay datos cargados.")
         st.stop()
-    raw.columns = [col.strip() for col in raw.columns]
 
     with st.sidebar:
-        st.header("Parámetros")
-        cutoff_rc = st.date_input("Fecha de corte", value=date.today(), key="cutoff_rc")
-        fecha_fin_mes = (pd.Timestamp.today() + pd.offsets.MonthEnd(0)).date()
+        st.header("Parámetros – Resumen comparativo")
+        cutoff_rc = st.date_input("Fecha de corte", value=date.today(), key="cut_resumen_comp")
         start_rc, end_rc = period_inputs(
             "Inicio del periodo", "Fin del periodo",
             date(date.today().year, date.today().month, 1),
-            fecha_fin_mes,
-            "rc_period"
+            (pd.Timestamp.today().to_period("M").end_time).date(),
+            "resumen_comp"
+        )
+        props_rc = group_selector(
+            "Alojamientos (opcional)",
+            list(raw["Alojamiento"].unique()),
+            key_prefix="resumen_comp",
+            default=[]
         )
 
-        st.header("Gestión de grupos")
-        groups = load_groups()
-        group_names = ["Ninguno"] + sorted(list(groups.keys()))
-        selected_group = st.selectbox("Grupo guardado", group_names)
+    st.subheader("📊 Resumen comparativo por alojamiento")
 
-        if selected_group and selected_group != "Ninguno":
-            props_rc = groups[selected_group]
-            if st.button(f"Eliminar grupo '{selected_group}'"):
-                df = pd.read_csv(GROUPS_PATH)
-                df = df[df["Grupo"] != selected_group]
-                df.to_csv(GROUPS_PATH, index=False)
-                st.success(f"Grupo '{selected_group}' eliminado.")
-                st.experimental_rerun()
-        else:
-            if "Alojamiento" not in raw.columns:
-                st.warning("No se encontró la columna 'Alojamiento'. Sube un archivo válido o revisa el nombre de la columna.")
-                st.stop()
-            props_rc = group_selector(
-                "Filtrar alojamientos (opcional)",
-                sorted([str(x) for x in raw["Alojamiento"].dropna().unique()]),
-                key_prefix="props_rc",
-                default=[]
-            )
+    days_period = (pd.to_datetime(end_rc) - pd.to_datetime(start_rc)).days + 1
+    if days_period <= 0:
+        st.error("El periodo no es válido (fin anterior o igual al inicio). Ajusta fechas.")
+        st.stop()
 
-        group_name = st.text_input("Nombre del grupo para guardar")
-        if st.button("Guardar grupo de pisos") and group_name and props_rc:
-            save_group_csv(group_name, props_rc)
-            st.success(f"Grupo '{group_name}' guardado.")
+    props_sel = props_rc if props_rc else None
 
-        compare_rc = st.checkbox(
-            "Comparar con año anterior (mismo día/mes)", value=True, key="cmp_rc"
+    def _by_prop_with_occ(cutoff_dt, start_dt, end_dt, props_sel=None):
+        by_prop, _ = compute_kpis(
+            df_all=raw,
+            cutoff=pd.to_datetime(cutoff_dt),
+            period_start=pd.to_datetime(start_dt),
+            period_end=pd.to_datetime(end_dt),
+            inventory_override=None,
+            filter_props=props_sel if props_sel else None,
         )
+        if by_prop.empty:
+            return pd.DataFrame(columns=["Alojamiento","ADR","Ocupación %","Ingresos"])
+        out = by_prop.copy()
+        out["Ocupación %"] = (out["Noches ocupadas"] / days_period * 100.0).astype(float)
+        return out[["Alojamiento","ADR","Ocupación %","Ingresos"]]
 
-    # Filtra por fechas del periodo actual
-    df_actual = raw[
-        (pd.to_datetime(raw["Fecha entrada"]) >= pd.to_datetime(start_rc)) &
-        (pd.to_datetime(raw["Fecha entrada"]) <= pd.to_datetime(cutoff_rc))
-    ]
-    if props_rc:
-        df_actual = df_actual[df_actual["Alojamiento"].isin(props_rc)]
-
-    detalle_actual = calcular_kpis_por_alojamiento(
-        raw,
-        pd.to_datetime(start_rc),
-        pd.to_datetime(end_rc),
-        pd.to_datetime(cutoff_rc)
-    )
-
-    # Si comparar con LY
-    if compare_rc:
-        # Mismo periodo pero desplazado un año atrás
-        ly_start = pd.to_datetime(start_rc) - pd.DateOffset(years=1)
-        ly_end = pd.to_datetime(end_rc) - pd.DateOffset(years=1)
-        ly_cutoff = pd.to_datetime(cutoff_rc) - pd.DateOffset(years=1)
-
-        df_ly_periodo = raw[
-            (pd.to_datetime(raw["Fecha entrada"]) >= ly_start) &
-            (pd.to_datetime(raw["Fecha entrada"]) <= ly_end)
-        ]
-        if props_rc:
-            df_ly_periodo = df_ly_periodo[df_ly_periodo["Alojamiento"].isin(props_rc)]
-
-        detalle_ly_periodo = calcular_kpis_por_alojamiento(df_ly_periodo, ly_start, ly_end, ly_cutoff)
-
-        # Ingresos finales LY (a fin de periodo LY)
-        detalle_ly_final = calcular_kpis_por_alojamiento(df_ly_periodo, ly_start, ly_end, ly_end)
-
-        # Merge ambos detalles
-        detalle = detalle_actual.merge(
-            detalle_ly_periodo[["Alojamiento", "noches_ocupadas", "Ocupación", "ADR", "ingresos"]],
-            on="Alojamiento", how="left", suffixes=('', '_LY')
-        ).merge(
-            detalle_ly_final[["Alojamiento", "ingresos"]],
-            on="Alojamiento", how="left", suffixes=('', '_LY_FINAL')
-        )
-
-        detalle.rename(columns={
-            "noches_ocupadas": "Noches ocupadas",
-            "noches_ocupadas_LY": "Noches ocupadas LY",
-            "Ocupación": "Ocupación",
-            "Ocupación_LY": "Ocupación LY",
-            "ADR": "ADR",
-            "ADR_LY": "ADR LY",
-            "ingresos": "Ingresos",
-            "ingresos_LY": "Ingresos LY",
-            "ingresos_LY_FINAL": "Ingresos finales LY"
-        }, inplace=True)
-    else:
-        detalle = detalle_actual.copy()
-        detalle["Noches ocupadas LY"] = None
-        detalle["Ocupación LY"] = None
-        detalle["ADR LY"] = None
-        detalle["Ingresos LY"] = None
-        detalle["Ingresos finales LY"] = None
-
-    # Elimina la columna "Noches posibles" si no la quieres mostrar
-    if "Noches posibles" in detalle.columns:
-        detalle.drop(columns=["Noches posibles"], inplace=True)
-
-    # Ordena columnas intercaladas
-    columnas_finales = [
-        "Alojamiento",
-        "Noches ocupadas", "Noches ocupadas LY",
-        "Ocupación", "Ocupación LY",
-        "ADR", "ADR LY",
-        "Ingresos", "Ingresos LY",
-        "Ingresos finales LY"
-    ]
-    detalle = detalle[columnas_finales]
-
-    # Formato y colores con Styler
-    detalle_styler = detalle.style.format({
-        "ADR": euro_fmt,
-        "ADR LY": euro_fmt,
-        "Ingresos": euro_fmt,
-        "Ingresos LY": euro_fmt,
-        "Ingresos finales LY": euro_fmt,
-        "Ocupación": pct_fmt,
-        "Ocupación LY": pct_fmt,
-        "Noches ocupadas": "{:.0f}",
-        "Noches ocupadas LY": "{:.0f}",
+    # Actual
+    now_df = _by_prop_with_occ(cutoff_rc, start_rc, end_rc, props_sel).rename(columns={
+        "ADR":"ADR actual", "Ocupación %":"Ocupación actual %", "Ingresos":"Ingresos actuales (€)"
     })
 
-    for col, ly_col in [
-        ("Noches ocupadas", "Noches ocupadas LY"),
-        ("Ocupación", "Ocupación LY"),
-        ("ADR", "ADR LY"),
-        ("Ingresos", "Ingresos LY"),
-    ]:
-        if col in detalle.columns and ly_col in detalle.columns:
-            detalle_styler = detalle_styler.apply(
-                lambda s: [
-                    color_diff(val, ly_val)
-                    for val, ly_val in zip(s, detalle[ly_col])
-                ],
-                subset=[col]
-            )
+    # LY (mismo periodo y cutoff -1 año)
+    ly_df = _by_prop_with_occ(
+        pd.to_datetime(cutoff_rc) - pd.DateOffset(years=1),
+        pd.to_datetime(start_rc) - pd.DateOffset(years=1),
+        pd.to_datetime(end_rc)   - pd.DateOffset(years=1),
+        props_sel
+    ).rename(columns={
+        "ADR":"ADR LY", "Ocupación %":"Ocupación LY %", "Ingresos":"Ingresos LY (€)"
+    })
 
-    st.subheader("Detalle por alojamiento")
-    st.dataframe(detalle_styler, use_container_width=True)
+    # LY final (resultado): mismo periodo LY, pero corte = fin del periodo LY
+    ly_final_df = _by_prop_with_occ(
+        pd.to_datetime(end_rc)   - pd.DateOffset(years=1),
+        pd.to_datetime(start_rc) - pd.DateOffset(years=1),
+        pd.to_datetime(end_rc)   - pd.DateOffset(years=1),
+        props_sel
+    )
+    ly_final_df = ly_final_df[["Alojamiento","Ingresos"]].rename(columns={"Ingresos":"Ingresos finales LY (€)"})
 
-    # Exportar a Excel con formato
+    # Merge total
+    resumen = now_df.merge(ly_df, on="Alojamiento", how="outer") \
+                    .merge(ly_final_df, on="Alojamiento", how="left")
+
+    if resumen.empty:
+        st.info(
+            "No hay reservas que intersecten el periodo **a la fecha de corte** seleccionada.\n"
+            "- Prueba a ampliar el periodo o mover la fecha de corte.\n"
+            "- Recuerda que se incluyen reservas con **Fecha alta ≤ corte** y estancia dentro del periodo."
+        )
+        st.stop()
+
+    resumen = resumen.reindex(columns=[
+        "Alojamiento",
+        "ADR actual","ADR LY",
+        "Ocupación actual %","Ocupación LY %",
+        "Ingresos actuales (€)","Ingresos LY (€)",
+        "Ingresos finales LY (€)"
+    ])
+
+    GREEN = "background-color: #d4edda; color: #155724; font-weight: 600;"
+    RED   = "background-color: #f8d7da; color: #721c24; font-weight: 600;"
+    def _style_row(r: pd.Series):
+        s = pd.Series("", index=resumen.columns, dtype="object")
+        def mark(a, b):
+            va, vb = r.get(a), r.get(b)
+            if pd.notna(va) and pd.notna(vb):
+                try:
+                    if float(va) > float(vb): s[a] = GREEN
+                    elif float(va) < float(vb): s[a] = RED
+                except Exception:
+                    pass
+        mark("ADR actual", "ADR LY")
+        mark("Ocupación actual %", "Ocupación LY %")
+        mark("Ingresos actuales (€)", "Ingresos LY (€)")
+        return s
+    styler = (
+        resumen.style
+        .apply(_style_row, axis=1)
+        .format({
+            "ADR actual": "{:.2f}", "ADR LY": "{:.2f}",
+            "Ocupación actual %": "{:.2f}", "Ocupación LY %": "{:.2f}",
+            "Ingresos actuales (€)": "{:.2f}", "Ingresos LY (€)": "{:.2f}",
+            "Ingresos finales LY (€)": "{:.2f}",
+        })
+    )
+    st.dataframe(styler, use_container_width=True)
+
+    # Descargas
+    csv_bytes = resumen.to_csv(index=False).encode("utf-8-sig")
+    st.download_button("📥 Descargar CSV", data=csv_bytes,
+                       file_name="resumen_comparativo.csv", mime="text/csv")
+
     import io
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        detalle.to_excel(writer, sheet_name="Detalle", index=False)
-        workbook = writer.book
-        worksheet = writer.sheets["Detalle"]
-        for idx, col in enumerate(detalle.columns):
-            worksheet.set_column(idx, idx, 18)
+    buffer = io.BytesIO()
+    try:
+        from xlsxwriter.utility import xl_rowcol_to_cell
+        with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+            resumen.to_excel(writer, index=False, sheet_name="Resumen")
+            wb = writer.book
+            ws = writer.sheets["Resumen"]
+            for j, col in enumerate(resumen.columns):
+                width = int(min(38, max(12, resumen[col].astype(str).str.len().max() if not resumen.empty else 12)))
+                ws.set_column(j, j, width)
+            fmt_green = wb.add_format({"bg_color": "#d4edda", "font_color": "#155724", "bold": True})
+            fmt_red   = wb.add_format({"bg_color": "#f8d7da", "font_color": "#721c24", "bold": True})
+            pairs = [
+                ("ADR actual", "ADR LY"),
+                ("Ocupación actual %", "Ocupación LY %"),
+                ("Ingresos actuales (€)", "Ingresos LY (€)"),
+            ]
+            n = len(resumen)
+            if n > 0:
+                first_row = 1
+                last_row  = first_row + n - 1
+                for a_col, ly_col in pairs:
+                    a_idx  = resumen.columns.get_loc(a_col)
+                    ly_idx = resumen.columns.get_loc(ly_col)
+                    a_cell  = xl_rowcol_to_cell(first_row, a_idx,  row_abs=False, col_abs=True)
+                    ly_cell = xl_rowcol_to_cell(first_row, ly_idx, row_abs=False, col_abs=True)
+                    ws.conditional_format(first_row, a_idx, last_row, a_idx, {
+                        "type": "formula", "criteria": f"={a_cell}>{ly_cell}", "format": fmt_green
+                    })
+                    ws.conditional_format(first_row, a_idx, last_row, a_idx, {
+                        "type": "formula", "criteria": f"={a_cell}<{ly_cell}", "format": fmt_red
+                    })
+    except Exception:
+        with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+            resumen.to_excel(writer, index=False, sheet_name="Resumen")
     st.download_button(
-        "📥 Descargar detalle por alojamiento (Excel)",
-        data=output.getvalue(),
-        file_name="detalle_comparativo.xlsx",
+        "📥 Descargar Excel (.xlsx)",
+        data=buffer.getvalue(),
+        file_name="resumen_comparativo.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
