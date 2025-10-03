@@ -171,7 +171,7 @@ def render_resumen_comparativo(raw):
     ]:
         if col in detalle.columns and ly_col in detalle.columns:
             detalle_styler = detalle_styler.apply(
-                lambda x: [color_diff(x[col], x[ly_col]) for i in x.index], axis=1, subset=[col]
+                lambda fila: [color_diff(fila[col], fila[ly_col])], axis=1, subset=[col]
             )
 
     st.subheader("Detalle por alojamiento")
