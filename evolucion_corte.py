@@ -20,9 +20,10 @@ def render_evolucion_corte(raw):
             "evo_target"
         )
 
+        # Filtro de alojamientos con grupos y orden alfabético
         props_e = group_selector(
             "Filtrar alojamientos (opcional)",
-            list(raw["Alojamiento"].unique()),
+            sorted(list(raw["Alojamiento"].unique())),
             key_prefix="props_evo",
             default=[]
         )
@@ -95,12 +96,130 @@ def render_evolucion_corte(raw):
                 })
             df_prev = pd.DataFrame(rows_prev)
 
+        # ---------- Preparación long-form para graficar ----------
+        kpi_map = {
+            "Ocupación %": ("ocupacion_pct", "occ"),
+            "ADR (€)":     ("adr", "eur"),
+            "RevPAR (€)":  ("revpar", "eur"),
+        }
+        sel_items = [(k, *kpi_map[k]) for k in selected_kpis]
+
+        def to_long(df, label_suffix="Actual"):
+            out = []
+            for lbl, col, kind in sel_items:
+                if col in df.columns:
+                    tmp = df[["Corte", col]].copy()
+                    tmp["metric_label"] = lbl if label_suffix == "Actual" else f"{lbl} (LY)"
+                    tmp["value"] = tmp[col].astype(float)
+                    tmp["kind"] = kind
+                    tmp["series"] = label_suffix
+                    out.append(tmp[["Corte", "metric_label", "value", "kind", "series"]])
+            return pd.concat(out, ignore_index=True) if out else pd.DataFrame()
+
+        long_now  = to_long(df_now, "Actual")
+        long_prev = to_long(df_prev, "LY") if compare_e and not df_prev.empty else pd.DataFrame()
+        long_all  = pd.concat([long_now, long_prev], ignore_index=True) if not long_prev.empty else long_now
+
+        # ==========================
+        #     G R Á F I C A S
+        # ==========================
+        import altair as alt
+
+        nearest = alt.selection_point(fields=["Corte"], nearest=True, on="mousemove", empty="none")
+
+        def build_layer(data, kind, axis_orient="left", color_map=None, dash_ly=True):
+            if data.empty:
+                return None
+            dfk = data[data["kind"] == kind]
+            if dfk.empty:
+                return None
+            _colors = color_map or {
+                "Ocupación %": "#1f77b4",
+                "ADR (€)": "#ff7f0e",
+                "RevPAR (€)": "#2ca02c",
+                "Ocupación % (LY)": "#1f77b4",
+                "ADR (€) (LY)": "#ff7f0e",
+                "RevPAR (€) (LY)": "#2ca02c",
+            }
+            line = (
+                alt.Chart(dfk)
+                .mark_line(strokeWidth=2, interpolate="monotone", point=alt.OverlayMarkDef(size=30, filled=True))
+                .encode(
+                    x=alt.X("Corte:T", title="Fecha de corte"),
+                    y=alt.Y(
+                        "value:Q",
+                        axis=alt.Axis(orient=axis_orient, title=list(dfk["metric_label"].unique())[0])
+                    ),
+                    color=alt.Color("metric_label:N", scale=alt.Scale(domain=list(_colors.keys()),
+                                                                      range=[_colors[k] for k in _colors]),
+                                    legend=None),
+                    detail="metric_label:N",
+                    tooltip=[alt.Tooltip("Corte:T", title="Día"),
+                             alt.Tooltip("metric_label:N", title="KPI"),
+                             alt.Tooltip("value:Q", title="Valor", format=".2f")],
+                )
+            )
+            pts_hover = (
+                alt.Chart(dfk)
+                .mark_point(size=90, filled=True)
+                .encode(
+                    x="Corte:T",
+                    y="value:Q",
+                    color=alt.Color("metric_label:N", scale=alt.Scale(domain=list(_colors.keys()),
+                                                                      range=[_colors[k] for k in _colors]),
+                                    legend=None),
+                    detail="metric_label:N",
+                )
+                .transform_filter(nearest)
+            )
+            if " (LY)" in " ".join(dfk["metric_label"].unique()):
+                line = line.encode(strokeDash=alt.condition(
+                    "indexof(datum.metric_label, '(LY)') >= 0",
+                    alt.value([5, 3]), alt.value([0, 0])
+                ), opacity=alt.condition(
+                    "indexof(datum.metric_label, '(LY)') >= 0",
+                    alt.value(0.35), alt.value(1.0)
+                ))
+            return alt.layer(line, pts_hover)
+
+        selectors = (
+            alt.Chart(long_all)
+            .mark_rule(opacity=0)
+            .encode(x="Corte:T")
+            .add_params(nearest)
+        )
+        vline = (
+            alt.Chart(long_all)
+            .mark_rule(color="#666", strokeWidth=1)
+            .encode(x="Corte:T", opacity=alt.condition(nearest, alt.value(1), alt.value(0)))
+        )
+
+        occ_selected   = any(kind == "occ" for _, _, kind in sel_items)
+        euros_selected = any(kind == "eur" for _, _, kind in sel_items)
+
+        left_layer  = build_layer(long_all, "occ", axis_orient="left")
+        right_orient = "right" if (occ_selected and euros_selected) else "left"
+        right_layer = build_layer(long_all, "eur", axis_orient=right_orient)
+
+        layers = [selectors]
+        if left_layer is not None:
+            layers.append(left_layer)
+        if right_layer is not None:
+            layers.append(right_layer)
+        layers.append(vline)
+
+        chart = alt.layer(*layers).resolve_scale(
+            y="independent" if (occ_selected and euros_selected) else "shared"
+        ).properties(height=380)
+
+        zoomx = alt.selection_interval(bind="scales", encodings=["x"])
+        st.altair_chart(chart.add_params(zoomx), use_container_width=True)
+
         # ---------- Preparación tabla ----------
         table_df = df_now.copy()
         if compare_e and not df_prev.empty:
             table_df = table_df.merge(df_prev, on="Corte", how="left", suffixes=("", " (LY)"))
 
-        # Renombrar columnas para mostrar
         rename_map = {
             "ocupacion_pct": "Ocupación %",
             "adr": "ADR (€)",
@@ -113,7 +232,6 @@ def render_evolucion_corte(raw):
         }
         table_df = table_df.rename(columns=rename_map)
 
-        # Mostrar solo KPIs seleccionados
         cols_to_show = ["Corte"] + selected_kpis
         if compare_e:
             cols_to_show += [f"{kpi} (LY)" for kpi in selected_kpis]
@@ -147,7 +265,6 @@ def render_evolucion_corte(raw):
         import io
         buffer = io.BytesIO()
         df_excel = table_df.copy()
-        # Divide ocupación por 100 para formato porcentaje en Excel
         for col in df_excel.columns:
             if "Ocupación" in col:
                 df_excel[col] = df_excel[col] / 100
@@ -169,7 +286,6 @@ def render_evolucion_corte(raw):
                     ws.set_column(idx, idx, 18, fmt_eur)
                 elif "Noches" in col:
                     ws.set_column(idx, idx, 18, fmt_int)
-            # Colores condicionales
             n = len(df_excel)
             if n > 0 and compare_e:
                 from xlsxwriter.utility import xl_rowcol_to_cell
@@ -187,7 +303,6 @@ def render_evolucion_corte(raw):
                         ws.conditional_format(first_row, i_a, last_row, i_a, {
                             "type": "formula", "criteria": f"={a_cell}<{ly_cell}", "format": fmt_red
                         })
-            # Nombre de alojamientos o grupo arriba a la izquierda
             nombre_alojamientos = ", ".join(props_e) if props_e else "Todos"
             ws.write(0, 0, nombre_alojamientos, wb.add_format({"bold": True, "font_color": "#003366"}))
         st.download_button(
@@ -197,7 +312,6 @@ def render_evolucion_corte(raw):
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-        # Descarga CSV
         st.download_button(
             "📥 Descargar evolución (CSV)",
             data=table_df.to_csv(index=False).encode("utf-8-sig"),
