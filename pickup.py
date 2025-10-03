@@ -10,7 +10,7 @@ def render_pickup(raw):
 
     with st.sidebar:
         st.header("Parámetros")
-        cutoff_1 = st.date_input("Fecha de corte 1", value=date.today(), key="cutoff_1")
+        cutoff_1 = st.date_input("Fecha de corte", value=date.today(), key="pickup_cutoff")
         cutoff_2 = st.date_input("Fecha de corte 2", value=date.today(), key="cutoff_2")
         period_start, period_end = period_inputs(
             "Inicio del periodo", "Fin del periodo",
