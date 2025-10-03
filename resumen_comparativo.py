@@ -37,6 +37,12 @@ def color_diff(val, ly_val):
         return ""
     return "background-color: #d4f7d4" if val >= ly_val else "background-color: #ffd6d6"
 
+def color_row(row, col, ly_col):
+    try:
+        return [color_diff(row[col], row[ly_col])]
+    except Exception:
+        return [""]
+
 def render_resumen_comparativo(raw):
     if raw is None:
         st.stop()
