@@ -3,22 +3,25 @@ import streamlit as st
 from datetime import date
 from utils import period_inputs, group_selector, save_group_csv, load_groups, GROUPS_PATH
 
-def calcular_kpis_por_alojamiento(df):
+def calcular_kpis_por_alojamiento(df, fecha_inicio, fecha_fin):
+    # Calcula noches ocupadas
     df["Noches ocupadas"] = (
         pd.to_datetime(df["Fecha salida"]) - pd.to_datetime(df["Fecha entrada"])
     ).dt.days
 
-    # Calcula noches disponibles como suma de noches ocupadas por alojamiento
-    noches_disponibles = df.groupby("Alojamiento")["Noches ocupadas"].sum()
+    # Días en el periodo
+    dias_periodo = (fecha_fin - fecha_inicio).days + 1
+    alojamientos = df["Alojamiento"].unique()
+    noches_posibles = dias_periodo * len(alojamientos)
+
     agrupado = df.groupby("Alojamiento").agg(
         noches_ocupadas=("Noches ocupadas", "sum"),
         ingresos=("Alquiler con IVA (€)", "sum"),
-        reservas=("Alojamiento", "count"),
-        noches_disponibles=("Noches ocupadas", "sum")
+        reservas=("Alojamiento", "count")
     ).reset_index()
 
     agrupado["ADR"] = agrupado["ingresos"] / agrupado["noches_ocupadas"]
-    agrupado["Ocupación"] = agrupado["noches_ocupadas"] / agrupado["noches_disponibles"] * 100
+    agrupado["Ocupación"] = agrupado["noches_ocupadas"] / dias_periodo * 100
 
     return agrupado
 
@@ -100,7 +103,7 @@ def render_resumen_comparativo(raw):
     if props_rc:
         df_actual = df_actual[df_actual["Alojamiento"].isin(props_rc)]
 
-    detalle_actual = calcular_kpis_por_alojamiento(df_actual)
+    detalle_actual = calcular_kpis_por_alojamiento(df_actual, pd.to_datetime(start_rc), pd.to_datetime(end_rc))
 
     # Si comparar con LY
     if compare_rc:
@@ -112,7 +115,7 @@ def render_resumen_comparativo(raw):
         ]
         if props_rc:
             df_ly = df_ly[df_ly["Alojamiento"].isin(props_rc)]
-        detalle_ly = calcular_kpis_por_alojamiento(df_ly)
+        detalle_ly = calcular_kpis_por_alojamiento(df_ly, ly_start, ly_end)
         # Merge ambos detalles
         detalle = detalle_actual.merge(
             detalle_ly[["Alojamiento", "noches_ocupadas", "Ocupación", "ADR", "ingresos"]],
