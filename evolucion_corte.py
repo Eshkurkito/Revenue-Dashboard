@@ -6,6 +6,13 @@ from utils import compute_kpis, period_inputs, group_selector, help_block
 def render_evolucion_corte(raw):
     if raw is None:
         st.stop()
+    
+    if not isinstance(raw, pd.DataFrame):
+        st.error("No se han cargado datos o el formato no es correcto.")
+        st.stop()
+    if "Alojamiento" not in raw.columns:
+        st.error("El archivo no contiene la columna 'Alojamiento'.")
+        st.stop()
 
     with st.sidebar:
         st.header("Rango de corte")
@@ -23,7 +30,7 @@ def render_evolucion_corte(raw):
         # Filtro de alojamientos con grupos y orden alfabético
         props_e = group_selector(
             "Filtrar alojamientos (opcional)",
-            sorted(list(raw["Alojamiento"].unique())),
+            sorted(list(raw["Alojamiento"].dropna().unique())),
             key_prefix="props_evo",
             default=[]
         )
