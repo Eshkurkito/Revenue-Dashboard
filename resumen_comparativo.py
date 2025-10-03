@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 from datetime import date
-from utils import period_inputs, group_selector, save_group_csv, load_groups, GROUPS_PATH
+from utils import period_inputs, group_selector, save_group_csv, load_groups, GROUPS_CSV
 
 def compute_kpis(
     df_all: pd.DataFrame,
@@ -95,9 +95,9 @@ def render_resumen_comparativo(raw):
         if selected_group and selected_group != "Ninguno":
             props_rc = groups[selected_group]
             if st.button(f"Eliminar grupo '{selected_group}'"):
-                df = pd.read_csv(GROUPS_PATH)
+                df = pd.read_csv(GROUPS_CSV)
                 df = df[df["Grupo"] != selected_group]
-                df.to_csv(GROUPS_PATH, index=False)
+                df.to_csv(GROUPS_CSV, index=False)
                 st.success(f"Grupo '{selected_group}' eliminado.")
                 st.experimental_rerun()
         else:
