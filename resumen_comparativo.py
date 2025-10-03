@@ -1,7 +1,31 @@
 import pandas as pd
 import streamlit as st
 from datetime import date
-from utils import compute_kpis, period_inputs, group_selector, help_block, save_group_csv, load_groups, GROUPS_PATH
+from utils import period_inputs, group_selector, save_group_csv, load_groups, GROUPS_PATH
+
+def calcular_kpis_por_alojamiento(df):
+    # Calcula noches ocupadas
+    df["Noches ocupadas"] = (
+        pd.to_datetime(df["Fecha salida"]) - pd.to_datetime(df["Fecha entrada"])
+    ).dt.days
+
+    # Agrupa por alojamiento
+    agrupado = df.groupby("Alojamiento").agg(
+        noches_ocupadas=("Noches ocupadas", "sum"),
+        ingresos=("Alquiler con IVA (€)", "sum"),
+        reservas=("Alojamiento", "count")
+    ).reset_index()
+
+    # Calcula ADR
+    agrupado["ADR"] = agrupado["ingresos"] / agrupado["noches_ocupadas"]
+    agrupado["Ocupación"] = 100  # Si no tienes noches disponibles, pon 100% por defecto
+
+    # Formato
+    agrupado["ADR"] = agrupado["ADR"].apply(lambda x: f"{x:.2f} €" if pd.notnull(x) else "")
+    agrupado["ingresos"] = agrupado["ingresos"].apply(lambda x: f"{x:.2f} €" if pd.notnull(x) else "")
+    agrupado["Ocupación"] = agrupado["Ocupación"].apply(lambda x: f"{x:.2f}%" if pd.notnull(x) else "")
+
+    return agrupado
 
 def render_resumen_comparativo(raw):
     if raw is None:
@@ -52,128 +76,46 @@ def render_resumen_comparativo(raw):
             "Comparar con año anterior (mismo día/mes)", value=True, key="cmp_rc"
         )
 
-    # KPIs actuales
-    by_prop_rc, total_rc = compute_kpis(
-        df_all=raw,
-        cutoff=pd.to_datetime(cutoff_rc),
-        period_start=pd.to_datetime(start_rc),
-        period_end=pd.to_datetime(end_rc),
-        filter_props=props_rc if props_rc else None,
-    )
+    # Filtra por fechas del periodo actual
+    df_actual = raw[
+        (pd.to_datetime(raw["Fecha entrada"]) >= pd.to_datetime(start_rc)) &
+        (pd.to_datetime(raw["Fecha entrada"]) <= pd.to_datetime(end_rc))
+    ]
+    if props_rc:
+        df_actual = df_actual[df_actual["Alojamiento"].isin(props_rc)]
 
-    # KPIs año anterior
+    detalle_actual = calcular_kpis_por_alojamiento(df_actual)
+
+    # Si comparar con LY
     if compare_rc:
         ly_start = pd.to_datetime(start_rc) - pd.DateOffset(years=1)
         ly_end = pd.to_datetime(end_rc) - pd.DateOffset(years=1)
-        ly_cutoff = pd.to_datetime(cutoff_rc) - pd.DateOffset(years=1)
-        by_prop_ly, total_ly = compute_kpis(
-            df_all=raw,
-            cutoff=ly_cutoff,
-            period_start=ly_start,
-            period_end=ly_end,
-            filter_props=props_rc if props_rc else None,
+        df_ly = raw[
+            (pd.to_datetime(raw["Fecha entrada"]) >= ly_start) &
+            (pd.to_datetime(raw["Fecha entrada"]) <= ly_end)
+        ]
+        if props_rc:
+            df_ly = df_ly[df_ly["Alojamiento"].isin(props_rc)]
+        detalle_ly = calcular_kpis_por_alojamiento(df_ly)
+        # Merge ambos detalles
+        detalle = detalle_actual.merge(
+            detalle_ly[["Alojamiento", "noches_ocupadas", "ADR", "ingresos"]],
+            on="Alojamiento", how="left", suffixes=('', '_LY')
         )
-    else:
-        by_prop_ly = pd.DataFrame()
-
-    # Unir ambos detalles por alojamiento
-    detalle = by_prop_rc.copy()
-    if not by_prop_ly.empty:
-        detalle = detalle.merge(
-            by_prop_ly[["Alojamiento", "noches_ocupadas", "ocupacion_pct", "adr", "ingresos", "revpar"]],
-            on="Alojamiento", how="left", suffixes=('', '_ly')
-        )
-        # Renombrar columnas para claridad
+        # Renombra para claridad
         detalle.rename(columns={
             "noches_ocupadas": "Noches ocupadas",
-            "noches_ocupadas_ly": "Noches ocupadas LY",
-            "ocupacion_pct": "Ocupación",
-            "ocupacion_pct_ly": "Ocupación LY",
-            "adr": "ADR",
-            "adr_ly": "ADR LY",
+            "noches_ocupadas_LY": "Noches ocupadas LY",
+            "ADR": "ADR",
+            "ADR_LY": "ADR LY",
             "ingresos": "Ingresos",
-            "ingresos_ly": "Ingresos LY",
-            "revpar_ly": "Ingresos finales LY"
+            "ingresos_LY": "Ingresos LY"
         }, inplace=True)
-        # Si la columna 'revpar_ly' no existe, crea vacía
-        if "Ingresos finales LY" not in detalle.columns:
-            detalle["Ingresos finales LY"] = None
     else:
-        detalle.rename(columns={
-            "noches_ocupadas": "Noches ocupadas",
-            "ocupacion_pct": "Ocupación",
-            "adr": "ADR",
-            "ingresos": "Ingresos"
-        }, inplace=True)
+        detalle = detalle_actual.copy()
         detalle["Noches ocupadas LY"] = None
-        detalle["Ocupación LY"] = None
         detalle["ADR LY"] = None
         detalle["Ingresos LY"] = None
-        detalle["Ingresos finales LY"] = None
-
-    # Formato y colores
-    def color_diff(val, ly_val):
-        if pd.isnull(val) or pd.isnull(ly_val):
-            return ""
-        return "background-color: #d4f7d4" if val >= ly_val else "background-color: #ffd6d6"
-
-    def euro_fmt(val):
-        if pd.isnull(val):
-            return ""
-        return f"{val:,.2f} €"
-
-    def pct_fmt(val):
-        if pd.isnull(val):
-            return ""
-        return f"{val:.2f}%"
-
-    # Aplica formato y colores con Styler
-    cols_num = ["Noches ocupadas", "Noches ocupadas LY", "Ocupación", "Ocupación LY", "ADR", "ADR LY", "Ingresos", "Ingresos LY", "Ingresos finales LY"]
-    detalle_styler = detalle.style.format({
-        "ADR": euro_fmt,
-        "ADR LY": euro_fmt,
-        "Ingresos": euro_fmt,
-        "Ingresos LY": euro_fmt,
-        "Ingresos finales LY": euro_fmt,
-        "Ocupación": pct_fmt,
-        "Ocupación LY": pct_fmt,
-        "Noches ocupadas": "{:.0f}",
-        "Noches ocupadas LY": "{:.0f}",
-    })
-
-    # Colores verde/rojo según mejora o empeora respecto LY
-    for col, ly_col in [
-        ("Noches ocupadas", "Noches ocupadas LY"),
-        ("Ocupación", "Ocupación LY"),
-        ("ADR", "ADR LY"),
-        ("Ingresos", "Ingresos LY"),
-        ("Ingresos finales LY", "Ingresos finales LY")
-    ]:
-        if col in detalle.columns and ly_col in detalle.columns:
-            detalle_styler = detalle_styler.apply(
-                lambda x: [color_diff(x[col], x[ly_col]) for i in x.index], axis=1, subset=[col]
-            )
 
     st.subheader("Detalle por alojamiento")
-    st.dataframe(detalle_styler, use_container_width=True)
-
-    # Exportar a Excel con formato
-    import io
-    from pandas.io.formats.style import Styler
-
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        detalle_styler.to_excel(writer, sheet_name="Detalle", index=False)
-        workbook = writer.book
-        worksheet = writer.sheets["Detalle"]
-        # Ajusta el ancho de columnas y formato numérico
-        for idx, col in enumerate(detalle.columns):
-            worksheet.set_column(idx, idx, 18)
-        # Los colores ya se exportan con Styler
-
-    st.download_button(
-        "📥 Descargar detalle por alojamiento (Excel)",
-        data=output.getvalue(),
-        file_name="detalle_comparativo.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+    st.dataframe(detalle, use_container_width=True)
