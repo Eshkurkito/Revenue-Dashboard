@@ -4,25 +4,21 @@ from datetime import date
 from utils import period_inputs, group_selector, save_group_csv, load_groups, GROUPS_PATH
 
 def calcular_kpis_por_alojamiento(df):
-    # Calcula noches ocupadas
     df["Noches ocupadas"] = (
         pd.to_datetime(df["Fecha salida"]) - pd.to_datetime(df["Fecha entrada"])
     ).dt.days
 
-    # Calcula noches disponibles por alojamiento (máximo noches ocupadas en el periodo)
-    noches_disponibles = df.groupby("Alojamiento")["Noches ocupadas"].max()
-    # Agrupa por alojamiento
+    # Calcula noches disponibles como suma de noches ocupadas por alojamiento
+    noches_disponibles = df.groupby("Alojamiento")["Noches ocupadas"].sum()
     agrupado = df.groupby("Alojamiento").agg(
         noches_ocupadas=("Noches ocupadas", "sum"),
         ingresos=("Alquiler con IVA (€)", "sum"),
         reservas=("Alojamiento", "count"),
-        noches_disponibles=("Noches ocupadas", "max")
+        noches_disponibles=("Noches ocupadas", "sum")
     ).reset_index()
 
-    # Calcula ADR
     agrupado["ADR"] = agrupado["ingresos"] / agrupado["noches_ocupadas"]
-    # Calcula ocupación
-    agrupado["Ocupación"] = 100 * agrupado["noches_ocupadas"] / agrupado["noches_disponibles"]
+    agrupado["Ocupación"] = agrupado["noches_ocupadas"] / agrupado["noches_disponibles"] * 100
 
     return agrupado
 
@@ -161,19 +157,13 @@ def render_resumen_comparativo(raw):
         "Noches ocupadas LY": "{:.0f}",
     })
 
-    # Colores verde/rojo según mejora o empeora respecto LY
-    def color_row(row, col, ly_col):
-        try:
-            return [color_diff(row[col], row[ly_col])]
-        except KeyError:
-            return [""]
-    
+    # Aplica colores en todas las columnas comparativas
     for col, ly_col in [
         ("Noches ocupadas", "Noches ocupadas LY"),
         ("Ocupación", "Ocupación LY"),
         ("ADR", "ADR LY"),
         ("Ingresos", "Ingresos LY"),
-        ("Ingresos finales LY", "Ingresos finales LY")
+        ("Ingresos finales LY", "Ingresos LY")
     ]:
         if col in detalle.columns and ly_col in detalle.columns:
             detalle_styler = detalle_styler.apply(
