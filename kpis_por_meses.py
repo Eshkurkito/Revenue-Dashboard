@@ -135,28 +135,67 @@ def render_kpis_por_meses(raw):
         mime="text/csv"
     )
 
-    # Descarga Excel con formato
+    # Descarga Excel con formato y colores
     import io
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-        df_final.to_excel(writer, index=False, sheet_name="KPIs")
+        df_final_excel = df_final.copy()
+        # Divide ocupación por 100 para formato porcentaje en Excel
+        for col in df_final_excel.columns:
+            if "Ocupación" in col:
+                df_final_excel[col] = df_final_excel[col] / 100
+
+        df_final_excel.to_excel(writer, index=False, sheet_name="KPIs")
         wb = writer.book
         ws = writer.sheets["KPIs"]
+
         # Ajusta ancho de columnas
-        for j, col in enumerate(df_final.columns):
+        for j, col in enumerate(df_final_excel.columns):
             ws.set_column(j, j, 18)
+
         # Formatos
         fmt_pct = wb.add_format({"num_format": "0.00%", "align": "center"})
         fmt_eur = wb.add_format({"num_format": "€ #,##0.00", "align": "center"})
         fmt_int = wb.add_format({"num_format": "0", "align": "center"})
+        fmt_green = wb.add_format({"bg_color": "#d4edda", "font_color": "#155724", "bold": True})
+        fmt_red   = wb.add_format({"bg_color": "#f8d7da", "font_color": "#721c24", "bold": True})
+
         # Aplica formato por columna
-        for idx, col in enumerate(df_final.columns):
+        for idx, col in enumerate(df_final_excel.columns):
             if "Ocupación" in col:
                 ws.set_column(idx, idx, 18, fmt_pct)
             elif "Ingresos" in col or "ADR" in col or "RevPAR" in col:
                 ws.set_column(idx, idx, 18, fmt_eur)
             elif "Noches" in col:
                 ws.set_column(idx, idx, 18, fmt_int)
+
+        # Colores comparativos
+        pairs = [
+            ("Ocupación %", "Ocupación LY %"),
+            ("Ingresos", "Ingresos LY"),
+            ("ADR", "ADR LY"),
+            ("RevPAR", "RevPAR LY")
+        ]
+        n = len(df_final_excel)
+        if n > 0:
+            first_row = 1
+            last_row  = first_row + n - 1
+            from xlsxwriter.utility import xl_rowcol_to_cell
+            for a_col, ly_col in pairs:
+                a_idx  = df_final_excel.columns.get_loc(a_col)
+                ly_idx = df_final_excel.columns.get_loc(ly_col)
+                a_cell  = xl_rowcol_to_cell(first_row, a_idx,  row_abs=False, col_abs=True)
+                ly_cell = xl_rowcol_to_cell(first_row, ly_idx, row_abs=False, col_abs=True)
+                ws.conditional_format(first_row, a_idx, last_row, a_idx, {
+                    "type": "formula", "criteria": f"={a_cell}>{ly_cell}", "format": fmt_green
+                })
+                ws.conditional_format(first_row, a_idx, last_row, a_idx, {
+                    "type": "formula", "criteria": f"={a_cell}<{ly_cell}", "format": fmt_red
+                })
+
+        # Nombre del grupo/apartamento arriba a la izquierda
+        ws.write(0, 0, f"Grupo: {selected_group}", wb.add_format({"bold": True, "font_color": "#003366"}))
+
     st.download_button(
         "📥 Descargar Excel",
         data=buffer.getvalue(),
