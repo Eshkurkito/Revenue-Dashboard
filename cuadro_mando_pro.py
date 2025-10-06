@@ -157,6 +157,7 @@ def render_cuadro_mando_pro(raw):
     rev_final_p50 = 0.0
     pace_state = None
 
+    pace_res = {}
     if reservas_pace > 0:
         pace_res = pace_forecast_month(
             raw,
