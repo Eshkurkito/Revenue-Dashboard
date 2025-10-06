@@ -160,13 +160,122 @@ def compute_portal_share(
 
     return portal_counts
 
-def pace_series(*args, **kwargs):
-    # TODO: Implementa la lógica real aquí
-    return pd.DataFrame()
+def _pace_get(d: dict, keys: list, default=0.0):
+    """Devuelve d[k] usando alias posibles."""
+    if not isinstance(d, dict):
+        return default
+    for k in keys:
+        if k in d and d[k] is not None:
+            return d[k]
+    return default
 
-def pace_forecast_month(*args, **kwargs):
-    # TODO: Implementa la lógica real aquí
-    return {}
+def pace_series(
+    df: pd.DataFrame,
+    period_start: pd.Timestamp,
+    period_end: pd.Timestamp,
+    d_max: int = 180,
+    props: Optional[List[str]] = None,
+    inv_override: Optional[int] = None,
+) -> pd.DataFrame:
+    """
+    Serie base de Pace: noches confirmadas por D (días entre alta y entrada).
+    """
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["D", "noches"])
+    dfx = df.copy()
+    dfx = dfx.dropna(subset=["Fecha alta", "Fecha entrada", "Fecha salida"])
+    if props:
+        dfx = dfx[dfx["Alojamiento"].isin(props)]
+    # Filtrar reservas que impactan en el periodo (por fecha de entrada)
+    dfx = dfx[(dfx["Fecha entrada"] >= pd.to_datetime(period_start)) & (dfx["Fecha entrada"] <= pd.to_datetime(period_end))]
+    if dfx.empty:
+        return pd.DataFrame(columns=["D", "noches"])
+    dfx["D"] = (dfx["Fecha entrada"].dt.normalize() - dfx["Fecha alta"].dt.normalize()).dt.days
+    dfx["D"] = dfx["D"].clip(lower=0, upper=int(d_max))
+    dfx["los"] = (dfx["Fecha salida"].dt.normalize() - dfx["Fecha entrada"].dt.normalize()).dt.days.clip(lower=1)
+    out = dfx.groupby("D", as_index=False)["los"].sum().rename(columns={"los": "noches"}).sort_values("D")
+    return out
+
+def pace_forecast_month(
+    df: pd.DataFrame,
+    cutoff: pd.Timestamp,
+    period_start: pd.Timestamp,
+    period_end: pd.Timestamp,
+    ref_years: int = 2,
+    dmax: int = 180,
+    props: Optional[List[str]] = None,
+    inv_override: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Forecast simple estilo P50: usa años anteriores para estimar pickup típico pendiente.
+    """
+    if df is None or df.empty:
+        return {}
+
+    # Actual OTB en el corte
+    _, tot_now = compute_kpis(
+        df_all=df,
+        cutoff=pd.to_datetime(cutoff),
+        period_start=pd.to_datetime(period_start),
+        period_end=pd.to_datetime(period_end),
+        inventory_override=int(inv_override) if (inv_override is not None and int(inv_override) > 0) else None,
+        filter_props=props if props else None,
+    )
+    n_otb = float(tot_now.get("noches_ocupadas", 0.0))
+    ingresos_otb = float(tot_now.get("ingresos", 0.0))
+    adr_now = float(tot_now.get("adr", 0.0))
+
+    # Construye pickup típico usando ref_years años anteriores
+    pickups = []
+    adr_tails = []
+    for y in range(1, int(ref_years) + 1):
+        p_start_y = pd.to_datetime(period_start) - pd.DateOffset(years=y)
+        p_end_y   = pd.to_datetime(period_end) - pd.DateOffset(years=y)
+        cut_y     = pd.to_datetime(cutoff) - pd.DateOffset(years=y)
+        # OTB a ese corte en LY-y
+        _, tot_cut_y = compute_kpis(
+            df_all=df,
+            cutoff=cut_y,
+            period_start=p_start_y,
+            period_end=p_end_y,
+            inventory_override=None,
+            filter_props=props if props else None,
+        )
+        # Final LY-y (corte = fin de periodo)
+        _, tot_final_y = compute_kpis(
+            df_all=df,
+            cutoff=p_end_y,  # para cierre LY, usamos corte = fin del periodo LY
+            period_start=p_start_y,
+            period_end=p_end_y,
+            inventory_override=None,
+            filter_props=props if props else None,
+        )
+        pick_y = float(tot_final_y.get("noches_ocupadas", 0.0) - tot_cut_y.get("noches_ocupadas", 0.0))
+        pickups.append(max(pick_y, 0.0))
+        # ADR tail aproximado: usamos ADR LY final como referencia
+        adr_tails.append(float(tot_final_y.get("adr", 0.0)))
+
+    def p50(arr):
+        arr = [x for x in arr if np.isfinite(x)]
+        if not arr:
+            return 0.0
+        return float(np.percentile(arr, 50))
+
+    pickup_typ_p50 = p50(pickups)
+    adr_tail_p50 = p50(adr_tails) if np.isfinite(p50(adr_tails)) and p50(adr_tails) > 0 else (adr_now if adr_now > 0 else 0.0)
+
+    nights_p50 = n_otb + pickup_typ_p50
+    pickup_needed_p50 = max(nights_p50 - n_otb, 0.0)
+    revenue_final_p50 = ingresos_otb + pickup_typ_p50 * adr_tail_p50
+
+    return {
+        "nights_otb": n_otb,
+        "nights_p50": nights_p50,
+        "pickup_typ_p50": pickup_typ_p50,
+        "pickup_needed_p50": pickup_needed_p50,
+        "adr_tail_p50": adr_tail_p50,
+        "revenue_final_p50": revenue_final_p50,
+    }
 
 def _kai_cdm_pro_analysis(
     tot_now: dict,
@@ -176,19 +285,20 @@ def _kai_cdm_pro_analysis(
     price_ref_p50: float = None
 ) -> str:
     """
-    Genera el bloque de análisis y semáforo para el cuadro de mando PRO.
+    Semáforo y análisis (robusto, acepta alias de claves y no falla si faltan datos).
     """
-    # Estado Pace
-    pace_state = "—"
-    n_otb = pace.get("nights_otb", 0.0) if pace else 0.0
-    n_p50 = pace.get("nights_p50", 0.0) if pace else 0.0
-    pick_typ50 = pace.get("pickup_typ_p50", 0.0) if pace else 0.0
-    pick_need = pace.get("pickup_needed_p50", 0.0) if pace else 0.0
-    adr_tail_p50 = pace.get("adr_tail_p50", 0.0) if pace else 0.0
-    rev_final_p50 = pace.get("revenue_final_p50", 0.0) if pace else 0.0
+    # Leer pace con alias de claves
+    n_otb = float(_pace_get(pace, ["nights_otb", "otb_nights", "otb", "noches_otb"], 0.0))
+    n_p50 = float(_pace_get(pace, ["nights_p50", "forecast_nights_p50", "p50_nights"], 0.0))
+    pick_typ50 = float(_pace_get(pace, ["pickup_typ_p50", "p50_pickup_typ", "pickup_typical_p50"], 0.0))
+    pick_need = float(_pace_get(pace, ["pickup_needed_p50", "p50_pickup_needed", "pickup_need_p50"], 0.0))
+    adr_tail_p50 = float(_pace_get(pace, ["adr_tail_p50", "p50_adr_tail", "adr_typ_tail_p50"], 0.0))
+    rev_final_p50 = float(_pace_get(pace, ["revenue_final_p50", "rev_final_p50", "p50_revenue_final"], 0.0))
 
+    # Estado pace
+    pace_state = "—"
     expected_otb_typ = max(n_p50 - pick_typ50, 0.0)
-    if expected_otb_typ > 0:
+    if expected_otb_typ > 0 and n_otb > 0:
         ratio = n_otb / expected_otb_typ
         if ratio >= 1.10:
             pace_state = "🟢 Adelantado"
@@ -197,38 +307,35 @@ def _kai_cdm_pro_analysis(
         else:
             pace_state = "🟠 En línea"
 
-    # Mensaje principal
+    # Mensaje
     msg = ""
     if pace_state == "🟢 Adelantado":
         msg += "### 🟢 Adelantado\n"
         msg += "Buen ritmo de reservas respecto a años anteriores. Mantén la estrategia y monitoriza el pickup restante.\n"
         if pick_need > pick_typ50 * 1.2:
-            msg += "- Aunque vas adelantado, aún queda mucho pickup por cubrir. Considera reforzar acciones de venta para asegurar el cierre.\n"
+            msg += "- Aún queda pickup elevado. Refuerza acciones de venta para asegurar el cierre.\n"
     elif pace_state == "🟠 En línea":
         msg += "### 🟠 En línea\n"
-        msg += "El ritmo de reservas está en línea con años anteriores. Revisa el pickup pendiente y el ADR para ajustar precios si es necesario.\n"
-        if adr_tail_p50 < tot_ly_cut.get("adr", 0.0) * 0.95:
-            msg += "- El ADR previsto está por debajo del año anterior. Considera revisar tu estrategia de precios.\n"
+        msg += "Ritmo de reservas en línea con años anteriores. Revisa pickup y ADR por si necesitas ajustes.\n"
+        if adr_tail_p50 < float(tot_ly_cut.get("adr", 0.0)) * 0.95:
+            msg += "- ADR previsto por debajo de LY. Considera revisar precios.\n"
     elif pace_state == "🔴 Retrasado":
         msg += "### 🔴 Retrasado\n"
-        msg += "El ritmo de reservas va retrasado respecto a años anteriores. Revisa el pickup pendiente y considera acciones urgentes: promociones, campañas o ajustes de precios.\n"
+        msg += "Ritmo retrasado. Considera acciones urgentes: promos, campañas o ajustes de precios.\n"
         if pick_need > pick_typ50:
-            msg += "- Pickup pendiente elevado. Refuerza la captación y revisa canales de venta.\n"
-        if adr_tail_p50 < tot_ly_cut.get("adr", 0.0) * 0.95:
-            msg += "- El ADR previsto está por debajo del año anterior. Considera bajar precios o lanzar ofertas.\n"
+            msg += "- Pickup pendiente elevado. Refuerza captación y canales.\n"
+        if adr_tail_p50 < float(tot_ly_cut.get("adr", 0.0)) * 0.95:
+            msg += "- ADR previsto por debajo de LY. Considera bajar precios/ofertas.\n"
     else:
         msg += "No hay suficiente información para evaluar el ritmo de reservas.\n"
 
-    # Resumen visual
+    # Resumen visual y KPIs
     msg += f"\n**Estado actual:** {pace_state}\n"
-    msg += f"- Pickup pendiente para objetivo: **{pick_need:,.0f} noches**\n"
+    msg += f"- Pickup pendiente objetivo: **{pick_need:,.0f} noches**\n"
     msg += f"- ADR previsto (P50): **{adr_tail_p50:.2f} €**\n"
     msg += f"- Forecast ingresos (P50): **{rev_final_p50:.2f} €**\n"
-
-    # KPIs resumen
     msg += "\n**KPIs actuales:**\n"
-    msg += f"- Ocupación actual: **{tot_now.get('ocupacion_pct', 0.0):.2f}%**\n"
-    msg += f"- ADR actual: **{tot_now.get('adr', 0.0):.2f} €**\n"
-    msg += f"- Ingresos actuales: **{tot_now.get('ingresos', 0.0):.2f} €**\n"
-
+    msg += f"- Ocupación actual: **{float(tot_now.get('ocupacion_pct', 0.0)):.2f}%**\n"
+    msg += f"- ADR actual: **{float(tot_now.get('adr', 0.0)):.2f} €**\n"
+    msg += f"- Ingresos actuales: **{float(tot_now.get('ingresos', 0.0)):.2f} €**\n"
     return msg
