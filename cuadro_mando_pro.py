@@ -152,23 +152,26 @@ def render_cuadro_mando_pro(raw):
 
     # ====== Ritmo de reservas (Pace) ======
     st.subheader("🏁 Ritmo de reservas (Pace)")
-    n_otb = float(pace_res.get("nights_otb", 0.0))
-    n_p50 = float(pace_res.get("nights_p50", 0.0))
-    pick_need = float(pace_res.get("pickup_needed_p50", 0.0))
-    pick_typ50 = float(pace_res.get("pickup_typ_p50", 0.0))
-    adr_tail_p50 = float(pace_res.get("adr_tail_p50", np.nan)) if pace_res else np.nan
-    rev_final_p50 = float(pace_res.get("revenue_final_p50", 0.0)) if pace_res else 0.0
-    expected_otb_typ = max(n_p50 - pick_typ50, 0.0)
-    if expected_otb_typ > 0:
-        ratio = n_otb / expected_otb_typ
-        if ratio >= 1.10:
-            pace_state = "🟢 Adelantado"
-        elif ratio <= 0.90:
-            pace_state = "🔴 Retrasado"
+    if pace_res and "nights_otb" in pace_res and "nights_p50" in pace_res:
+        n_otb = float(pace_res.get("nights_otb", 0.0))
+        n_p50 = float(pace_res.get("nights_p50", 0.0))
+        pick_need = float(pace_res.get("pickup_needed_p50", 0.0))
+        pick_typ50 = float(pace_res.get("pickup_typ_p50", 0.0))
+        adr_tail_p50 = float(pace_res.get("adr_tail_p50", np.nan)) if pace_res else np.nan
+        rev_final_p50 = float(pace_res.get("revenue_final_p50", 0.0)) if pace_res else 0.0
+        expected_otb_typ = max(n_p50 - pick_typ50, 0.0)
+        if expected_otb_typ > 0:
+            ratio = n_otb / expected_otb_typ
+            if ratio >= 1.10:
+                pace_state = "🟢 Adelantado"
+            elif ratio <= 0.90:
+                pace_state = "🔴 Retrasado"
+            else:
+                pace_state = "🟠 En línea"
         else:
-            pace_state = "🟠 En línea"
+            pace_state = "—"
     else:
-        pace_state = "—"
+        pace_state = None
     p1, p2, p3 = st.columns(3)
     p1.metric("OTB noches", f"{n_otb:,.0f}".replace(",",".")) 
     p2.metric("Forecast Noches (P50)", f"{n_p50:,.0f}".replace(",",".")) 
