@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Optional, Dict, Any, Tuple
 
-import numpy as np
 import pandas as pd
+import numpy as np
 import streamlit as st
 
 from utils import save_group_csv, load_groups, group_selector
@@ -21,131 +21,79 @@ def _get_config(config: Optional[dict]) -> dict:
     return config or {}
 
 
+def _reservas_to_alert_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Convierte reservas en filas diarias para alertas:
+    - unidad = Alojamiento
+    - fecha_llegada = cada día entre Fecha entrada y Fecha salida-1
+    - ocupacion = 100 (% por unidad ocupada)
+    - adr = Alquiler con IVA (€) / LOS (precio medio por noche)
+    """
+    req = ["Alojamiento", "Fecha entrada", "Fecha salida", "Alquiler con IVA (€)"]
+    if not all(c in df.columns for c in req):
+        return pd.DataFrame(columns=["unidad", "fecha_llegada", "ocupacion", "adr"])
+
+    dfx = df.dropna(subset=["Alojamiento", "Fecha entrada", "Fecha salida", "Alquiler con IVA (€)"]).copy()
+    dfx["Fecha entrada"] = pd.to_datetime(dfx["Fecha entrada"], errors="coerce").dt.normalize()
+    dfx["Fecha salida"] = pd.to_datetime(dfx["Fecha salida"], errors="coerce").dt.normalize()
+    dfx = dfx[dfx["Fecha salida"] > dfx["Fecha entrada"]]
+
+    dfx["los"] = (dfx["Fecha salida"] - dfx["Fecha entrada"]).dt.days
+    dfx["adr_reserva"] = pd.to_numeric(dfx["Alquiler con IVA (€)"], errors="coerce") / dfx["los"].replace(0, np.nan)
+
+    # Genera lista de días de estancia y expande
+    dfx["stay_dates"] = dfx.apply(
+        lambda r: pd.date_range(r["Fecha entrada"], r["Fecha salida"] - pd.Timedelta(days=1), freq="D"), axis=1
+    )
+    out = dfx.loc[dfx["stay_dates"].str.len() > 0, ["Alojamiento", "stay_dates", "adr_reserva"]].explode("stay_dates")
+    out = out.rename(columns={"Alojamiento": "unidad", "stay_dates": "fecha_llegada"})
+    out["fecha_llegada"] = pd.to_datetime(out["fecha_llegada"]).dt.normalize()
+    out["ocupacion"] = 100.0
+    out["adr"] = out["adr_reserva"].astype(float)
+    return out[["unidad", "fecha_llegada", "ocupacion", "adr"]]
+
+
 def normalize_columns(df: pd.DataFrame, config: Optional[dict] = None) -> Tuple[pd.DataFrame, dict]:
     """
     Normaliza nombres/tipos y devuelve (df_norm, used_map).
-    Campos estándar esperados:
-      - unidad (str)
-      - fecha_llegada (datetime)
-      - ocupacion (float 0–100)
-      - objetivo_ocupacion (float %, opcional)
-      - adr (float)
-      - adr_compset (float, opcional)
-      - pickup_7d (float, opcional)
-      - pace_vs_ly (float %, opcional)
-      - zona (str, opcional)
+    Si faltan campos mínimos pero existen columnas de reservas
+    (Alojamiento, Fecha entrada/Fecha salida, Alquiler con IVA (€)),
+    construye automáticamente las columnas para alertas.
     """
-    cfg = _get_config(config)
+    # Intento de mapeo directo (si ya vienen las columnas mínimas)
+    cols = {c.lower().strip(): c for c in df.columns}
+    have_min = all(k in cols for k in ["unidad", "fecha_llegada", "ocupacion", "adr"])
+    if have_min:
+        out = pd.DataFrame()
+        out["unidad"] = df[cols["unidad"]].astype(str).str.strip()
+        out["fecha_llegada"] = pd.to_datetime(df[cols["fecha_llegada"]], errors="coerce").dt.normalize()
+        occ = pd.to_numeric(df[cols["ocupacion"]], errors="coerce")
+        if np.nanmax(occ.values) <= 1.5:
+            occ = occ * 100.0
+        out["ocupacion"] = occ.astype(float)
+        out["adr"] = pd.to_numeric(df[cols["adr"]], errors="coerce").astype(float)
+        return out, {"unidad": cols["unidad"], "fecha_llegada": cols["fecha_llegada"], "ocupacion": cols["ocupacion"], "adr": cols["adr"]}
 
-    # Alias por campo (se intentan en orden); detección case-insensitive y por "contiene"
-    ALIAS = {
-        "unidad": ["Alojamiento", "Unidad", "Propiedad", "Piso", "Vivienda"],
-        "fecha_llegada": ["Fecha entrada", "Check-in", "Llegada", "Arrival", "Fecha llegada"],
-        "ocupacion": ["Ocupación %", "Ocupacion %", "Ocupación", "Ocupacion", "occ %", "Ocupacion pct", "occ_pct"],
-        "objetivo_ocupacion": ["objetivo_ocupacion", "Objetivo ocupación", "Target ocupación", "Target occ %"],
-        "adr": ["ADR (€)", "ADR", "ADR con IVA (€)", "ADR sin IVA (€)", "Precio medio", "price_mean"],
-        "adr_compset": ["ADR compset (€)", "ADR compset", "Compset ADR", "ADR compset con IVA (€)"],
-        "pickup_7d": ["pickup_7d", "Pickup 7d", "Pickup 7D", "Pickup últimos 7 días"],
-        "pace_vs_ly": ["pace_vs_ly (%)", "Pace vs LY %", "Pace% vs LY", "Pace_vs_ly"],
-        "zona": ["Zona", "Cluster", "Barrio", "Area"],
-        "cluster": ["Cluster", "Zona"],
-    }
+    # Fallback: construir desde tus columnas de reservas
+    if all(c in df.columns for c in ["Alojamiento", "Fecha entrada", "Fecha salida", "Alquiler con IVA (€)"]):
+        built = _reservas_to_alert_rows(df)
+        if built.empty:
+            st.error("No se han podido construir filas diarias para alertas a partir de las reservas.")
+            raise ValueError("alerts: empty after build from reservas")
+        used = {
+            "unidad": "Alojamiento",
+            "fecha_llegada": "Fecha entrada…Fecha salida (expandido)",
+            "ocupacion": "100% por unidad ocupada",
+            "adr": "Alquiler con IVA (€)/LOS",
+        }
+        return built, used
 
-    def find_col(candidates: list[str]) -> Optional[str]:
-        if not candidates:
-            return None
-        cols = [str(c) for c in df.columns]
-        low = [c.lower().strip() for c in cols]
-        for cand in candidates:
-            c0 = cand.lower().strip()
-            # match exact
-            if c0 in low:
-                return cols[low.index(c0)]
-            # match contains
-            for i, lc in enumerate(low):
-                if c0 in lc:
-                    return cols[i]
-        return None
-
-    # Mapa efectivo: primero config explícito, luego alias
-    effective: dict = {}
-    for key in ["unidad", "fecha_llegada", "ocupacion", "objetivo_ocupacion", "adr", "adr_compset", "pickup_7d", "pace_vs_ly", "zona", "cluster"]:
-        # 1) config explícito si existe y está en columnas
-        v = cfg.get(key)
-        if v and v in df.columns:
-            effective[key] = v
-            continue
-        # 2) buscar por alias
-        v2 = find_col(ALIAS.get(key, []))
-        if v2:
-            effective[key] = v2
-
-    # Validar mínimos
-    missing = [k for k in ["unidad", "fecha_llegada", "ocupacion", "adr"] if k not in effective]
-    if missing:
-        st.error(
-            "Faltan columnas mínimas para el módulo de alertas: "
-            + ", ".join(missing)
-            + ". Configura config_cols en session_state o pasa 'config' al módulo."
-        )
-        raise ValueError("Column mapping missing: " + ", ".join(missing))
-
-    out = pd.DataFrame()
-    out["unidad"] = df[effective["unidad"]].astype(str).str.strip()
-
-    # Fechas
-    fechas = pd.to_datetime(df[effective["fecha_llegada"]], errors="coerce")
-    out["fecha_llegada"] = fechas.dt.normalize()
-
-    # Ocupación (normaliza a % 0–100)
-    occ = pd.to_numeric(df[effective["ocupacion"]], errors="coerce")
-    max_occ = np.nanmax(occ.values) if occ.notna().any() else np.nan
-    if np.isfinite(max_occ) and max_occ <= 1.5:
-        occ = occ * 100.0
-    out["ocupacion"] = occ.astype(float)
-
-    # ADR y compset
-    out["adr"] = pd.to_numeric(df[effective["adr"]], errors="coerce").astype(float)
-    if "adr_compset" in effective:
-        out["adr_compset"] = pd.to_numeric(df[effective["adr_compset"]], errors="coerce").astype(float)
-    else:
-        out["adr_compset"] = np.nan
-
-    # Pace vs LY (%)
-    if "pace_vs_ly" in effective:
-        pv = pd.to_numeric(df[effective["pace_vs_ly"]], errors="coerce")
-        pv_max = np.nanmax(pv.values) if pv.notna().any() else np.nan
-        if np.isfinite(pv_max) and pv_max <= 1.5:
-            pv = pv * 100.0
-        out["pace_vs_ly"] = pv.astype(float)
-    else:
-        out["pace_vs_ly"] = np.nan
-
-    # Pickup 7d
-    if "pickup_7d" in effective:
-        out["pickup_7d"] = pd.to_numeric(df[effective["pickup_7d"]], errors="coerce").astype(float)
-    else:
-        out["pickup_7d"] = np.nan
-
-    # Objetivo ocupación
-    if "objetivo_ocupacion" in effective and effective["objetivo_ocupacion"] in df.columns:
-        tgt = pd.to_numeric(df[effective["objetivo_ocupacion"]], errors="coerce")
-        tgt_max = np.nanmax(tgt.values) if tgt.notna().any() else np.nan
-        if np.isfinite(tgt_max) and tgt_max <= 1.5:
-            tgt = tgt * 100.0
-        out["objetivo_ocupacion"] = tgt.astype(float)
-    else:
-        out["objetivo_ocupacion"] = np.nan
-
-    # Zona/cluster
-    if "zona" in effective:
-        out["zona"] = df[effective["zona"]].astype(str)
-    elif "cluster" in effective:
-        out["zona"] = df[effective["cluster"]].astype(str)
-    else:
-        out["zona"] = ""
-
-    return out, effective
+    # Si no hay ni mapeo ni columnas de reservas, avisar
+    st.error(
+        "Faltan columnas mínimas para el módulo de alertas: unidad, fecha_llegada, ocupacion, adr. "
+        "O bien proporciona el mapping o asegúrate de tener: Alojamiento, Fecha entrada, Fecha salida, Alquiler con IVA (€)."
+    )
+    raise ValueError("alerts: column mapping missing")
 
 
 def compute_windows(df: pd.DataFrame, today: date) -> pd.DataFrame:
