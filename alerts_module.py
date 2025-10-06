@@ -37,27 +37,48 @@ def normalize_columns(df: pd.DataFrame, config: Optional[dict] = None) -> Tuple[
     """
     cfg = _get_config(config)
 
-    # Sugerencias por defecto si no viene mapeo
-    default_map = {
-        "unidad": "Alojamiento",
-        "fecha_llegada": "Fecha entrada",
-        "ocupacion": "Ocupación %",
-        "objetivo_ocupacion": "objetivo_ocupacion",
-        "adr": "ADR (€)",
-        "adr_compset": "ADR compset (€)",
-        "pickup_7d": "pickup_7d",
-        "pace_vs_ly": "pace_vs_ly (%)",
-        "zona": "Zona",
-        "cluster": "Cluster",
+    # Alias por campo (se intentan en orden); detección case-insensitive y por "contiene"
+    ALIAS = {
+        "unidad": ["Alojamiento", "Unidad", "Propiedad", "Piso", "Vivienda"],
+        "fecha_llegada": ["Fecha entrada", "Check-in", "Llegada", "Arrival", "Fecha llegada"],
+        "ocupacion": ["Ocupación %", "Ocupacion %", "Ocupación", "Ocupacion", "occ %", "Ocupacion pct", "occ_pct"],
+        "objetivo_ocupacion": ["objetivo_ocupacion", "Objetivo ocupación", "Target ocupación", "Target occ %"],
+        "adr": ["ADR (€)", "ADR", "ADR con IVA (€)", "ADR sin IVA (€)", "Precio medio", "price_mean"],
+        "adr_compset": ["ADR compset (€)", "ADR compset", "Compset ADR", "ADR compset con IVA (€)"],
+        "pickup_7d": ["pickup_7d", "Pickup 7d", "Pickup 7D", "Pickup últimos 7 días"],
+        "pace_vs_ly": ["pace_vs_ly (%)", "Pace vs LY %", "Pace% vs LY", "Pace_vs_ly"],
+        "zona": ["Zona", "Cluster", "Barrio", "Area"],
+        "cluster": ["Cluster", "Zona"],
     }
-    # Permite alias 'cluster'→'zona'
-    effective = {}
-    for k in ["unidad", "fecha_llegada", "ocupacion", "objetivo_ocupacion", "adr", "adr_compset", "pickup_7d", "pace_vs_ly", "zona", "cluster"]:
-        v = cfg.get(k)
-        if v is None:
-            v = default_map.get(k)
-        if v in df.columns:
-            effective[k] = v
+
+    def find_col(candidates: list[str]) -> Optional[str]:
+        if not candidates:
+            return None
+        cols = [str(c) for c in df.columns]
+        low = [c.lower().strip() for c in cols]
+        for cand in candidates:
+            c0 = cand.lower().strip()
+            # match exact
+            if c0 in low:
+                return cols[low.index(c0)]
+            # match contains
+            for i, lc in enumerate(low):
+                if c0 in lc:
+                    return cols[i]
+        return None
+
+    # Mapa efectivo: primero config explícito, luego alias
+    effective: dict = {}
+    for key in ["unidad", "fecha_llegada", "ocupacion", "objetivo_ocupacion", "adr", "adr_compset", "pickup_7d", "pace_vs_ly", "zona", "cluster"]:
+        # 1) config explícito si existe y está en columnas
+        v = cfg.get(key)
+        if v and v in df.columns:
+            effective[key] = v
+            continue
+        # 2) buscar por alias
+        v2 = find_col(ALIAS.get(key, []))
+        if v2:
+            effective[key] = v2
 
     # Validar mínimos
     missing = [k for k in ["unidad", "fecha_llegada", "ocupacion", "adr"] if k not in effective]
