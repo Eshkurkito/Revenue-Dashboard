@@ -9,7 +9,6 @@ def render_cuadro_mando_pro(raw):
     if raw is None:
         st.stop()
 
-    # Sidebar: define todas las variables antes de usarlas
     with st.sidebar:
         st.header("Parámetros – PRO")
         pro_cut = st.date_input("Fecha de corte", value=date.today(), key="pro_cut")
@@ -23,7 +22,6 @@ def render_cuadro_mando_pro(raw):
         inv_pro_ly = st.number_input("Inventario LY (opcional)", min_value=0, value=0, step=1, key="pro_inv_ly")
         ref_years_pro = st.slider("Años de referencia Pace", min_value=1, max_value=3, value=2, key="pro_ref_years")
 
-        # Gestión de grupos
         st.header("Gestión de grupos")
         groups = load_groups()
         group_names = ["Ninguno"] + sorted(list(groups.keys()))
@@ -31,7 +29,6 @@ def render_cuadro_mando_pro(raw):
 
         if selected_group and selected_group != "Ninguno":
             props_pro = groups[selected_group]
-            # Botón para eliminar grupo
             if st.button(f"Eliminar grupo '{selected_group}'"):
                 df_groups = pd.read_csv("grupos_guardados.csv")
                 df_groups = df_groups[df_groups["Grupo"] != selected_group]
@@ -78,17 +75,6 @@ def render_cuadro_mando_pro(raw):
         pd.to_datetime(pro_end) - pd.DateOffset(years=1),
         int(inv_pro_ly) if inv_pro_ly > 0 else None,
         props_pro if props_pro else None,
-    )
-    # Predicción Pace (para estado de ritmo y semáforos)
-    pace_res = pace_forecast_month(
-        raw,
-        pd.to_datetime(pro_cut),
-        pd.to_datetime(pro_start),
-        pd.to_datetime(pro_end),
-        ref_years=int(ref_years_pro),
-        dmax=180,
-        props=props_pro if props_pro else None,
-        inv_override=int(inv_pro) if inv_pro > 0 else None,
     )
 
     # ====== Ingresos ======
@@ -152,6 +138,16 @@ def render_cuadro_mando_pro(raw):
 
     # ====== Ritmo de reservas (Pace) ======
     st.subheader("🏁 Ritmo de reservas (Pace)")
+
+    # Comprobación de reservas para Pace
+    df_pace = raw[
+        (raw["Fecha entrada"] >= pd.to_datetime(pro_start)) &
+        (raw["Fecha entrada"] <= pd.to_datetime(pro_end))
+    ]
+    if props_pro:
+        df_pace = df_pace[df_pace["Alojamiento"].isin(props_pro)]
+    reservas_pace = len(df_pace)
+
     # Definir variables por defecto antes del bloque
     n_otb = 0.0
     n_p50 = 0.0
@@ -161,25 +157,39 @@ def render_cuadro_mando_pro(raw):
     rev_final_p50 = 0.0
     pace_state = None
 
-    if pace_res and "nights_otb" in pace_res and "nights_p50" in pace_res:
-        n_otb = float(pace_res.get("nights_otb", 0.0))
-        n_p50 = float(pace_res.get("nights_p50", 0.0))
-        pick_need = float(pace_res.get("pickup_needed_p50", 0.0))
-        pick_typ50 = float(pace_res.get("pickup_typ_p50", 0.0))
-        adr_tail_p50 = float(pace_res.get("adr_tail_p50", np.nan)) if pace_res else np.nan
-        rev_final_p50 = float(pace_res.get("revenue_final_p50", 0.0)) if pace_res else 0.0
-        expected_otb_typ = max(n_p50 - pick_typ50, 0.0)
-        if expected_otb_typ > 0:
-            ratio = n_otb / expected_otb_typ
-            if ratio >= 1.10:
-                pace_state = "🟢 Adelantado"
-            elif ratio <= 0.90:
-                pace_state = "🔴 Retrasado"
+    if reservas_pace > 0:
+        pace_res = pace_forecast_month(
+            raw,
+            pd.to_datetime(pro_cut),
+            pd.to_datetime(pro_start),
+            pd.to_datetime(pro_end),
+            ref_years=int(ref_years_pro),
+            dmax=180,
+            props=props_pro if props_pro else None,
+            inv_override=int(inv_pro) if inv_pro > 0 else None,
+        )
+        if pace_res and "nights_otb" in pace_res and "nights_p50" in pace_res:
+            n_otb = float(pace_res.get("nights_otb", 0.0))
+            n_p50 = float(pace_res.get("nights_p50", 0.0))
+            pick_need = float(pace_res.get("pickup_needed_p50", 0.0))
+            pick_typ50 = float(pace_res.get("pickup_typ_p50", 0.0))
+            adr_tail_p50 = float(pace_res.get("adr_tail_p50", np.nan)) if pace_res else np.nan
+            rev_final_p50 = float(pace_res.get("revenue_final_p50", 0.0)) if pace_res else 0.0
+            expected_otb_typ = max(n_p50 - pick_typ50, 0.0)
+            if expected_otb_typ > 0:
+                ratio = n_otb / expected_otb_typ
+                if ratio >= 1.10:
+                    pace_state = "🟢 Adelantado"
+                elif ratio <= 0.90:
+                    pace_state = "🔴 Retrasado"
+                else:
+                    pace_state = "🟠 En línea"
             else:
-                pace_state = "🟠 En línea"
+                pace_state = "—"
         else:
-            pace_state = "—"
+            pace_state = None
     else:
+        st.info("No hay reservas en el periodo seleccionado para calcular Pace y semáforo.")
         pace_state = None
 
     p1, p2, p3 = st.columns(3)
@@ -386,25 +396,26 @@ def render_cuadro_mando_pro(raw):
     # ====== Semáforos y análisis ======
     st.subheader("🚦 Semáforos y análisis")
 
-    # Análisis de ritmo y recomendaciones
-    if pace_state == "🟢 Adelantado":
-        st.success("¡Buen ritmo de reservas! Vas adelantado respecto a años anteriores. Mantén la estrategia y monitoriza el pickup restante.")
-        if pick_need > pick_typ50 * 1.2:
-            st.warning("Aunque vas adelantado, aún queda mucho pickup por cubrir. Considera reforzar acciones de venta para asegurar el cierre.")
-    elif pace_state == "🟠 En línea":
-        st.info("El ritmo de reservas está en línea con años anteriores. Revisa el pickup pendiente y el ADR para ajustar precios si es necesario.")
-        if adr_tail_p50 < tot_ly_cut["adr"] * 0.95:
-            st.warning("El ADR previsto está por debajo del año anterior. Considera revisar tu estrategia de precios.")
-    elif pace_state == "🔴 Retrasado":
-        st.error("El ritmo de reservas va retrasado respecto a años anteriores. Revisa el pickup pendiente y considera acciones urgentes: promociones, campañas o ajustes de precios.")
-        if pick_need > pick_typ50:
-            st.warning("Pickup pendiente elevado. Refuerza la captación y revisa canales de venta.")
-        if adr_tail_p50 < tot_ly_cut["adr"] * 0.95:
-            st.warning("El ADR previsto está por debajo del año anterior. Considera bajar precios o lanzar ofertas.")
+    # Análisis de ritmo y recomendaciones SOLO si hay reservas y pace_state calculado
+    if reservas_pace > 0 and pace_state in ["🟢 Adelantado", "🟠 En línea", "🔴 Retrasado"]:
+        if pace_state == "🟢 Adelantado":
+            st.success("¡Buen ritmo de reservas! Vas adelantado respecto a años anteriores. Mantén la estrategia y monitoriza el pickup restante.")
+            if pick_need > pick_typ50 * 1.2:
+                st.warning("Aunque vas adelantado, aún queda mucho pickup por cubrir. Considera reforzar acciones de venta para asegurar el cierre.")
+        elif pace_state == "🟠 En línea":
+            st.info("El ritmo de reservas está en línea con años anteriores. Revisa el pickup pendiente y el ADR para ajustar precios si es necesario.")
+            if adr_tail_p50 < tot_ly_cut["adr"] * 0.95:
+                st.warning("El ADR previsto está por debajo del año anterior. Considera revisar tu estrategia de precios.")
+        elif pace_state == "🔴 Retrasado":
+            st.error("El ritmo de reservas va retrasado respecto a años anteriores. Revisa el pickup pendiente y considera acciones urgentes: promociones, campañas o ajustes de precios.")
+            if pick_need > pick_typ50:
+                st.warning("Pickup pendiente elevado. Refuerza la captación y revisa canales de venta.")
+            if adr_tail_p50 < tot_ly_cut["adr"] * 0.95:
+                st.warning("El ADR previsto está por debajo del año anterior. Considera bajar precios o lanzar ofertas.")
+        st.markdown(f"**Estado actual:** {pace_state}")
+        st.markdown(f"- Pickup pendiente para objetivo: **{pick_need:,.0f} noches**")
+        st.markdown(f"- ADR previsto (P50): **{adr_tail_p50:.2f} €**")
+    elif reservas_pace == 0:
+        st.info("No hay reservas en el periodo seleccionado para analizar el ritmo de reservas.")
     else:
         st.info("No hay suficiente información para evaluar el ritmo de reservas.")
-
-    # Resumen visual
-    st.markdown(f"**Estado actual:** {pace_state}")
-    st.markdown(f"- Pickup pendiente para objetivo: **{pick_need:,.0f} noches**")
-    st.markdown(f"- ADR previsto (P50): **{adr_tail_p50:.2f} €**")
