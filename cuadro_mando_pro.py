@@ -275,15 +275,10 @@ def render_cuadro_mando_pro(raw):
                     occ_colors = {"Ocupación actual": "#1f77b4", "Ocupación LY": "#6baed6"}
                     adr_colors = {"ADR actual (€)": "#ff7f0e", "ADR LY (€)": "#fdae6b"}
 
-                    # Selección 'nearest' común por fecha de corte (sobre un eje invisible)
-                    all_dates = pd.DataFrame({"Corte": pd.to_datetime(evo_df["Corte"]).drop_duplicates()})
-                    hover = alt.selection_single(fields=["Corte"], nearest=True, on="mouseover", empty="none", clear="mouseout")
-                    x_proxy = alt.Chart(all_dates).mark_rule(opacity=0).encode(x="Corte:T").add_selection(hover)
-
-                    # Líneas
+                    # Líneas + puntos SIEMPRE visibles (sin hover), sin interpolación para no “curvar”
                     occ_line = (
                         alt.Chart(occ_long)
-                        .mark_line(strokeWidth=2, interpolate="monotone")
+                        .mark_line(strokeWidth=2)  # linear (por defecto)
                         .encode(
                             x=alt.X("Corte:T", title="Fecha de corte"),
                             y=alt.Y("valor:Q", axis=alt.Axis(orient="left", title="Ocupación %", tickCount=6, format=".0f")),
@@ -293,23 +288,9 @@ def render_cuadro_mando_pro(raw):
                             opacity=alt.condition("datum.serie == 'Ocupación LY'", alt.value(0.7), alt.value(1.0)),
                         )
                     )
-                    adr_line = (
-                        alt.Chart(adr_long)
-                        .mark_line(strokeWidth=2, interpolate="monotone")
-                        .encode(
-                            x=alt.X("Corte:T"),
-                            y=alt.Y("valor:Q", axis=alt.Axis(orient="right", title="ADR (€)", tickCount=6, format=",.2f")),
-                            color=alt.Color("serie:N",
-                                scale=alt.Scale(domain=list(adr_colors.keys()), range=[adr_colors[k] for k in adr_colors]), title=None),
-                            strokeDash=alt.condition("datum.serie == 'ADR LY (€)'", alt.value([5,3]), alt.value([0,0])),
-                            opacity=alt.condition("datum.serie == 'ADR LY (€)'", alt.value(0.7), alt.value(1.0)),
-                        )
-                    )
-
-                    # Puntos SOLO cuando hay hover, filtrados por fecha
                     occ_points = (
                         alt.Chart(occ_long)
-                        .mark_circle(size=90, filled=True)
+                        .mark_circle(size=60, filled=True)
                         .encode(
                             x="Corte:T",
                             y=alt.Y("valor:Q", axis=None),
@@ -319,11 +300,23 @@ def render_cuadro_mando_pro(raw):
                                      alt.Tooltip("serie:N", title="Serie"),
                                      alt.Tooltip("valor:Q", title="Valor", format=".2f")],
                         )
-                        .transform_filter(hover)
+                    )
+
+                    adr_line = (
+                        alt.Chart(adr_long)
+                        .mark_line(strokeWidth=2)  # linear
+                        .encode(
+                            x=alt.X("Corte:T"),
+                            y=alt.Y("valor:Q", axis=alt.Axis(orient="right", title="ADR (€)", tickCount=6, format=",.2f")),
+                            color=alt.Color("serie:N",
+                                scale=alt.Scale(domain=list(adr_colors.keys()), range=[adr_colors[k] for k in adr_colors]), title=None),
+                            strokeDash=alt.condition("datum.serie == 'ADR LY (€)'", alt.value([5,3]), alt.value([0,0])),
+                            opacity=alt.condition("datum.serie == 'ADR LY (€)'", alt.value(0.7), alt.value(1.0)),
+                        )
                     )
                     adr_points = (
                         alt.Chart(adr_long)
-                        .mark_circle(size=90, filled=True)
+                        .mark_circle(size=60, filled=True)
                         .encode(
                             x="Corte:T",
                             y=alt.Y("valor:Q", axis=None),
@@ -333,34 +326,14 @@ def render_cuadro_mando_pro(raw):
                                      alt.Tooltip("serie:N", title="Serie"),
                                      alt.Tooltip("valor:Q", title="Valor", format=",.2f")],
                         )
-                        .transform_filter(hover)
                     )
 
-                    # Regla vertical en hover
-                    v_rule = alt.Chart(all_dates).mark_rule(color="#999").encode(x="Corte:T").transform_filter(hover)
-
                     chart = (
-                        alt.layer(
-                            occ_line, adr_line,
-                            x_proxy, v_rule,           # activa selección y regla
-                            occ_points, adr_points     # puntos alineados a las líneas
-                        )
+                        alt.layer(occ_line, occ_points, adr_line, adr_points)
                         .resolve_scale(y="independent", color="independent")
                         .properties(height=380)
                     )
                     st.altair_chart(chart, use_container_width=True)
-
-                    out = evo_df.rename(columns={
-                        "occ_now":"Ocupación % (Actual)", "occ_ly":"Ocupación % (LY)",
-                        "adr_now":"ADR (€) (Actual)", "adr_ly":"ADR (€) (LY)",
-                    })
-                    st.dataframe(out, use_container_width=True)
-                    st.download_button(
-                        "📥 Descargar evolución (CSV)",
-                        data=out.to_csv(index=False).encode("utf-8-sig"),
-                        file_name="evolucion_occ_adr_cdmpro.csv",
-                        mime="text/csv"
-                    )
 
     # ====== Semáforos y análisis ======
     st.subheader("🚦 Semáforos y análisis")
