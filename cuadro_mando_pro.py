@@ -272,10 +272,13 @@ def render_cuadro_mando_pro(raw):
                     occ_colors = {"Ocupación actual": "#1f77b4", "Ocupación LY": "#6baed6"}
                     adr_colors = {"ADR actual (€)": "#ff7f0e", "ADR LY (€)": "#fdae6b"}
 
-                    # Selección de hover compartida por ambas series
+                    # Selección 'nearest' común por fecha de corte
                     hover = alt.selection_single(
                         fields=["Corte"], nearest=True, on="mouseover", empty="none", clear="mouseout", name="evoHover"
                     )
+
+                    # Contenedor invisible para capturar el hover (dataset con todas las fechas)
+                    x_ticks = alt.Chart(occ_long[["Corte"]].drop_duplicates()).mark_rule(opacity=0).encode(x="Corte:T").add_selection(hover)
 
                     # Líneas
                     occ_line = (
@@ -303,51 +306,48 @@ def render_cuadro_mando_pro(raw):
                         )
                     )
 
-                    # Selectores invisibles para capturar el hover sin tener que acertar el píxel
-                    occ_selectors = alt.Chart(occ_long).mark_point(opacity=0).encode(x="Corte:T")
-                    adr_selectors = alt.Chart(adr_long).mark_point(opacity=0).encode(x="Corte:T")
-
-                    # Puntos que aparecen al hacer hover
+                    # Puntos solo en el dato más cercano al ratón
                     occ_points = (
                         alt.Chart(occ_long)
-                        .mark_circle(size=70)
+                        .mark_circle(size=80, filled=True)
                         .encode(
                             x="Corte:T",
                             y=alt.Y("valor:Q", axis=None),
                             color=alt.Color("serie:N",
                                 scale=alt.Scale(domain=list(occ_colors.keys()), range=[occ_colors[k] for k in occ_colors]), title=None, legend=None),
-                            opacity=alt.condition(hover, alt.value(1), alt.value(0)),
-                            tooltip=[alt.Tooltip("Corte:T", title="Día"), alt.Tooltip("serie:N", title="Serie"), alt.Tooltip("valor:Q", title="Valor", format=".2f")],
+                            tooltip=[alt.Tooltip("Corte:T", title="Día"),
+                                     alt.Tooltip("serie:N", title="Serie"),
+                                     alt.Tooltip("valor:Q", title="Valor", format=".2f")],
                         )
+                        .transform_filter(hover)
                     )
                     adr_points = (
                         alt.Chart(adr_long)
-                        .mark_circle(size=70)
+                        .mark_circle(size=80, filled=True)
                         .encode(
                             x="Corte:T",
                             y=alt.Y("valor:Q", axis=None),
                             color=alt.Color("serie:N",
                                 scale=alt.Scale(domain=list(adr_colors.keys()), range=[adr_colors[k] for k in adr_colors]), title=None, legend=None),
-                            opacity=alt.condition(hover, alt.value(1), alt.value(0)),
-                            tooltip=[alt.Tooltip("Corte:T", title="Día"), alt.Tooltip("serie:N", title="Serie"), alt.Tooltip("valor:Q", title="Valor", format=",.2f")],
+                            tooltip=[alt.Tooltip("Corte:T", title="Día"),
+                                     alt.Tooltip("serie:N", title="Serie"),
+                                     alt.Tooltip("valor:Q", title="Valor", format=",.2f")],
                         )
+                        .transform_filter(hover)
                     )
 
-                    # Regla vertical al pasar el ratón
-                    occ_rule = alt.Chart(occ_long).mark_rule(color="#999").encode(x="Corte:T").transform_filter(hover)
-                    adr_rule = alt.Chart(adr_long).mark_rule(color="#999").encode(x="Corte:T").transform_filter(hover)
+                    # Regla vertical visible cuando hay hover
+                    v_rule = alt.Chart(occ_long).mark_rule(color="#999").encode(x="Corte:T").transform_filter(hover)
 
                     chart = (
                         alt.layer(
                             occ_line, adr_line,
-                            occ_selectors, adr_selectors,
-                            occ_points, adr_points,
-                            occ_rule, adr_rule
+                            x_ticks,  # activa la selección
+                            v_rule,
+                            occ_points, adr_points
                         )
-                        .add_selection(hover)
                         .resolve_scale(y="independent", color="independent")
                         .properties(height=380)
-                        .interactive(bind_y=False)
                     )
                     st.altair_chart(chart, use_container_width=True)
 
