@@ -3,12 +3,13 @@ import pandas as pd
 import numpy as np
 import altair as alt
 from datetime import date
-from utils import compute_kpis, period_inputs, group_selector, help_block, pace_series, pace_forecast_month
+from utils import compute_kpis, period_inputs, group_selector, help_block, pace_series, pace_forecast_month, save_group_csv, load_groups
 
 def render_cuadro_mando_pro(raw):
     if raw is None:
         st.stop()
 
+    # Sidebar: define todas las variables antes de usarlas
     with st.sidebar:
         st.header("Parámetros – PRO")
         pro_cut = st.date_input("Fecha de corte", value=date.today(), key="pro_cut")
@@ -24,7 +25,6 @@ def render_cuadro_mando_pro(raw):
 
         # Gestión de grupos
         st.header("Gestión de grupos")
-        from utils import save_group_csv, load_groups, group_selector
         groups = load_groups()
         group_names = ["Ninguno"] + sorted(list(groups.keys()))
         selected_group = st.selectbox("Grupo guardado", group_names)
@@ -33,11 +33,9 @@ def render_cuadro_mando_pro(raw):
             props_pro = groups[selected_group]
             # Botón para eliminar grupo
             if st.button(f"Eliminar grupo '{selected_group}'"):
-                import pandas as pd
-                from utils import GROUPS_PATH
-                df_groups = pd.read_csv(GROUPS_PATH)
+                df_groups = pd.read_csv("grupos_guardados.csv")
                 df_groups = df_groups[df_groups["Grupo"] != selected_group]
-                df_groups.to_csv(GROUPS_PATH, index=False)
+                df_groups.to_csv("grupos_guardados.csv", index=False)
                 st.success(f"Grupo '{selected_group}' eliminado.")
                 st.experimental_rerun()
         else:
