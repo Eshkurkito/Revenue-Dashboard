@@ -152,6 +152,15 @@ def render_cuadro_mando_pro(raw):
 
     # ====== Ritmo de reservas (Pace) ======
     st.subheader("🏁 Ritmo de reservas (Pace)")
+    # Definir variables por defecto antes del bloque
+    n_otb = 0.0
+    n_p50 = 0.0
+    pick_need = 0.0
+    pick_typ50 = 0.0
+    adr_tail_p50 = np.nan
+    rev_final_p50 = 0.0
+    pace_state = None
+
     if pace_res and "nights_otb" in pace_res and "nights_p50" in pace_res:
         n_otb = float(pace_res.get("nights_otb", 0.0))
         n_p50 = float(pace_res.get("nights_p50", 0.0))
@@ -172,6 +181,7 @@ def render_cuadro_mando_pro(raw):
             pace_state = "—"
     else:
         pace_state = None
+
     p1, p2, p3 = st.columns(3)
     p1.metric("OTB noches", f"{n_otb:,.0f}".replace(",",".")) 
     p2.metric("Forecast Noches (P50)", f"{n_p50:,.0f}".replace(",",".")) 
