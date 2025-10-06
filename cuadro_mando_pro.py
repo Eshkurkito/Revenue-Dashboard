@@ -269,34 +269,82 @@ def render_cuadro_mando_pro(raw):
                                            var_name="serie", value_name="valor")
                     adr_long["serie"] = adr_long["serie"].map({"adr_now": "ADR actual (€)", "adr_ly": "ADR LY (€)"})
 
-                    occ_chart = (
+                    occ_colors = {"Ocupación actual": "#1f77b4", "Ocupación LY": "#6baed6"}
+                    adr_colors = {"ADR actual (€)": "#ff7f0e", "ADR LY (€)": "#fdae6b"}
+
+                    # Selección de hover compartida por ambas series
+                    hover = alt.selection_single(
+                        fields=["Corte"], nearest=True, on="mouseover", empty="none", clear="mouseout", name="evoHover"
+                    )
+
+                    # Líneas
+                    occ_line = (
                         alt.Chart(occ_long)
                         .mark_line(strokeWidth=2, interpolate="monotone")
                         .encode(
                             x=alt.X("Corte:T", title="Fecha de corte"),
                             y=alt.Y("valor:Q", axis=alt.Axis(orient="left", title="Ocupación %", tickCount=6, format=".0f")),
                             color=alt.Color("serie:N",
-                                scale=alt.Scale(domain=["Ocupación actual","Ocupación LY"], range=["#1f77b4","#6baed6"]), title=None),
+                                scale=alt.Scale(domain=list(occ_colors.keys()), range=[occ_colors[k] for k in occ_colors]), title=None),
                             strokeDash=alt.condition("datum.serie == 'Ocupación LY'", alt.value([5,3]), alt.value([0,0])),
                             opacity=alt.condition("datum.serie == 'Ocupación LY'", alt.value(0.7), alt.value(1.0)),
-                            tooltip=[alt.Tooltip("Corte:T", title="Día"), alt.Tooltip("serie:N", title="KPI"), alt.Tooltip("valor:Q", title="Valor", format=".2f")],
                         )
                     )
-                    adr_chart = (
+                    adr_line = (
                         alt.Chart(adr_long)
                         .mark_line(strokeWidth=2, interpolate="monotone")
                         .encode(
                             x=alt.X("Corte:T"),
                             y=alt.Y("valor:Q", axis=alt.Axis(orient="right", title="ADR (€)", tickCount=6, format=",.2f")),
                             color=alt.Color("serie:N",
-                                scale=alt.Scale(domain=["ADR actual (€)","ADR LY (€)"], range=["#ff7f0e","#fdae6b"]), title=None),
+                                scale=alt.Scale(domain=list(adr_colors.keys()), range=[adr_colors[k] for k in adr_colors]), title=None),
                             strokeDash=alt.condition("datum.serie == 'ADR LY (€)'", alt.value([5,3]), alt.value([0,0])),
                             opacity=alt.condition("datum.serie == 'ADR LY (€)'", alt.value(0.7), alt.value(1.0)),
+                        )
+                    )
+
+                    # Selectores invisibles para capturar el hover sin tener que acertar el píxel
+                    occ_selectors = alt.Chart(occ_long).mark_point(opacity=0).encode(x="Corte:T")
+                    adr_selectors = alt.Chart(adr_long).mark_point(opacity=0).encode(x="Corte:T")
+
+                    # Puntos que aparecen al hacer hover
+                    occ_points = (
+                        alt.Chart(occ_long)
+                        .mark_circle(size=70)
+                        .encode(
+                            x="Corte:T",
+                            y=alt.Y("valor:Q", axis=None),
+                            color=alt.Color("serie:N",
+                                scale=alt.Scale(domain=list(occ_colors.keys()), range=[occ_colors[k] for k in occ_colors]), title=None, legend=None),
+                            opacity=alt.condition(hover, alt.value(1), alt.value(0)),
+                            tooltip=[alt.Tooltip("Corte:T", title="Día"), alt.Tooltip("serie:N", title="Serie"), alt.Tooltip("valor:Q", title="Valor", format=".2f")],
+                        )
+                    )
+                    adr_points = (
+                        alt.Chart(adr_long)
+                        .mark_circle(size=70)
+                        .encode(
+                            x="Corte:T",
+                            y=alt.Y("valor:Q", axis=None),
+                            color=alt.Color("serie:N",
+                                scale=alt.Scale(domain=list(adr_colors.keys()), range=[adr_colors[k] for k in adr_colors]), title=None, legend=None),
+                            opacity=alt.condition(hover, alt.value(1), alt.value(0)),
                             tooltip=[alt.Tooltip("Corte:T", title="Día"), alt.Tooltip("serie:N", title="Serie"), alt.Tooltip("valor:Q", title="Valor", format=",.2f")],
                         )
                     )
+
+                    # Regla vertical al pasar el ratón
+                    occ_rule = alt.Chart(occ_long).mark_rule(color="#999").encode(x="Corte:T").transform_filter(hover)
+                    adr_rule = alt.Chart(adr_long).mark_rule(color="#999").encode(x="Corte:T").transform_filter(hover)
+
                     chart = (
-                        alt.layer(occ_chart, adr_chart)
+                        alt.layer(
+                            occ_line, adr_line,
+                            occ_selectors, adr_selectors,
+                            occ_points, adr_points,
+                            occ_rule, adr_rule
+                        )
+                        .add_selection(hover)
                         .resolve_scale(y="independent", color="independent")
                         .properties(height=380)
                         .interactive(bind_y=False)
