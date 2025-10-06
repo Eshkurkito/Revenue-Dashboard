@@ -167,3 +167,68 @@ def pace_series(*args, **kwargs):
 def pace_forecast_month(*args, **kwargs):
     # TODO: Implementa la lógica real aquí
     return {}
+
+def _kai_cdm_pro_analysis(
+    tot_now: dict,
+    tot_ly_cut: dict,
+    tot_ly_final: dict,
+    pace: dict,
+    price_ref_p50: float = None
+) -> str:
+    """
+    Genera el bloque de análisis y semáforo para el cuadro de mando PRO.
+    """
+    # Estado Pace
+    pace_state = "—"
+    n_otb = pace.get("nights_otb", 0.0) if pace else 0.0
+    n_p50 = pace.get("nights_p50", 0.0) if pace else 0.0
+    pick_typ50 = pace.get("pickup_typ_p50", 0.0) if pace else 0.0
+    pick_need = pace.get("pickup_needed_p50", 0.0) if pace else 0.0
+    adr_tail_p50 = pace.get("adr_tail_p50", 0.0) if pace else 0.0
+    rev_final_p50 = pace.get("revenue_final_p50", 0.0) if pace else 0.0
+
+    expected_otb_typ = max(n_p50 - pick_typ50, 0.0)
+    if expected_otb_typ > 0:
+        ratio = n_otb / expected_otb_typ
+        if ratio >= 1.10:
+            pace_state = "🟢 Adelantado"
+        elif ratio <= 0.90:
+            pace_state = "🔴 Retrasado"
+        else:
+            pace_state = "🟠 En línea"
+
+    # Mensaje principal
+    msg = ""
+    if pace_state == "🟢 Adelantado":
+        msg += "### 🟢 Adelantado\n"
+        msg += "Buen ritmo de reservas respecto a años anteriores. Mantén la estrategia y monitoriza el pickup restante.\n"
+        if pick_need > pick_typ50 * 1.2:
+            msg += "- Aunque vas adelantado, aún queda mucho pickup por cubrir. Considera reforzar acciones de venta para asegurar el cierre.\n"
+    elif pace_state == "🟠 En línea":
+        msg += "### 🟠 En línea\n"
+        msg += "El ritmo de reservas está en línea con años anteriores. Revisa el pickup pendiente y el ADR para ajustar precios si es necesario.\n"
+        if adr_tail_p50 < tot_ly_cut.get("adr", 0.0) * 0.95:
+            msg += "- El ADR previsto está por debajo del año anterior. Considera revisar tu estrategia de precios.\n"
+    elif pace_state == "🔴 Retrasado":
+        msg += "### 🔴 Retrasado\n"
+        msg += "El ritmo de reservas va retrasado respecto a años anteriores. Revisa el pickup pendiente y considera acciones urgentes: promociones, campañas o ajustes de precios.\n"
+        if pick_need > pick_typ50:
+            msg += "- Pickup pendiente elevado. Refuerza la captación y revisa canales de venta.\n"
+        if adr_tail_p50 < tot_ly_cut.get("adr", 0.0) * 0.95:
+            msg += "- El ADR previsto está por debajo del año anterior. Considera bajar precios o lanzar ofertas.\n"
+    else:
+        msg += "No hay suficiente información para evaluar el ritmo de reservas.\n"
+
+    # Resumen visual
+    msg += f"\n**Estado actual:** {pace_state}\n"
+    msg += f"- Pickup pendiente para objetivo: **{pick_need:,.0f} noches**\n"
+    msg += f"- ADR previsto (P50): **{adr_tail_p50:.2f} €**\n"
+    msg += f"- Forecast ingresos (P50): **{rev_final_p50:.2f} €**\n"
+
+    # KPIs resumen
+    msg += "\n**KPIs actuales:**\n"
+    msg += f"- Ocupación actual: **{tot_now.get('ocupacion_pct', 0.0):.2f}%**\n"
+    msg += f"- ADR actual: **{tot_now.get('adr', 0.0):.2f} €**\n"
+    msg += f"- Ingresos actuales: **{tot_now.get('ingresos', 0.0):.2f} €**\n"
+
+    return msg

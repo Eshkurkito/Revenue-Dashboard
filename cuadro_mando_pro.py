@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import altair as alt
 from datetime import date
-from utils import compute_kpis, period_inputs, group_selector, help_block, pace_series, pace_forecast_month, save_group_csv, load_groups
+from utils import compute_kpis, period_inputs, group_selector, help_block, pace_series, pace_forecast_month, save_group_csv, load_groups, _kai_cdm_pro_analysis
 
 def render_cuadro_mando_pro(raw):
     if raw is None:
@@ -395,27 +395,11 @@ def render_cuadro_mando_pro(raw):
 
     # ====== Semáforos y análisis ======
     st.subheader("🚦 Semáforos y análisis")
-
-    # Análisis de ritmo y recomendaciones SOLO si hay reservas y pace_state calculado
-    if reservas_pace > 0 and pace_state in ["🟢 Adelantado", "🟠 En línea", "🔴 Retrasado"]:
-        if pace_state == "🟢 Adelantado":
-            st.success("¡Buen ritmo de reservas! Vas adelantado respecto a años anteriores. Mantén la estrategia y monitoriza el pickup restante.")
-            if pick_need > pick_typ50 * 1.2:
-                st.warning("Aunque vas adelantado, aún queda mucho pickup por cubrir. Considera reforzar acciones de venta para asegurar el cierre.")
-        elif pace_state == "🟠 En línea":
-            st.info("El ritmo de reservas está en línea con años anteriores. Revisa el pickup pendiente y el ADR para ajustar precios si es necesario.")
-            if adr_tail_p50 < tot_ly_cut["adr"] * 0.95:
-                st.warning("El ADR previsto está por debajo del año anterior. Considera revisar tu estrategia de precios.")
-        elif pace_state == "🔴 Retrasado":
-            st.error("El ritmo de reservas va retrasado respecto a años anteriores. Revisa el pickup pendiente y considera acciones urgentes: promociones, campañas o ajustes de precios.")
-            if pick_need > pick_typ50:
-                st.warning("Pickup pendiente elevado. Refuerza la captación y revisa canales de venta.")
-            if adr_tail_p50 < tot_ly_cut["adr"] * 0.95:
-                st.warning("El ADR previsto está por debajo del año anterior. Considera bajar precios o lanzar ofertas.")
-        st.markdown(f"**Estado actual:** {pace_state}")
-        st.markdown(f"- Pickup pendiente para objetivo: **{pick_need:,.0f} noches**")
-        st.markdown(f"- ADR previsto (P50): **{adr_tail_p50:.2f} €**")
-    elif reservas_pace == 0:
-        st.info("No hay reservas en el periodo seleccionado para analizar el ritmo de reservas.")
-    else:
-        st.info("No hay suficiente información para evaluar el ritmo de reservas.")
+    tech_block = _kai_cdm_pro_analysis(
+        tot_now=tot_now,
+        tot_ly_cut=tot_ly_cut,
+        tot_ly_final=tot_ly_final,
+        pace=pace_res,
+        price_ref_p50=None
+    )
+    st.markdown(tech_block)
