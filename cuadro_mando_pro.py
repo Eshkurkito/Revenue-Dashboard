@@ -6,7 +6,7 @@ from datetime import date
 from utils import (
     compute_kpis, period_inputs, group_selector, help_block,
     pace_series, pace_forecast_month, save_group_csv, load_groups,
-    _kai_cdm_pro_analysis,  # IMPORTANTE: trae el análisis
+    _kai_cdm_pro_analysis,
 )
 
 def render_cuadro_mando_pro(raw):
@@ -54,7 +54,7 @@ def render_cuadro_mando_pro(raw):
 
     st.subheader("📊 Cuadro de mando (PRO)")
 
-    # Actual y LYs
+    # KPIs actuales y LY
     by_prop_now, tot_now = compute_kpis(
         raw,
         pd.to_datetime(pro_cut),
@@ -103,7 +103,7 @@ def render_cuadro_mando_pro(raw):
     a2.metric("ADR LY (€)", f"{tot_ly_cut['adr']:.2f}")
     a3.metric("ADR LY-2 (€)", f"{tot_ly2_cut['adr']:.2f}")
 
-    # Bandas ADR en tabla (P10, P50, P90)
+    # Bandas ADR (P10, P50, P90)
     start_dt = pd.to_datetime(pro_start); end_dt = pd.to_datetime(pro_end)
     dfb = raw[(raw["Fecha alta"] <= pd.to_datetime(pro_cut))].dropna(
         subset=["Fecha entrada", "Fecha salida", "Alquiler con IVA (€)"]
@@ -157,7 +157,163 @@ def render_cuadro_mando_pro(raw):
         pace_res = {}
         st.caption("No se pudo calcular Pace (se continúa con KPIs actuales).")
 
-    # ...puedes mostrar aquí métricas de pace_res si quieres...
+    # Métricas rápidas de Pace
+    n_otb = float(pace_res.get("nights_otb", 0.0))
+    n_p50 = float(pace_res.get("nights_p50", 0.0))
+    rev_p50 = float(pace_res.get("revenue_final_p50", 0.0))
+    pick_typ50 = float(pace_res.get("pickup_typ_p50", 0.0))
+    adr_tail_p50 = float(pace_res.get("adr_tail_p50", np.nan)) if pace_res else np.nan
+
+    p1, p2, p3 = st.columns(3)
+    p1.metric("OTB noches", f"{n_otb:,.0f}".replace(",",".")) 
+    p2.metric("Forecast Noches (P50)", f"{n_p50:,.0f}".replace(",",".")) 
+    p3.metric("Forecast Ingresos (P50)", f"{rev_p50:,.2f}")
+    st.caption(f"Pickup típico (P50): {pick_typ50:,.0f} · ADR tail (P50): {adr_tail_p50:,.2f}".replace(",","."))
+
+    # ====== Pace (YoY) – Noches confirmadas por D ======
+    st.subheader("📉 Pace (YoY) – Noches confirmadas por D")
+    dmax_y = 180
+    p_start_ly = pd.to_datetime(pro_start) - pd.DateOffset(years=1)
+    p_end_ly   = pd.to_datetime(pro_end) - pd.DateOffset(years=1)
+    base_cur = pace_series(
+        df=raw,
+        period_start=pd.to_datetime(pro_start),
+        period_end=pd.to_datetime(pro_end),
+        d_max=int(dmax_y),
+        props=props_pro if props_pro else None,
+        inv_override=int(inv_pro) if inv_pro > 0 else None,
+    )
+    base_ly = pace_series(
+        df=raw,
+        period_start=p_start_ly,
+        period_end=p_end_ly,
+        d_max=int(dmax_y),
+        props=props_pro if props_pro else None,
+        inv_override=int(inv_pro_ly) if inv_pro_ly > 0 else None,
+    )
+    if base_cur.empty or base_ly.empty:
+        st.info("No hay datos suficientes para calcular Pace YoY en el periodo.")
+    else:
+        D_all = list(range(0, int(max(base_cur["D"].max(), base_ly["D"].max())) + 1))
+        df_plot = pd.DataFrame({"D": D_all})
+        df_plot = df_plot.merge(base_cur[["D","noches"]].rename(columns={"noches":"Actual"}), on="D", how="left")
+        df_plot = df_plot.merge(base_ly[["D","noches"]].rename(columns={"noches":"LY"}), on="D", how="left")
+        df_plot = df_plot.fillna(0.0)
+        df_long = df_plot.melt(id_vars=["D"], value_vars=["Actual","LY"], var_name="Serie", value_name="Noches")
+        pace_colors = {"Actual": "#1f77b4", "LY": "#9e9e9e"}
+        base = alt.Chart(df_long).encode(x=alt.X("D:Q", title="Días antes de la estancia"))
+        pace_line = base.mark_line(strokeWidth=2).encode(
+            y=alt.Y("Noches:Q", title="Noches confirmadas"),
+            color=alt.Color("Serie:N",
+                            scale=alt.Scale(domain=list(pace_colors.keys()), range=[pace_colors[k] for k in pace_colors]), title=None),
+            strokeDash=alt.condition("datum.Serie == 'LY'", alt.value([5,3]), alt.value([0,0])),
+            opacity=alt.condition("datum.Serie == 'LY'", alt.value(0.85), alt.value(1.0)),
+            tooltip=[alt.Tooltip("D:Q", title="D"), alt.Tooltip("Serie:N"), alt.Tooltip("Noches:Q", title="Valor", format=",.0f")],
+        )
+        pace_pts = base.mark_circle(size=55).encode(
+            y="Noches:Q",
+            color=alt.Color("Serie:N",
+                            scale=alt.Scale(domain=list(pace_colors.keys()), range=[pace_colors[k] for k in pace_colors]), title=None),
+            tooltip=[alt.Tooltip("D:Q", title="D"), alt.Tooltip("Serie:N"), alt.Tooltip("Noches:Q", title="Valor", format=",.0f")],
+        )
+        st.altair_chart((pace_line + pace_pts).properties(height=300).interactive(bind_y=False), use_container_width=True)
+
+    # ====== Evolución por fecha de corte: Ocupación y ADR ======
+    st.subheader("📈 Evolución por fecha de corte: Ocupación (izq) y ADR (dcha)")
+    with st.expander("Ver evolución", expanded=True):
+        evo_cut_start = st.date_input(
+            "Inicio de corte", value=pd.to_datetime(pro_cut).date().replace(day=1), key="evo_cut_start_pro"
+        )
+        evo_cut_end   = st.date_input("Fin de corte", value=pd.to_datetime(pro_cut).date(), key="evo_cut_end_pro")
+        inv_e = st.number_input("Inventario actual (opcional)", min_value=0, value=int(inv_pro), step=1, key="inv_evo_pro")
+        run_evo = st.button("Calcular evolución (Ocupación y ADR)", type="primary", key="btn_evo_pro")
+
+        if run_evo:
+            cstart = pd.to_datetime(evo_cut_start); cend = pd.to_datetime(evo_cut_end)
+            if cstart > cend:
+                st.error("El inicio del rango de corte no puede ser posterior al fin.")
+            else:
+                rows = []
+                for c in pd.date_range(cstart, cend, freq="D"):
+                    _, tot_now_e = compute_kpis(
+                        df_all=raw,
+                        cutoff=c,
+                        period_start=pd.to_datetime(pro_start),
+                        period_end=pd.to_datetime(pro_end),
+                        inventory_override=int(inv_e) if inv_e > 0 else None,
+                        filter_props=props_pro if props_pro else None,
+                    )
+                    _, tot_ly_e = compute_kpis(
+                        df_all=raw,
+                        cutoff=c - pd.DateOffset(years=1),
+                        period_start=pd.to_datetime(pro_start) - pd.DateOffset(years=1),
+                        period_end=pd.to_datetime(pro_end) - pd.DateOffset(years=1),
+                        inventory_override=int(inv_pro_ly) if (isinstance(inv_pro_ly, int) and inv_pro_ly > 0) else None,
+                        filter_props=props_pro if props_pro else None,
+                    )
+                    rows.append({
+                        "Corte": c.normalize(),
+                        "occ_now": float(tot_now_e["ocupacion_pct"]),
+                        "adr_now": float(tot_now_e["adr"]),
+                        "occ_ly": float(tot_ly_e["ocupacion_pct"]),
+                        "adr_ly": float(tot_ly_e["adr"]),
+                    })
+                evo_df = pd.DataFrame(rows)
+                if evo_df.empty:
+                    st.info("Sin datos en el rango seleccionado.")
+                else:
+                    occ_long = evo_df.melt(id_vars=["Corte"], value_vars=["occ_now","occ_ly"],
+                                           var_name="serie", value_name="valor")
+                    occ_long["serie"] = occ_long["serie"].map({"occ_now": "Ocupación actual", "occ_ly": "Ocupación LY"})
+                    adr_long = evo_df.melt(id_vars=["Corte"], value_vars=["adr_now","adr_ly"],
+                                           var_name="serie", value_name="valor")
+                    adr_long["serie"] = adr_long["serie"].map({"adr_now": "ADR actual (€)", "adr_ly": "ADR LY (€)"})
+
+                    occ_chart = (
+                        alt.Chart(occ_long)
+                        .mark_line(strokeWidth=2, interpolate="monotone")
+                        .encode(
+                            x=alt.X("Corte:T", title="Fecha de corte"),
+                            y=alt.Y("valor:Q", axis=alt.Axis(orient="left", title="Ocupación %", tickCount=6, format=".0f")),
+                            color=alt.Color("serie:N",
+                                scale=alt.Scale(domain=["Ocupación actual","Ocupación LY"], range=["#1f77b4","#6baed6"]), title=None),
+                            strokeDash=alt.condition("datum.serie == 'Ocupación LY'", alt.value([5,3]), alt.value([0,0])),
+                            opacity=alt.condition("datum.serie == 'Ocupación LY'", alt.value(0.7), alt.value(1.0)),
+                            tooltip=[alt.Tooltip("Corte:T", title="Día"), alt.Tooltip("serie:N", title="KPI"), alt.Tooltip("valor:Q", title="Valor", format=".2f")],
+                        )
+                    )
+                    adr_chart = (
+                        alt.Chart(adr_long)
+                        .mark_line(strokeWidth=2, interpolate="monotone")
+                        .encode(
+                            x=alt.X("Corte:T"),
+                            y=alt.Y("valor:Q", axis=alt.Axis(orient="right", title="ADR (€)", tickCount=6, format=",.2f")),
+                            color=alt.Color("serie:N",
+                                scale=alt.Scale(domain=["ADR actual (€)","ADR LY (€)"], range=["#ff7f0e","#fdae6b"]), title=None),
+                            strokeDash=alt.condition("datum.serie == 'ADR LY (€)'", alt.value([5,3]), alt.value([0,0])),
+                            opacity=alt.condition("datum.serie == 'ADR LY (€)'", alt.value(0.7), alt.value(1.0)),
+                            tooltip=[alt.Tooltip("Corte:T", title="Día"), alt.Tooltip("serie:N", title="Serie"), alt.Tooltip("valor:Q", title="Valor", format=",.2f")],
+                        )
+                    )
+                    chart = (
+                        alt.layer(occ_chart, adr_chart)
+                        .resolve_scale(y="independent", color="independent")
+                        .properties(height=380)
+                        .interactive(bind_y=False)
+                    )
+                    st.altair_chart(chart, use_container_width=True)
+
+                    out = evo_df.rename(columns={
+                        "occ_now":"Ocupación % (Actual)", "occ_ly":"Ocupación % (LY)",
+                        "adr_now":"ADR (€) (Actual)", "adr_ly":"ADR (€) (LY)",
+                    })
+                    st.dataframe(out, use_container_width=True)
+                    st.download_button(
+                        "📥 Descargar evolución (CSV)",
+                        data=out.to_csv(index=False).encode("utf-8-sig"),
+                        file_name="evolucion_occ_adr_cdmpro.csv",
+                        mime="text/csv"
+                    )
 
     # ====== Semáforos y análisis ======
     st.subheader("🚦 Semáforos y análisis")
