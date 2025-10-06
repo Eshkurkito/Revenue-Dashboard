@@ -345,3 +345,11 @@ def render_cuadro_mando_pro(raw):
         price_ref_p50=None,
     )
     st.markdown(tech_block)
+
+    # ====== Explicación ejecutiva (narrada) ======
+    st.subheader("🧠 Explicación ejecutiva (narrada)")
+    from utils import pro_exec_summary
+    exec_blocks = pro_exec_summary(tot_now, tot_ly_cut, tot_ly_final, pace_res)
+    st.markdown(exec_blocks["headline"])
+    with st.expander("Ver análisis detallado", expanded=False):
+        st.markdown(exec_blocks["detail"])

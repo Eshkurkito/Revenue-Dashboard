@@ -1,8 +1,9 @@
 import pandas as pd
-import numpy as np
 import streamlit as st
 from datetime import date, timedelta
-from typing import Optional, List, Tuple, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
+import math
+import numpy as np
 from pathlib import Path
 import os
 
@@ -339,3 +340,136 @@ def _kai_cdm_pro_analysis(
     msg += f"- ADR actual: **{float(tot_now.get('adr', 0.0)):.2f} €**\n"
     msg += f"- Ingresos actuales: **{float(tot_now.get('ingresos', 0.0)):.2f} €**\n"
     return msg
+
+def _safe(v, default=0.0):
+    try:
+        x = float(v)
+        return x if math.isfinite(x) else default
+    except Exception:
+        return default
+
+def _pct_delta(cur: float, ref: float) -> float:
+    cur, ref = _safe(cur), _safe(ref)
+    if ref == 0:
+        return 0.0
+    return (cur - ref) / ref * 100.0
+
+def _pp_delta(cur_pct: float, ref_pct: float) -> float:
+    return _safe(cur_pct) - _safe(ref_pct)
+
+def pro_exec_summary(
+    tot_now: Dict[str, float],
+    tot_ly_cut: Dict[str, float],
+    tot_ly_final: Dict[str, float],
+    pace: Dict[str, Any],
+) -> Dict[str, str]:
+    """
+    Devuelve {'headline': ..., 'detail': ...} con un análisis ejecutivo y plan de acción.
+    - tot_now / tot_ly_*: dicts de compute_kpis
+    - pace: dict de pace_forecast_month (usa alias si faltan claves)
+    """
+    # Lecturas básicas
+    occ_now = _safe(tot_now.get("ocupacion_pct", 0))
+    adr_now = _safe(tot_now.get("adr", 0))
+    rev_now = _safe(tot_now.get("ingresos", 0))
+
+    occ_ly = _safe(tot_ly_cut.get("ocupacion_pct", 0))
+    adr_ly = _safe(tot_ly_cut.get("adr", 0))
+    rev_ly = _safe(tot_ly_cut.get("ingresos", 0))
+
+    rev_ly_final = _safe(tot_ly_final.get("ingresos", 0))
+
+    # RevPAR aproximado
+    revpar_now = adr_now * occ_now / 100.0
+    revpar_ly = adr_ly * occ_ly / 100.0
+
+    # Deltas
+    d_occ_pp = _pp_delta(occ_now, occ_ly)
+    d_adr_pct = _pct_delta(adr_now, adr_ly)
+    d_revpar_pct = _pct_delta(revpar_now, revpar_ly)
+    d_revenue_pct = _pct_delta(rev_now, rev_ly)
+
+    # Pace (alias seguros)
+    def g(d, keys, default=0.0):
+        if not isinstance(d, dict): return default
+        for k in keys:
+            if k in d and d[k] is not None: return _safe(d[k], default)
+        return default
+
+    rev_final_p50 = g(pace, ["revenue_final_p50", "rev_final_p50", "p50_revenue_final"], rev_now)
+    pick_typ50 = g(pace, ["pickup_typ_p50", "p50_pickup_typ", "pickup_typical_p50"], 0.0)
+    adr_tail_p50 = g(pace, ["adr_tail_p50", "p50_adr_tail", "adr_typ_tail_p50"], adr_now)
+
+    # Gap de cierre vs LY final usando forecast P50
+    gap_rev = rev_ly_final - rev_final_p50
+    cobertura_pct = _pct_delta(rev_final_p50, rev_ly_final) + 100 if rev_ly_final > 0 else 0.0
+    gap_txt = f"Faltan {gap_rev:,.0f} €" if gap_rev > 0 else f"Superas LY final en {abs(gap_rev):,.0f} €"
+    gap_txt = gap_txt.replace(",", ".")
+
+    # Veredicto en función de d_occ y d_adr
+    if d_adr_pct < -3 and d_occ_pp > 2:
+        verdict = "Estamos comprando volumen barato"
+    elif d_adr_pct > 3 and d_occ_pp < -2:
+        verdict = "Estamos vendiendo caro, falta demanda"
+    elif d_adr_pct > 0 and d_occ_pp > 0:
+        verdict = "Ejecución sólida: sube precio y volumen"
+    elif d_adr_pct < 0 and d_occ_pp < 0:
+        verdict = "Alerta: caen precio y ocupación"
+    else:
+        verdict = "Rendimiento mixto"
+
+    # Atribución simple del RevPAR
+    atrib_occ_pp = d_occ_pp
+    atrib_adr_pp = d_adr_pct  # mostramos como p.p. de precio relativo, se explica en texto
+
+    # Viabilidad de cierre (heurística usando pickup y ADR tail)
+    if gap_rev <= 0:
+        viab = "Gap cubierto con el forecast P50."
+    else:
+        est_cob = pick_typ50 * adr_tail_p50
+        ratio = est_cob / gap_rev if gap_rev > 0 else 1.0
+        if ratio >= 1.0:
+            viab = "Con P50 (pickup × ADR tail) se cubriría el gap."
+        elif ratio >= 0.7:
+            viab = "Cobertura estimada ≈ alta (≥70%). Requiere ejecutar bien el pickup."
+        else:
+            viab = "Cobertura estimada insuficiente. Hay que activar demanda y/o ajustar precios."
+
+    # Plan de acción
+    acciones = []
+    if d_adr_pct < -3:
+        acciones.append("Revisar y retirar descuentos de baja conversión.")
+        acciones.append("Micro-rebajas quirúrgicas en días valle (LT corto).")
+    if d_occ_pp < 0:
+        acciones.append("Boost de demanda: visibilidad OTAs, campañas directas, partners.")
+    if d_adr_pct > 3 and d_occ_pp < 0:
+        acciones.append("Mantener precios en picos, test A/B de precio en días flojos.")
+    if not acciones:
+        acciones = [
+            "Monitorizar pickup semanal y mantener pricing en fines de semana/eventos.",
+            "Reasignar presupuesto a canales con mejor conversión."
+        ]
+
+    # Build headline + detail
+    headline = f"🌸 Explicación ejecutiva (narrada)\n\n" \
+               f"• Veredicto general: {verdict}\n\n" \
+               f"• Evolución vs LY (a este corte) → Ocupación {d_occ_pp:+.1f} p.p., ADR {d_adr_pct:+.1f}%, RevPAR {d_revpar_pct:+.1f}%, Ingresos {d_revenue_pct:+.1f}%.\n" \
+               f"• Viabilidad de cierre del gap → {gap_txt} · Cobertura estimada P50 ≈ {cobertura_pct:.0f}%."
+
+    detail = (
+        "### 👉 Ver análisis detallado\n"
+        f"- Ocupación: {'🟢' if d_occ_pp>=0 else '🔴'} {d_occ_pp:+.1f} p.p.\n"
+        f"- ADR: {'🟢' if d_adr_pct>=0 else '🔴'} {d_adr_pct:+.1f}%\n"
+        f"- RevPAR: {'🟢' if d_revpar_pct>=0 else '🔴'} {d_revpar_pct:+.1f}%\n"
+        f"- Ingresos: {'🟢' if d_revenue_pct>=0 else '🔴'} {d_revenue_pct:+.1f}%\n\n"
+        "#### Qué explica el resultado (atribución RevPAR)\n"
+        f"- Ocupación: {atrib_occ_pp:+.1f} p.p.\n"
+        f"- ADR: {atrib_adr_pp:+.1f}% (precio medio)\n\n"
+        "#### Viabilidad de cierre del gap\n"
+        f"- " + viab + "\n"
+        f"- " + gap_txt + f" · Cobertura estimada ≈ {cobertura_pct:.0f}%.\n\n"
+        "#### Plan de acción (siguiente quincena)\n"
+        + "".join([f"- {a}\n" for a in acciones])
+    )
+
+    return {"headline": headline, "detail": detail}
