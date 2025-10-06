@@ -372,5 +372,26 @@ def render_cuadro_mando_pro(raw):
 
     # ====== Semáforos y análisis ======
     st.subheader("🚦 Semáforos y análisis")
-    # Aquí puedes añadir tu lógica de semáforos y análisis avanzado
-    # Ejemplo: st.markdown(_kai_cdm_pro_analysis(...))
+
+    # Análisis de ritmo y recomendaciones
+    if pace_state == "🟢 Adelantado":
+        st.success("¡Buen ritmo de reservas! Vas adelantado respecto a años anteriores. Mantén la estrategia y monitoriza el pickup restante.")
+        if pick_need > pick_typ50 * 1.2:
+            st.warning("Aunque vas adelantado, aún queda mucho pickup por cubrir. Considera reforzar acciones de venta para asegurar el cierre.")
+    elif pace_state == "🟠 En línea":
+        st.info("El ritmo de reservas está en línea con años anteriores. Revisa el pickup pendiente y el ADR para ajustar precios si es necesario.")
+        if adr_tail_p50 < tot_ly_cut["adr"] * 0.95:
+            st.warning("El ADR previsto está por debajo del año anterior. Considera revisar tu estrategia de precios.")
+    elif pace_state == "🔴 Retrasado":
+        st.error("El ritmo de reservas va retrasado respecto a años anteriores. Revisa el pickup pendiente y considera acciones urgentes: promociones, campañas o ajustes de precios.")
+        if pick_need > pick_typ50:
+            st.warning("Pickup pendiente elevado. Refuerza la captación y revisa canales de venta.")
+        if adr_tail_p50 < tot_ly_cut["adr"] * 0.95:
+            st.warning("El ADR previsto está por debajo del año anterior. Considera bajar precios o lanzar ofertas.")
+    else:
+        st.info("No hay suficiente información para evaluar el ritmo de reservas.")
+
+    # Resumen visual
+    st.markdown(f"**Estado actual:** {pace_state}")
+    st.markdown(f"- Pickup pendiente para objetivo: **{pick_need:,.0f} noches**")
+    st.markdown(f"- ADR previsto (P50): **{adr_tail_p50:.2f} €**")
