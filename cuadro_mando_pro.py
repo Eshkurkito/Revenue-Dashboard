@@ -252,7 +252,7 @@ def render_cuadro_mando_pro(raw):
                         filter_props=props_pro if props_pro else None,
                     )
                     rows.append({
-                        "Corte": c.normalize(),
+                        "Corte": c.normalize(),  # <- normaliza fecha (sin hora)
                         "occ_now": float(tot_now_e["ocupacion_pct"]),
                         "adr_now": float(tot_now_e["adr"]),
                         "occ_ly": float(tot_ly_e["ocupacion_pct"]),
@@ -262,6 +262,9 @@ def render_cuadro_mando_pro(raw):
                 if evo_df.empty:
                     st.info("Sin datos en el rango seleccionado.")
                 else:
+                    # Asegura dtype datetime sin tz
+                    evo_df["Corte"] = pd.to_datetime(evo_df["Corte"]).dt.tz_localize(None)
+
                     occ_long = evo_df.melt(id_vars=["Corte"], value_vars=["occ_now","occ_ly"],
                                            var_name="serie", value_name="valor")
                     occ_long["serie"] = occ_long["serie"].map({"occ_now": "Ocupación actual", "occ_ly": "Ocupación LY"})
@@ -272,13 +275,10 @@ def render_cuadro_mando_pro(raw):
                     occ_colors = {"Ocupación actual": "#1f77b4", "Ocupación LY": "#6baed6"}
                     adr_colors = {"ADR actual (€)": "#ff7f0e", "ADR LY (€)": "#fdae6b"}
 
-                    # Selección 'nearest' común por fecha de corte
-                    hover = alt.selection_single(
-                        fields=["Corte"], nearest=True, on="mouseover", empty="none", clear="mouseout", name="evoHover"
-                    )
-
-                    # Contenedor invisible para capturar el hover (dataset con todas las fechas)
-                    x_ticks = alt.Chart(occ_long[["Corte"]].drop_duplicates()).mark_rule(opacity=0).encode(x="Corte:T").add_selection(hover)
+                    # Selección 'nearest' común por fecha de corte (sobre un eje invisible)
+                    all_dates = pd.DataFrame({"Corte": pd.to_datetime(evo_df["Corte"]).drop_duplicates()})
+                    hover = alt.selection_single(fields=["Corte"], nearest=True, on="mouseover", empty="none", clear="mouseout")
+                    x_proxy = alt.Chart(all_dates).mark_rule(opacity=0).encode(x="Corte:T").add_selection(hover)
 
                     # Líneas
                     occ_line = (
@@ -306,10 +306,10 @@ def render_cuadro_mando_pro(raw):
                         )
                     )
 
-                    # Puntos solo en el dato más cercano al ratón
+                    # Puntos SOLO cuando hay hover, filtrados por fecha
                     occ_points = (
                         alt.Chart(occ_long)
-                        .mark_circle(size=80, filled=True)
+                        .mark_circle(size=90, filled=True)
                         .encode(
                             x="Corte:T",
                             y=alt.Y("valor:Q", axis=None),
@@ -323,7 +323,7 @@ def render_cuadro_mando_pro(raw):
                     )
                     adr_points = (
                         alt.Chart(adr_long)
-                        .mark_circle(size=80, filled=True)
+                        .mark_circle(size=90, filled=True)
                         .encode(
                             x="Corte:T",
                             y=alt.Y("valor:Q", axis=None),
@@ -336,15 +336,14 @@ def render_cuadro_mando_pro(raw):
                         .transform_filter(hover)
                     )
 
-                    # Regla vertical visible cuando hay hover
-                    v_rule = alt.Chart(occ_long).mark_rule(color="#999").encode(x="Corte:T").transform_filter(hover)
+                    # Regla vertical en hover
+                    v_rule = alt.Chart(all_dates).mark_rule(color="#999").encode(x="Corte:T").transform_filter(hover)
 
                     chart = (
                         alt.layer(
                             occ_line, adr_line,
-                            x_ticks,  # activa la selección
-                            v_rule,
-                            occ_points, adr_points
+                            x_proxy, v_rule,           # activa selección y regla
+                            occ_points, adr_points     # puntos alineados a las líneas
                         )
                         .resolve_scale(y="independent", color="independent")
                         .properties(height=380)
