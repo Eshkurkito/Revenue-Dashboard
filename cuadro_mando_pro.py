@@ -15,7 +15,7 @@ def render_cuadro_mando_pro(raw):
         pro_start, pro_end = period_inputs(
             "Inicio del periodo", "Fin del periodo",
             date(date.today().year, date.today().month, 1),
-            (pd.Timestamp.today() + pd.offsets.MonthEnd(0)).date(),
+            date.today(),
             "pro_period"
         )
         inv_pro = st.number_input("Inventario actual (opcional)", min_value=0, value=0, step=1, key="pro_inv")
@@ -355,7 +355,7 @@ def render_cuadro_mando_pro(raw):
                          y=alt.Y("valor:Q", axis=None),
                          color=alt.Color("serie:N",
                              scale=alt.Scale(domain=["ADR actual (€)","ADR LY (€)"], range=["#ff7f0e","#fdae6b"]), title=None, legend=None),
-                         tooltip=[alt.Tooltip("Corte:T", title="Día"), alt.Tooltip("serie:N", title="Serie"), alt.Tooltip("valor:Q", title="Valor", format=".2f")],
+                         tooltip=[alt.Tooltip("Corte:T", title="Día"), alt.Tooltip("serie:N", title="Serie"), alt.Tooltip("valor:Q", title="Valor", format=",.2f")],
                      )
                     chart = (
                         alt.layer(occ_chart, occ_pts, adr_chart, adr_pts)
