@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Optional, Dict, Any, Tuple
-
 import pandas as pd
 import numpy as np
 import streamlit as st
+from typing import Optional, Dict, Any, Tuple
 
 from utils import save_group_csv, load_groups, group_selector
 
@@ -364,136 +363,72 @@ def _filter_current_scope(df_alerts: pd.DataFrame, tab_label: str, days_bucket: 
     return d
 
 
-def render_alerts_module(df: pd.DataFrame, config: dict | None = None, today: date | None = None) -> None:
+def render_alerts_module(
+    df: pd.DataFrame,
+    config: Optional[dict] = None,
+    start: Optional[pd.Timestamp] = None,
+    end: Optional[pd.Timestamp] = None,
+    show_debug: bool = True,
+) -> None:
     """
-    Renderiza el panel de alertas automáticas del portfolio.
-    Uso: render_alerts_module(st.session_state.raw_df)  (df ya cargado por la app principal)
+    Render sencillo del panel de alertas:
+    - Normaliza/convierte reservas -> filas diarias (unidad-fecha).
+    - Muestra KPIs, preview y alertas por unidad.
     """
-    st.header("🚨 Panel de alertas del portfolio")
-    nowts = datetime.now().strftime("%Y-%m-%d %H:%M")
-    st.caption(f"Cálculo: {nowts}")
+    df_norm, used = normalize_columns(df, config)
 
-    # Ayuda
-    with st.expander("Cómo se calculan las alertas"):
-        st.markdown(
-            "- Ventanas: 0–7 (última milla), 8–30 (control de ritmo), 31–60 (previsión).\n"
-            "- 0–7: Rojo si ocupación < 85% (y si hay, pickup_7d bajo). Ámbar 85–92%, Verde ≥ 92%.\n"
-            "- 8–30: Rojo si pace_vs_ly < 80% o ΔADR>+10€ con pickup bajo; Ámbar 80–95% o ΔADR+5–10€; Verde pace≥95% y |ΔADR| ≤ 5€.\n"
-            "- 31–60: Rojo pace<90%, Ámbar 90–100%, Verde ≥ 100%.\n"
-            "- Si no hay pace/pickup/compset: degradación por ocupación vs objetivo por ventana."
+    if df_norm.empty:
+        st.warning("Alertas: no hay filas tras normalizar datos.")
+        return
+
+    # Rango de fechas
+    min_d, max_d = df_norm["fecha_llegada"].min(), df_norm["fecha_llegada"].max()
+    start = pd.to_datetime(start) if start is not None else min_d
+    end = pd.to_datetime(end) if end is not None else max_d
+    mask = (df_norm["fecha_llegada"] >= start) & (df_norm["fecha_llegada"] <= end)
+    df_f = df_norm.loc[mask].copy()
+
+    if show_debug:
+        st.caption(
+            f"Alertas: {len(df_f):,} filas · {start.date()} → {end.date()} · mapeo: {used}"
+            .replace(",", ".")
         )
+        st.dataframe(df_f.head(20), use_container_width=True)
 
-    # Calcular alertas
-    try:
-        alerts = compute_alerts(df, config=config, today=today or date.today())
-    except Exception as e:
-        st.stop()
+    if df_f.empty:
+        st.info("No hay datos en el rango seleccionado para alertas.")
+        return
 
-    # Tabs por mes
-    tabs = st.tabs(["Mes actual", "Mes siguiente"])
-    for tab_label, tab in zip(["Mes actual", "Mes siguiente"], tabs):
-        with tab:
-            # Filtros
-            zonas = ["(todas)"]
-            if "zona" in alerts.columns and alerts["zona"].astype(str).str.strip().replace("nan","").any():
-                zonas += sorted([z for z in alerts["zona"].dropna().astype(str).unique().tolist() if z])
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                zona_sel = st.selectbox("Zona/cluster", zonas, key=f"alerts_zona_{tab_label}")
-            with c2:
-                bucket = st.selectbox("Rango de días", ["0-7", "8-30", "31-60"], key=f"alerts_bucket_{tab_label}")
-            with c3:
-                search = st.text_input("Buscar unidad", key=f"alerts_search_{tab_label}", placeholder="Nombre o parte...")
+    # KPIs
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Unidades", f"{df_f['unidad'].nunique():,}".replace(",", "."))
+    c2.metric("Días", f"{df_f['fecha_llegada'].nunique():,}".replace(",", "."))
+    c3.metric("Ocupación media", f"{df_f['ocupacion'].mean():.1f}%")
+    c4.metric("ADR medio", f"{df_f['adr'].mean():.2f} €")
 
-            cur = _filter_current_scope(alerts, tab_label, bucket, zona_sel, search)
+    # Alertas por unidad: occ baja o ADR bajo vs mediana propia
+    med_adr = df_f.groupby("unidad")["adr"].median().rename("adr_med")
+    agg = df_f.groupby("unidad").agg(
+        occ=("ocupacion", "mean"),
+        adr=("adr", "mean"),
+        dias=("fecha_llegada", "nunique"),
+    ).reset_index()
+    agg = agg.merge(med_adr, on="unidad", how="left")
+    agg["flag"] = np.where(
+        agg["occ"] < 40,
+        "⚠️ Occ baja",
+        np.where(agg["adr"] < 0.90 * agg["adr_med"], "⚠️ ADR bajo", "✅"),
+    )
+    st.subheader("Alertas por unidad")
+    st.dataframe(
+        agg.sort_values(["flag", "occ"]).reset_index(drop=True),
+        use_container_width=True,
+    )
 
-            # KPIs de color
-            pct = kpi_counts(cur)
-            k1, k2, k3 = st.columns(3)
-            k1.metric("% Rojo", f"{pct['Rojo']:.1f}%")
-            k2.metric("% Ámbar", f"{pct['Ámbar']:.1f}%")
-            k3.metric("% Verde", f"{pct['Verde']:.1f}%")
+    # Preview detallada: tabla completa filtrada
+    with st.expander("Ver detalle de alertas por unidad", expanded=True):
+        st.dataframe(style_alerts(df_f), use_container_width=True)
 
-            # Top 10 riesgos hoy
-            st.subheader("Top 10 riesgos hoy")
-            cur_sorted = cur.sort_values(by=["semaforo", "ocupacion", "pace_vs_ly"], key=lambda c: np.argsort(cur.apply(_severity_key, axis=1)) if c.name == "semaforo" else c, ascending=[True, True, False])
-            # Fallback si vacío: usa todo el tab
-            if cur_sorted.empty:
-                cur_sorted = _filter_current_scope(alerts, tab_label, bucket, None, "")
-            cur_sorted = cur_sorted.copy()
-            cur_sorted["Unidad"] = cur_sorted["unidad"]
-            cur_sorted["Semáforo"] = cur_sorted["semaforo"]
-            cur_sorted["Acción sugerida"] = cur_sorted["accion_sugerida"]
-            keep_cols = ["Unidad", "Fecha llegada", "Días a llegada", "Ocupación %", "Pace vs LY %", "ΔADR vs compset €", "Semáforo", "Acción sugerida"]
-            top10 = cur_sorted.sort_values(by=["semaforo", "ocupacion", "pace_vs_ly"], key=lambda c: np.argsort(cur_sorted.apply(_severity_key, axis=1)) if c.name == "semaforo" else c, ascending=[True, True, False]).head(10)
-            st.dataframe(style_alerts(top10[keep_cols]), use_container_width=True)
-
-            # Panel completo
-            with st.expander("Ver todas las alertas filtradas", expanded=False):
-                st.dataframe(style_alerts(cur_sorted[keep_cols]), use_container_width=True)
-
-                # Exportar CSV visibles
-                csv_bytes = cur_sorted[keep_cols].to_csv(index=False).encode("utf-8-sig")
-                st.download_button("📥 Exportar alertas (CSV)", data=csv_bytes, file_name="alertas_visibles.csv", mime="text/csv", key=f"dl_csv_{tab_label}")
-
-                # Copiar acciones sugeridas (fallback con st.code)
-                joined_actions = "\n".join(f"- {u}: {a}" for u, a in zip(cur_sorted["Unidad"], cur_sorted["Acción sugerida"]))
-                st.code(joined_actions, language="text")
-                st.caption("Selecciona y copia manualmente las acciones (Ctrl+C).")
-
-            # Registro de acciones (log)
-            st.subheader("Registro de decisiones")
-            # Identificador de fila: unidad + fecha
-            cur_sorted["key_id"] = cur_sorted["Unidad"].astype(str) + " | " + cur_sorted["Fecha llegada"].astype(str)
-            sel_id = st.selectbox("Selecciona alerta", cur_sorted["key_id"].tolist(), key=f"log_sel_{tab_label}")
-
-            # Campos del log
-            act_opts = [
-                "Bajada ADR 5–12 %",
-                "Subida ADR 5–10 %",
-                "Apertura 1N/gap-filler",
-                "Revisión min-stay",
-                "Lanzar promo selectiva",
-                "Revisión contenido OTA",
-                "Otra"
-            ]
-            c1, c2, c3 = st.columns([1, 2, 1])
-            with c1:
-                act_applied = st.selectbox("Acción aplicada", act_opts, key=f"log_action_{tab_label}")
-            with c2:
-                comment = st.text_input("Comentario", key=f"log_comment_{tab_label}")
-            with c3:
-                follow = st.selectbox("Revisar en", ["24 h", "48 h", "72 h"], key=f"log_follow_{tab_label}")
-
-            if st.button("Guardar en log", type="primary", key=f"btn_save_log_{tab_label}"):
-                logs = st.session_state.get("alert_logs", [])
-                row = cur_sorted[cur_sorted["key_id"] == sel_id].iloc[0].to_dict() if not cur_sorted.empty else {}
-                logs.append({
-                    "ts": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    "tab": tab_label,
-                    "fin_mes": pd.Timestamp.today().to_period("M").to_timestamp(how="end").date(),
-                    "key": sel_id,
-                    "unidad": row.get("Unidad", ""),
-                    "fecha_llegada": row.get("Fecha llegada", ""),
-                    "accion": act_applied,
-                    "comentario": comment,
-                    "revisar_en": follow,
-                })
-                st.session_state["alert_logs"] = logs
-                st.success("Guardado en el log.")
-
-            # Exportar log
-            logs = st.session_state.get("alert_logs", [])
-            if logs:
-                df_logs = pd.DataFrame(logs)
-                st.dataframe(df_logs, use_container_width=True)
-                st.download_button(
-                    "📥 Exportar log (CSV)",
-                    data=df_logs.to_csv(index=False).encode("utf-8-sig"),
-                    file_name="alert_logs.csv",
-                    mime="text/csv",
-                    key=f"dl_log_{tab_label}"
-                )
 
     # Sidebar: selección y guardado de grupo
     groups = load_groups()
