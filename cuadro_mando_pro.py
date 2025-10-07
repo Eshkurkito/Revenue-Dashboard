@@ -81,12 +81,33 @@ def render_cuadro_mando_pro(raw):
         props_pro if props_pro else None,
     )
 
+    # NUEVO: Ingresos LY-2 (a este corte) y LY-2 final
+    _, tot_ly2_cut_ing = compute_kpis(
+        raw,
+        pd.to_datetime(pro_cut) - pd.DateOffset(years=2),
+        pd.to_datetime(pro_start) - pd.DateOffset(years=2),
+        pd.to_datetime(pro_end) - pd.DateOffset(years=2),
+        int(inv_pro_ly) if inv_pro_ly > 0 else None,
+        props_pro if props_pro else None,
+    )
+    cutoff_ly2_final = pd.to_datetime(pro_end) - pd.DateOffset(years=2)
+    _, tot_ly2_final_ing = compute_kpis(
+        raw,
+        cutoff_ly2_final,
+        pd.to_datetime(pro_start) - pd.DateOffset(years=2),
+        pd.to_datetime(pro_end) - pd.DateOffset(years=2),
+        int(inv_pro_ly) if inv_pro_ly > 0 else None,
+        props_pro if props_pro else None,
+    )
+
     # ====== Ingresos ======
     st.subheader("💶 Ingresos (periodo seleccionado)")
-    g1, g2, g3 = st.columns(3)
+    g1, g2, g3, g4, g5 = st.columns(5)
     g1.metric("Ingresos actuales (€)", f"{tot_now['ingresos']:.2f}")
     g2.metric("Ingresos LY a este corte (€)", f"{tot_ly_cut['ingresos']:.2f}")
     g3.metric("Ingresos LY final (€)", f"{tot_ly_final['ingresos']:.2f}")
+    g4.metric("Ingresos LY-2 a este corte (€)", f"{tot_ly2_cut_ing['ingresos']:.2f}")
+    g5.metric("Ingresos LY-2 final (€)", f"{tot_ly2_final_ing['ingresos']:.2f}")
 
     # ====== ADR ======
     st.subheader("🏷️ ADR (a fecha de corte)")
