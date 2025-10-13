@@ -35,14 +35,28 @@ def _expand_daily(dfx: pd.DataFrame, p_start: pd.Timestamp, p_end: pd.Timestamp,
     dfx["in_end"]   = (dfx["Fecha salida"]).clip(upper=p_end + pd.Timedelta(days=1))
     dfx["n_in"] = (dfx["in_end"] - dfx["in_start"]).dt.days
     dfx = dfx[dfx["n_in"] > 0].copy()
+    if dfx.empty:
+        return pd.DataFrame(columns=["date","Alojamiento","nights","revenue","adr"])
 
-    # Fechas de estancia en el rango
-    dfx["dates"] = dfx.apply(lambda r: pd.date_range(r["in_start"], r["in_end"] - pd.Timedelta(days=1), freq="D"), axis=1)
-    exploded = dfx.loc[dfx["dates"].str.len() > 0, ["Alojamiento","dates","adr_reserva"]].explode("dates")
+    # Fechas de estancia en el rango (sin apply, robusto a 1 noche y vacío)
+    def _safe_range(s, e):
+        if pd.isna(s) or pd.isna(e):
+            return pd.DatetimeIndex([])
+        e_excl = e - pd.Timedelta(days=1)
+        if s > e_excl:
+            return pd.DatetimeIndex([])
+        return pd.date_range(s, e_excl, freq="D")
+
+    dfx["dates"] = [ _safe_range(s, e) for s, e in zip(dfx["in_start"], dfx["in_end"]) ]
+    # Explode y agregar
+    # Filtra filas con algún día
+    has_days = dfx["dates"].map(len) > 0
+    if not has_days.any():
+        return pd.DataFrame(columns=["date","Alojamiento","nights","revenue","adr"])
+    exploded = dfx.loc[has_days, ["Alojamiento","dates","adr_reserva"]].explode("dates")
     exploded = exploded.rename(columns={"dates":"date"})
     exploded["nights"] = 1.0
     exploded["revenue"] = exploded["adr_reserva"]
-    # Agregar por día-propiedad
     out = exploded.groupby(["date","Alojamiento"], as_index=False).agg(
         nights=("nights","sum"),
         revenue=("revenue","sum"),
@@ -52,8 +66,8 @@ def _expand_daily(dfx: pd.DataFrame, p_start: pd.Timestamp, p_end: pd.Timestamp,
 
 def _map_groups(df_daily: pd.DataFrame, groups: dict) -> pd.DataFrame:
     if df_daily.empty:
-        df_daily["Grupo"] = []
-        return df_daily
+        # no crear columna con lista vacía; devolver el mismo DF
+        return df_daily.assign(Grupo=pd.Series(dtype="object"))
     prop_to_group = {}
     for g, props in (groups or {}).items():
         for p in props:
