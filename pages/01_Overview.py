@@ -6,12 +6,14 @@ from utils import compute_kpis, period_inputs, pro_exec_summary
 
 st.header("Overview")
 
-raw = st.session_state.get("raw")
+raw = st.session_state.get("df_active") or st.session_state.get("raw")
+props = st.session_state.get("active_props", [])
+if props:
+    raw = raw[raw["Alojamiento"].astype(str).isin(props)].copy()
+
 if raw is None or raw.empty:
     st.info("No hay datos cargados. Vuelve a la portada y sube un CSV.")
     st.stop()
-
-props = st.session_state.get("active_props", [])
 
 with st.sidebar:
     st.markdown("—")
