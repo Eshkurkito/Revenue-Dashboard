@@ -6,17 +6,13 @@ from datetime import date
 
 from utils import load_groups, parse_dates
 
-st.set_page_config(page_title="What‑if avanzado", layout="wide")
+# NOTA: no llamamos st.set_page_config aquí (hazlo solo en streamlit_app.py)
 
 def _ensure_parsed(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame(columns=["Alojamiento","Fecha alta","Fecha entrada","Fecha salida","Alquiler con IVA (€)"])
-    dfx = df.copy()
-    dfx = parse_dates(dfx)
-    if "Alquiler con IVA (€)" in dfx.columns:
-        dfx["Alquiler con IVA (€)"] = pd.to_numeric(dfx["Alquiler con IVA (€)"], errors="coerce").fillna(0.0)
-    else:
-        dfx["Alquiler con IVA (€)"] = 0.0
+    dfx = parse_dates(df.copy())
+    dfx["Alquiler con IVA (€)"] = pd.to_numeric(dfx.get("Alquiler con IVA (€)"), errors="coerce").fillna(0.0)
     dfx = dfx.dropna(subset=["Fecha entrada","Fecha salida"])
     dfx = dfx[dfx["Fecha salida"] > dfx["Fecha entrada"]]
     dfx["los"] = (dfx["Fecha salida"] - dfx["Fecha entrada"]).dt.days.clip(lower=1)
@@ -51,7 +47,7 @@ def _expand_daily(dfx: pd.DataFrame, p_start: pd.Timestamp, p_end: pd.Timestamp,
         nights=("nights","sum"),
         revenue=("revenue","sum"),
     )
-    out["adr"] = out.apply(lambda r: r["revenue"]/r["nights"] if r["nights"]>0 else 0.0, axis=1)
+    out["adr"] = np.where(out["nights"] > 0, out["revenue"]/out["nights"], 0.0)
     return out.sort_values(["date","Alojamiento"])
 
 def _map_groups(df_daily: pd.DataFrame, groups: dict) -> pd.DataFrame:
@@ -80,7 +76,7 @@ def _inv_by_group(df_scope: pd.DataFrame, groups: dict, props_scope: list[str] |
     other = len(props_in - known)
     if other > 0:
         inv["Sin grupo"] = other
-    # Seguridad
+    # Limpieza
     for g in list(inv.keys()):
         if inv[g] <= 0:
             inv.pop(g, None)
@@ -90,11 +86,13 @@ def _dow_map():
     # 0=L,1=M,2=X,3=J,4=V,5=S,6=D
     return ["L","M","X","J","V","S","D"]
 
-def render_page():
+def render_what_if(raw: pd.DataFrame | None = None):
+    """Módulo What-if avanzado (precio y pickup) con desglose por grupos."""
     st.header("🧪 What‑if avanzado (precio y pickup)")
 
-    # Dataset activo (ya filtrado por grupo en la portada si procede)
-    raw = st.session_state.get("df_active") or st.session_state.get("raw", pd.DataFrame())
+    # Dataset activo (si no se pasa, intentar session_state)
+    if raw is None:
+        raw = st.session_state.get("df_active") or st.session_state.get("raw", pd.DataFrame())
     if raw is None or raw.empty:
         st.info("No hay datos cargados. Vuelve a la portada y sube un CSV/Excel.")
         return
@@ -162,22 +160,19 @@ def render_page():
         .agg(nights=("nights","sum"), revenue=("revenue","sum"), props=("Alojamiento","nunique"))
         .sort_values("revenue", ascending=False)
     )
-    base_g["adr"] = base_g.apply(lambda r: r["revenue"]/r["nights"] if r["nights"]>0 else 0.0, axis=1)
+    base_g["adr"] = np.where(base_g["nights"] > 0, base_g["revenue"]/base_g["nights"], 0.0)
 
     # Inventario del grupo (override si global > 0)
     nights_period = max((pd.to_datetime(p_end) - pd.to_datetime(p_start)).days + 1, 1)
     base_g["inv"] = base_g["Grupo"].map(inv_map).fillna(0).astype(int)
     if inv_override_global and int(inv_override_global) > 0:
-        # Repartir override proporcional al tamaño del grupo (nº props)
         total_inv = int(inv_override_global)
         weights = (base_g["inv"].replace(0, np.nan)).fillna(0)
         if weights.sum() > 0:
             base_g["inv"] = np.floor(weights / weights.sum() * total_inv).astype(int).clip(lower=1)
-
-    base_g["occ_pct"] = base_g.apply(lambda r: (r["nights"] / (max(r["inv"],1) * nights_period) * 100.0) if nights_period>0 else 0.0, axis=1)
+    base_g["occ_pct"] = np.where(nights_period > 0, base_g["nights"] / (base_g["inv"].clip(lower=1) * nights_period) * 100.0, 0.0)
 
     # Escenario: precio por DOW
-    # ADR ajustado para noches base por día-propiedad
     daily["dow"] = pd.to_datetime(daily["date"]).dt.dayofweek
     daily["adr_scn"] = daily.apply(lambda r: r["adr"] * (1.0 + (dow_delta.get(int(r["dow"]), price_delta))/100.0), axis=1)
 
@@ -196,7 +191,6 @@ def render_page():
         else:
             total_n = by_group_nights.sum() if by_group_nights.sum() > 0 else 1.0
             shares = {g: float(by_group_nights.get(g,0.0))/total_n for g in groups_list}
-        # Asignación entera por redondeo
         extra_g = {g: 0 for g in groups_list}
         remain = abs(total_delta)
         order = sorted(groups_list, key=lambda x: -shares[x])
@@ -206,7 +200,6 @@ def render_page():
             remain -= 1
             i += 1
         if total_delta < 0:
-            # quitar noches (marcaremos como negativas)
             extra_g = {g: -v for g, v in extra_g.items()}
     else:
         extra_g = {g: 0 for g in groups_list}
@@ -214,12 +207,11 @@ def render_page():
     # Distribución dentro de cada grupo por días
     daily["extra"] = 0.0
     for g, delta_g in extra_g.items():
-        if delta_g == 0: 
+        if delta_g == 0:
             continue
         sub = daily[daily["Grupo"] == g].copy()
         if sub.empty:
             continue
-        # Lista de índices en el orden deseado
         if dist_days.startswith("Solo fines"):
             sub = sub[pd.to_datetime(sub["date"]).dt.dayofweek.isin([4,5,6])]  # V,S,D
             if sub.empty:
@@ -228,7 +220,6 @@ def render_page():
             order_idx = sub.sort_values("nights").index.tolist()
         else:
             order_idx = sub.sort_values("date").index.tolist()
-        # Reparte +/-1 noche en rondas
         if delta_g > 0:
             i = 0
             remain = delta_g
@@ -239,11 +230,9 @@ def render_page():
         else:
             i = 0
             remain = -delta_g
-            # Quitamos de los días con más noches primero
             order_idx = sub.sort_values("nights", ascending=False).index.tolist()
             while remain > 0 and order_idx:
                 idx = order_idx[i % len(order_idx)]
-                # Evitar negativos fuertes
                 if (daily.loc[idx, "nights"] + daily.loc[idx, "extra"]) > 0:
                     daily.loc[idx, "extra"] -= 1.0
                     remain -= 1
@@ -253,11 +242,9 @@ def render_page():
     if adr_tail and adr_tail > 0:
         daily["adr_tail_use"] = float(adr_tail)
     else:
-        # ADR medio base por grupo
         adr_grp = daily.groupby("Grupo")["adr"].mean()
         daily["adr_tail_use"] = daily["Grupo"].map(adr_grp).fillna(daily["adr"])
-    daily["rev_extra"] = daily["extra"].clip(lower=0) * daily["adr_tail_use"]  # solo las extras positivas generan ingreso
-    # Para extras negativas ya restamos noches, pero no restamos ingresos previstos (decisión conservadora)
+    daily["rev_extra"] = daily["extra"].clip(lower=0) * daily["adr_tail_use"]
 
     # Totales por grupo (base vs escenario)
     agg_base = daily.groupby("Grupo", as_index=False).agg(
@@ -274,11 +261,11 @@ def render_page():
     res["rev_scn"] = res["rev_price"] + res["rev_extra"]
 
     # KPIs calculados
-    res["adr_base"] = res.apply(lambda r: r["rev_base"]/r["nights"] if r["nights"]>0 else 0.0, axis=1)
-    res["adr_scn"] = res.apply(lambda r: r["rev_scn"]/r["n_scn"] if r["n_scn"]>0 else r["adr_base"], axis=1)
+    res["adr_base"] = np.where(res["nights"] > 0, res["rev_base"]/res["nights"], 0.0)
+    res["adr_scn"] = np.where(res["n_scn"] > 0, res["rev_scn"]/res["n_scn"], res["adr_base"])
     res["inv"] = res["Grupo"].map(base_g.set_index("Grupo")["inv"]).fillna(1).astype(int)
-    res["occ_base"] = res.apply(lambda r: (r["nights"] / (max(r["inv"],1)*nights_period) * 100.0) if nights_period>0 else 0.0, axis=1)
-    res["occ_scn"]  = res.apply(lambda r: (r["n_scn"]  / (max(r["inv"],1)*nights_period) * 100.0) if nights_period>0 else 0.0, axis=1)
+    res["occ_base"] = np.where(nights_period > 0, res["nights"] / (res["inv"].clip(lower=1)*nights_period) * 100.0, 0.0)
+    res["occ_scn"]  = np.where(nights_period > 0, res["n_scn"]  / (res["inv"].clip(lower=1)*nights_period) * 100.0, 0.0)
 
     # Totales generales
     total_row = pd.DataFrame({
@@ -314,8 +301,7 @@ def render_page():
 
     st.subheader("Desglose por grupo")
     show_cols = ["Grupo","inv","nights","n_scn","extra","adr_base","adr_scn","rev_base","rev_scn","occ_base","occ_scn"]
-    grid = res_full[show_cols].copy()
-    grid = grid.rename(columns={
+    grid = res_full[show_cols].rename(columns={
         "inv":"Inventario",
         "nights":"Noches base",
         "n_scn":"Noches esc.",
@@ -368,18 +354,3 @@ def render_page():
             file_name="what_if_diario_grupo.csv",
             mime="text/csv",
         )
-
-if __name__ == "__main__":
-    render_page()
-
-import streamlit as st
-import pandas as pd
-
-def render_what_if(raw: pd.DataFrame | None = None):
-    st.header("🧪 What‑if (módulo)")
-    if raw is None:
-        raw = st.session_state.get("df_active") or st.session_state.get("raw")
-    if raw is None or getattr(raw, "empty", True):
-        st.info("No hay datos cargados. Vuelve a la portada y sube un CSV/Excel.")
-        return
-    st.success("What‑if cargado. Integra aquí la lógica avanzada.")
