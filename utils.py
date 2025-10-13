@@ -9,41 +9,72 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-# ===== Grupos de alojamientos (CSV reutilizable) =====
-GROUPS_CSV = "grupos_guardados.csv"  # en la raíz del repo
-
-def save_group_csv(group_name: str, props_list: List[str]) -> None:
-    if os.path.exists(GROUPS_CSV):
-        df = pd.read_csv(GROUPS_CSV)
-    else:
-        df = pd.DataFrame(columns=["Grupo", "Alojamiento"])
-    df = df[df["Grupo"] != group_name]
-    new_rows = [{"Grupo": group_name, "Alojamiento": str(prop)} for prop in props_list]
-    df = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
-    df.to_csv(GROUPS_CSV, index=False, encoding="utf-8-sig")
+# =========================
+# Persistencia de grupos
+# =========================
+GROUPS_CSV = "grupos_guardados.csv"
 
 def load_groups() -> Dict[str, List[str]]:
     if not os.path.exists(GROUPS_CSV):
         return {}
-    df = pd.read_csv(GROUPS_CSV)
-    groups: Dict[str, List[str]] = {}
-    for group_name in df["Grupo"].astype(str).unique():
-        props = df[df["Grupo"].astype(str) == str(group_name)]["Alojamiento"].astype(str).tolist()
-        groups[str(group_name)] = props
-    return groups
+    try:
+        df = pd.read_csv(GROUPS_CSV)
+        if "Grupo" in df.columns and "Alojamiento" in df.columns:
+            out: Dict[str, List[str]] = {}
+            for g, sub in df.groupby("Grupo"):
+                out[str(g)] = sorted(list(sub["Alojamiento"].dropna().astype(str).unique()))
+            return out
+    except Exception:
+        pass
+    return {}
+
+def save_group_csv(name: str, props: List[str]) -> None:
+    name = str(name).strip()
+    if not name or not props:
+        return
+    cur = pd.DataFrame({"Grupo": [name] * len(props), "Alojamiento": list(map(str, props))})
+    if os.path.exists(GROUPS_CSV):
+        try:
+            prev = pd.read_csv(GROUPS_CSV)
+            prev = prev[prev["Grupo"] != name]
+            cur = pd.concat([prev, cur], ignore_index=True)
+        except Exception:
+            pass
+    cur.to_csv(GROUPS_CSV, index=False, encoding="utf-8-sig")
+
+def delete_group_csv(name: str) -> None:
+    if not os.path.exists(GROUPS_CSV):
+        return
+    try:
+        df = pd.read_csv(GROUPS_CSV)
+        df = df[df["Grupo"] != name]
+        df.to_csv(GROUPS_CSV, index=False, encoding="utf-8-sig")
+    except Exception:
+        pass
 
 def group_selector(label: str, all_props: List[str], key_prefix: str, default: Optional[List[str]] = None) -> List[str]:
     return st.multiselect(label, options=sorted(all_props), default=default or [], key=f"{key_prefix}_selector")
 
-# ===== Parsing y normalización =====
+# =========================
+# Helpers de UI
+# =========================
+def period_inputs(label_start: str, label_end: str, default_start: date, default_end: date, key_prefix: str) -> Tuple[date, date]:
+    c1, c2 = st.columns(2)
+    d1 = c1.date_input(label_start, value=default_start, key=f"{key_prefix}_start")
+    d2 = c2.date_input(label_end, value=default_end, key=f"{key_prefix}_end")
+    return d1, d2
+
+def help_block(txt: str):
+    st.info(txt)
+
+# =========================
+# Parsing de fechas
+# =========================
 def parse_dates(df: pd.DataFrame) -> pd.DataFrame:
-    """Parsea fechas (incluye seriales Excel) y normaliza Alojamiento y Alquiler con IVA (€)."""
     if df is None or df.empty:
         return df
-    # Alojamiento a str
     if "Alojamiento" in df.columns:
         df["Alojamiento"] = df["Alojamiento"].astype(str).str.strip()
-    # Fechas
     for col in ["Fecha alta", "Fecha entrada", "Fecha salida"]:
         if col in df.columns:
             s = df[col]
@@ -55,32 +86,15 @@ def parse_dates(df: pd.DataFrame) -> pd.DataFrame:
             except Exception:
                 df[col] = pd.to_datetime(df[col], errors="coerce")
             df[col] = pd.to_datetime(df[col], errors="coerce").dt.normalize()
-    # Precio
     if "Alquiler con IVA (€)" in df.columns:
         df["Alquiler con IVA (€)"] = pd.to_numeric(df["Alquiler con IVA (€)"], errors="coerce").fillna(0.0)
     else:
         df["Alquiler con IVA (€)"] = 0.0
     return df
 
-@st.cache_data(show_spinner=False)
-def get_inventory(df: pd.DataFrame, override: Optional[int]) -> int:
-    if override is not None and override > 0:
-        return int(override)
-    if df is None or df.empty or "Alojamiento" not in df.columns:
-        return 0
-    return int(df["Alojamiento"].astype(str).nunique())
-
-def help_block(kind: str):
-    if kind == "Consulta normal":
-        st.info("Consulta normal: KPIs totales y por alojamiento para el periodo y corte seleccionados.")
-
-def period_inputs(label_start: str, label_end: str, default_start: date, default_end: date, key_prefix: str) -> Tuple[date, date]:
-    col1, col2 = st.columns(2)
-    start = col1.date_input(label_start, value=default_start, key=f"{key_prefix}_start")
-    end = col2.date_input(label_end, value=default_end, key=f"{key_prefix}_end")
-    return start, end
-
-# ===== Núcleo KPIs =====
+# =========================
+# Núcleo KPIs
+# =========================
 def _safe_float(x, default=0.0) -> float:
     try:
         v = float(x)
@@ -89,7 +103,6 @@ def _safe_float(x, default=0.0) -> float:
         return default
 
 def _prep_df(df_all: pd.DataFrame, filter_props: Optional[List[str]] = None) -> pd.DataFrame:
-    """Normaliza, filtra por props, limpia fechas invertidas y calcula LOS."""
     if df_all is None or df_all.empty:
         return pd.DataFrame(columns=["Alojamiento","Fecha alta","Fecha entrada","Fecha salida","Alquiler con IVA (€)"])
     df = parse_dates(df_all.copy())
@@ -185,31 +198,9 @@ def compute_kpis(
     }
     return by_prop, tot
 
-# ===== Mix por portal (simple) =====
-def compute_portal_share(
-    df_all: pd.DataFrame,
-    cutoff: pd.Timestamp,
-    period_start: pd.Timestamp,
-    period_end: pd.Timestamp,
-    filter_props: Optional[List[str]] = None,
-    portal_col: str = "Agente/Intermediario",
-) -> Optional[pd.DataFrame]:
-    if portal_col not in df_all.columns:
-        return None
-    df = _prep_df(df_all, filter_props)
-    if df.empty:
-        return pd.DataFrame(columns=["Portal", "Reservas", "% Reservas"])
-    df = df[(df["Fecha alta"] <= pd.to_datetime(cutoff)) &
-            (df["Fecha entrada"] <= pd.to_datetime(period_end)) &
-            (df["Fecha salida"] >= pd.to_datetime(period_start))]
-    if df.empty:
-        return pd.DataFrame(columns=["Portal", "Reservas", "% Reservas"])
-    portal_counts = df[portal_col].astype(str).value_counts().reset_index()
-    portal_counts.columns = ["Portal", "Reservas"]
-    portal_counts["% Reservas"] = portal_counts["Reservas"] / max(portal_counts["Reservas"].sum(), 1) * 100.0
-    return portal_counts
-
-# ===== Pace y Forecast =====
+# =========================
+# Pace y Forecast P50
+# =========================
 def _pace_get(d: dict, keys: list, default=0.0):
     if not isinstance(d, dict):
         return default
@@ -299,7 +290,9 @@ def pace_forecast_month(
         "revenue_final_p50": revenue_final_p50,
     }
 
-# ===== Análisis PRO y explicación ejecutiva =====
+# =========================
+# Explicación ejecutiva
+# =========================
 def _pct_delta(cur: float, ref: float) -> float:
     cur, ref = _safe_float(cur), _safe_float(ref)
     if ref == 0:
