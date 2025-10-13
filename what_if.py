@@ -140,10 +140,21 @@ def render_what_if(raw: pd.DataFrame | None = None):
         st.divider()
         inv_override_global = st.number_input("Inventario global (opcional, 0=auto)", min_value=0, value=0, step=1)
 
+        # → NUEVO: selección de alojamientos sueltos
+        st.caption("Alojamientos sueltos (opcional)")
+        props_all = sorted(raw["Alojamiento"].dropna().astype(str).unique()) if "Alojamiento" in raw.columns else []
+        props_pool = sorted(set(map(str, sel_props))) if sel_props else props_all
+        selected_props = st.multiselect(
+            "Alojamientos", options=props_pool, default=[],
+            help="Deja vacío para incluir todos los alojamientos del ámbito seleccionado."
+        )
+
     # Preparación
     dfx = _ensure_parsed(raw)
-    if sel_props:
-        dfx = dfx[dfx["Alojamiento"].astype(str).isin(list(map(str, sel_props)))].copy()
+    # Aplicar filtro de ámbito y alojamientos sueltos (si hay)
+    filter_props = selected_props if selected_props else sel_props
+    if filter_props:
+        dfx = dfx[dfx["Alojamiento"].astype(str).isin(list(map(str, filter_props)))].copy()
 
     daily = _expand_daily(dfx, p_start, p_end, cut)
     if daily.empty:
