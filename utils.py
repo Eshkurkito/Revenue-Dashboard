@@ -415,3 +415,69 @@ def pro_exec_summary(
         + "".join([f"- {a}\n" for a in actions])
     )
     return {"headline": headline, "detail": detail}
+
+def _kai_cdm_pro_analysis(
+    tot_now: Dict[str, float],
+    tot_ly_cut: Dict[str, float],
+    tot_ly_final: Dict[str, float],
+    pace: Dict[str, Any],
+    price_ref_p50: float | None = None,
+) -> str:
+    """Bloque técnico de semáforos (Markdown) para Cuadro de mando PRO."""
+    def g(d: Dict[str, Any], k: str, default=0.0) -> float:
+        try:
+            v = float(d.get(k, default))
+            return v if math.isfinite(v) else default
+        except Exception:
+            return default
+
+    occ_now = g(tot_now, "ocupacion_pct")
+    adr_now = g(tot_now, "adr")
+    rev_now = g(tot_now, "ingresos")
+
+    occ_ly = g(tot_ly_cut, "ocupacion_pct")
+    adr_ly = g(tot_ly_cut, "adr")
+    rev_ly = g(tot_ly_cut, "ingresos")
+
+    rev_ly_final = g(tot_ly_final, "ingresos")
+
+    # Deltas
+    d_occ_pp = occ_now - occ_ly
+    d_adr_pct = (adr_now - adr_ly) / adr_ly * 100.0 if adr_ly > 0 else 0.0
+    d_rev_pct = (rev_now - rev_ly) / rev_ly * 100.0 if rev_ly > 0 else 0.0
+
+    # Forecast P50 si está disponible
+    rev_final_p50 = 0.0
+    if isinstance(pace, dict):
+        for k in ["revenue_final_p50", "rev_final_p50", "p50_revenue_final"]:
+            if k in pace and pace[k] is not None:
+                try:
+                    rev_final_p50 = float(pace[k])
+                    break
+                except Exception:
+                    pass
+
+    gap_rev = rev_ly_final - rev_final_p50
+    gap_txt = ("🟥 Gap vs LY final: faltan " + f"{gap_rev:,.0f} €".replace(",", ".")
+               ) if gap_rev > 0 else ("🟩 Gap cubierto: +" + f"{abs(gap_rev):,.0f} €".replace(",", "."))
+
+    def sig(v: float) -> str:
+        return f"{v:+.1f}" if abs(v) < 1000 else f"{v:+,.0f}".replace(",", ".")
+
+    block = (
+        "### 🚦 Semáforos técnicos\n"
+        f"- Ocupación vs LY: {'🟩' if d_occ_pp >= 0 else '🟥'} {d_occ_pp:+.1f} p.p.\n"
+        f"- ADR vs LY: {'🟩' if d_adr_pct >= 0 else '🟥'} {d_adr_pct:+.1f}%\n"
+        f"- Ingresos vs LY: {'🟩' if d_rev_pct >= 0 else '🟥'} {d_rev_pct:+.1f}%\n"
+        f"- {gap_txt}\n"
+    )
+    # Pistas de actuación rápidas
+    hints = []
+    if d_adr_pct < -3 and d_occ_pp > 1:
+        hints.append("Sube precios de forma gradual en días pico; evita descuentos agresivos.")
+    if d_occ_pp < -1:
+        hints.append("Activa demanda: mejora visibilidad OTA y lanza campañas directas a corto plazo.")
+    if not hints:
+        hints.append("Mantén pricing en picos y revisa días valle con microajustes.")
+    block += "\n".join([f"  • {h}" for h in hints])
+    return block
