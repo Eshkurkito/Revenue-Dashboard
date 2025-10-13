@@ -17,7 +17,7 @@ from pace import render_pace
 from prediccion_pace import render_prediccion_pace
 from cuadro_mando_pro import render_cuadro_mando_pro
 from alerts_module import render_alerts_module
-from what_if import render_what_if  # ← nuevo
+from what_if import render_what_if
 
 # Configuración de página
 st.set_page_config(page_title="Consultas OTB & Dashboard", layout="wide")
@@ -57,7 +57,7 @@ mode = st.sidebar.selectbox(
         "Predicción (Pace)",
         "Cuadro de mando (PRO)",
         "Panel de alertas",
-        "What‑if (escenarios)"  # ← nuevo
+        "What‑if (escenarios)"
     ]
 )
 

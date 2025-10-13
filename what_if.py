@@ -371,3 +371,15 @@ def render_page():
 
 if __name__ == "__main__":
     render_page()
+
+import streamlit as st
+import pandas as pd
+
+def render_what_if(raw: pd.DataFrame | None = None):
+    st.header("🧪 What‑if (módulo)")
+    if raw is None:
+        raw = st.session_state.get("df_active") or st.session_state.get("raw")
+    if raw is None or getattr(raw, "empty", True):
+        st.info("No hay datos cargados. Vuelve a la portada y sube un CSV/Excel.")
+        return
+    st.success("What‑if cargado. Integra aquí la lógica avanzada.")
