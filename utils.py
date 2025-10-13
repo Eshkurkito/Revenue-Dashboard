@@ -56,7 +56,7 @@ def group_selector(label: str, all_props: List[str], key_prefix: str, default: O
     return st.multiselect(label, options=sorted(all_props), default=default or [], key=f"{key_prefix}_selector")
 
 # =========================
-# Helpers de UI
+# UI helpers
 # =========================
 def period_inputs(label_start: str, label_end: str, default_start: date, default_end: date, key_prefix: str) -> Tuple[date, date]:
     c1, c2 = st.columns(2)
@@ -68,7 +68,7 @@ def help_block(txt: str):
     st.info(txt)
 
 # =========================
-# Parsing de fechas
+# Parsing de datos
 # =========================
 def parse_dates(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
@@ -122,9 +122,6 @@ def compute_kpis(
     inventory_override: Optional[int] = None,
     filter_props: Optional[List[str]] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, float]]:
-    """
-    KPIs con prorrateo por noches dentro del periodo y OTB a 'cutoff'.
-    """
     df = _prep_df(df_all, filter_props)
     if df.empty:
         empty = pd.DataFrame(columns=["Alojamiento", "Noches ocupadas", "Ingresos", "ADR"])
@@ -134,7 +131,6 @@ def compute_kpis(
     ps = pd.to_datetime(period_start).normalize()
     pe = pd.to_datetime(period_end).normalize()
 
-    # OTB a corte
     df = df[df["Fecha alta"].notna() & (df["Fecha alta"] <= cutoff)]
     if df.empty:
         days = max((pe - ps).days + 1, 0)
@@ -143,7 +139,6 @@ def compute_kpis(
         empty = pd.DataFrame(columns=["Alojamiento", "Noches ocupadas", "Ingresos", "ADR"])
         return empty, {"noches_ocupadas": 0, "noches_disponibles": noches_disponibles, "ocupacion_pct": 0.0, "ingresos": 0.0, "adr": 0.0, "revpar": 0.0}
 
-    # Overlap de noches con el periodo (end inclusivo)
     one_day = np.timedelta64(1, "D")
     start_ns = np.datetime64(ps)
     end_excl_ns = np.datetime64(pe + pd.Timedelta(days=1))
@@ -158,7 +153,6 @@ def compute_kpis(
     ov_days = ((ov_end - ov_start) / one_day).astype("int64")
     ov_days = np.clip(ov_days, 0, None)
 
-    # Ingresos prorrateados
     price = df["Alquiler con IVA (€)"].astype("float64").values
     with np.errstate(divide="ignore", invalid="ignore"):
         share = np.where(total_nights > 0, ov_days / total_nights, 0.0)
@@ -183,7 +177,6 @@ def compute_kpis(
     ocupacion_pct = (noches_ocupadas / noches_disponibles * 100.0) if noches_disponibles > 0 else 0.0
     revpar = (ingresos / noches_disponibles) if noches_disponibles > 0 else 0.0
 
-    # Asegura columnas
     for col in ["Alojamiento", "Noches ocupadas", "Ingresos", "ADR"]:
         if col not in by_prop.columns:
             by_prop[col] = 0
@@ -197,6 +190,60 @@ def compute_kpis(
         "revpar": revpar,
     }
     return by_prop, tot
+
+# =========================
+# Mix por portal (prorrateo simple)
+# =========================
+def compute_portal_share(
+    df_all: pd.DataFrame,
+    cutoff: pd.Timestamp,
+    period_start: pd.Timestamp,
+    period_end: pd.Timestamp,
+    filter_props: Optional[List[str]] = None,
+    portal_col: str = "Agente/Intermediario",
+) -> pd.DataFrame:
+    if df_all is None or df_all.empty or portal_col not in df_all.columns:
+        return pd.DataFrame(columns=["Portal","Reservas","% Reservas","Noches","Ingresos"])
+    df = _prep_df(df_all, filter_props)
+    if df.empty:
+        return pd.DataFrame(columns=["Portal","Reservas","% Reservas","Noches","Ingresos"])
+    cutoff = pd.to_datetime(cutoff).normalize()
+    ps = pd.to_datetime(period_start).normalize()
+    pe = pd.to_datetime(period_end).normalize()
+    df = df[(df["Fecha alta"].notna()) & (df["Fecha alta"] <= cutoff)]
+    if df.empty:
+        return pd.DataFrame(columns=["Portal","Reservas","% Reservas","Noches","Ingresos"])
+
+    # Overlap por reserva (prorrateo por noches/ingresos dentro del periodo)
+    one_day = np.timedelta64(1, "D")
+    start_ns = np.datetime64(ps)
+    end_excl_ns = np.datetime64(pe + pd.Timedelta(days=1))
+    arr_e = df["Fecha entrada"].values.astype("datetime64[ns]")
+    arr_s = df["Fecha salida"].values.astype("datetime64[ns]")
+
+    total_nights = ((arr_s - arr_e) / one_day).astype("int64")
+    total_nights = np.clip(total_nights, 0, None)
+    ov_start = np.maximum(arr_e, start_ns)
+    ov_end = np.minimum(arr_s, end_excl_ns)
+    ov_days = ((ov_end - ov_start) / one_day).astype("int64")
+    ov_days = np.clip(ov_days, 0, None)
+
+    price = df["Alquiler con IVA (€)"].astype("float64").values
+    with np.errstate(divide="ignore", invalid="ignore"):
+        share = np.where(total_nights > 0, ov_days / total_nights, 0.0)
+    income = price * share
+
+    portal = df[portal_col].astype(str).values
+    d = pd.DataFrame({"Portal": portal, "Noches": ov_days, "Ingresos": income})
+    res = d.groupby("Portal", as_index=False).sum(numeric_only=True)
+    # “Reservas” aproximadas: contar filas con aporte >0
+    res_cnt = pd.Series(portal)[ov_days > 0]
+    res_cnt = res_cnt.value_counts().rename_axis("Portal").reset_index(name="Reservas")
+    res = res.merge(res_cnt, on="Portal", how="left").fillna({"Reservas": 0})
+    total_res = max(int(res["Reservas"].sum()), 1)
+    res["% Reservas"] = res["Reservas"] / total_res * 100.0
+    res = res[["Portal","Reservas","% Reservas","Noches","Ingresos"]].sort_values("Ingresos", ascending=False)
+    return res
 
 # =========================
 # Pace y Forecast P50
@@ -217,7 +264,6 @@ def pace_series(
     props: Optional[List[str]] = None,
     inv_override: Optional[int] = None,
 ) -> pd.DataFrame:
-    """Serie Pace: noches por D (días entre alta y entrada) dentro del periodo."""
     dfx = _prep_df(df, props)
     if dfx.empty:
         return pd.DataFrame(columns=["D", "noches"])
@@ -238,11 +284,9 @@ def pace_forecast_month(
     props: Optional[List[str]] = None,
     inv_override: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Forecast P50: pickup típico de últimos 'ref_years' y ADR tail aproximado."""
     if df is None or df.empty:
         return {}
 
-    # OTB actual
     _, tot_now = compute_kpis(
         df_all=df,
         cutoff=pd.to_datetime(cutoff),
@@ -331,11 +375,8 @@ def pro_exec_summary(
         return default
 
     rev_final_p50 = g(pace, ["revenue_final_p50", "rev_final_p50", "p50_revenue_final"], rev_now)
-    pick_typ50 = g(pace, ["pickup_typ_p50", "p50_pickup_typ", "pickup_typical_p50"], 0.0)
-    adr_tail_p50 = g(pace, ["adr_tail_p50", "p50_adr_tail", "adr_typ_tail_p50"], adr_now)
-
     gap_rev = rev_ly_final - rev_final_p50
-    cobertura_pct = _pct_delta(rev_final_p50, rev_ly_final) + 100 if rev_ly_final > 0 else 0.0
+    cobertura_pct = (rev_final_p50 / rev_ly_final * 100.0) if rev_ly_final > 0 else 0.0
     gap_txt = f"Faltan {gap_rev:,.0f} €" if gap_rev > 0 else f"Superas LY final en {abs(gap_rev):,.0f} €"
     gap_txt = gap_txt.replace(",", ".")
 
@@ -351,39 +392,26 @@ def pro_exec_summary(
         verdict = "Rendimiento mixto"
 
     actions = []
-    if d_adr_pct < -3:
-        actions.append("Revisar y retirar descuentos de baja conversión.")
-        actions.append("Micro-rebajas quirúrgicas en días valle (LT corto).")
-    if d_occ_pp < 0:
-        actions.append("Boost de demanda: visibilidad OTAs, campañas directas, partners.")
-    if d_adr_pct > 3 and d_occ_pp < 0:
-        actions.append("Mantener precios en picos, test A/B en días flojos.")
+    if d_adr_pct < -3: actions += ["Revisar y retirar descuentos de baja conversión.", "Micro-rebajas en días valle."]
+    if d_occ_pp < 0:  actions += ["Boost de demanda: visibilidad OTAs y campañas directas."]
+    if d_adr_pct > 3 and d_occ_pp < 0: actions += ["Mantener precios en picos, test A/B en días flojos."]
     if not actions:
-        actions = [
-            "Monitorizar pickup semanal y mantener pricing en fines/eventos.",
-            "Reasignar presupuesto a canales con mejor conversión.",
-        ]
+        actions = ["Monitorizar pickup semanal.", "Ajustar presupuesto a canales de mejor conversión."]
 
     headline = (
         "🌸 Explicación ejecutiva (narrada)\n\n"
         f"• Veredicto general: {verdict}\n\n"
-        f"• Evolución vs LY (a este corte) → Ocupación {d_occ_pp:+.1f} p.p., ADR {d_adr_pct:+.1f}%, "
+        f"• Evolución vs LY → Ocupación {d_occ_pp:+.1f} p.p., ADR {d_adr_pct:+.1f}%, "
         f"RevPAR {d_revpar_pct:+.1f}%, Ingresos {d_revenue_pct:+.1f}%.\n"
-        f"• Viabilidad de cierre del gap → {gap_txt} · Cobertura estimada P50 ≈ {cobertura_pct:.0f}%."
+        f"• Viabilidad → {gap_txt} · Cobertura P50 ≈ {cobertura_pct:.0f}%."
     )
     detail = (
-        "### 👉 Ver análisis detallado\n"
-        f"- Ocupación: {'🟢' if d_occ_pp>=0 else '🔴'} {d_occ_pp:+.1f} p.p.\n"
-        f"- ADR: {'🟢' if d_adr_pct>=0 else '🔴'} {d_adr_pct:+.1f}%\n"
-        f"- RevPAR: {'🟢' if d_revpar_pct>=0 else '🔴'} {d_revpar_pct:+.1f}%\n"
-        f"- Ingresos: {'🟢' if d_revenue_pct>=0 else '🔴'} {d_revenue_pct:+.1f}%\n\n"
-        "#### Qué explica el resultado (atribución RevPAR)\n"
+        "### 👉 Detalle\n"
         f"- Ocupación: {d_occ_pp:+.1f} p.p.\n"
-        f"- ADR: {d_adr_pct:+.1f}% (precio medio)\n\n"
-        "#### Viabilidad de cierre del gap\n"
-        f"- " + ("Gap cubierto con el forecast P50." if gap_rev <= 0 else "Se requiere activar demanda y/o ajustar precios.") + "\n"
-        f"- " + gap_txt + f" · Cobertura estimada ≈ {cobertura_pct:.0f}%.\n\n"
-        "#### Plan de acción (siguiente quincena)\n"
+        f"- ADR: {d_adr_pct:+.1f}%\n"
+        f"- RevPAR: {d_revpar_pct:+.1f}%\n"
+        f"- Ingresos: {d_revenue_pct:+.1f}%\n\n"
+        "#### Plan de acción (próx. 15 días)\n"
         + "".join([f"- {a}\n" for a in actions])
     )
     return {"headline": headline, "detail": detail}
