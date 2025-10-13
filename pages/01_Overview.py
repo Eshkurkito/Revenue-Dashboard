@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 
-from pages.utils import compute_kpis, period_inputs, pro_exec_summary
+from utils import compute_kpis, period_inputs, pro_exec_summary
 
 st.header("Overview")
 

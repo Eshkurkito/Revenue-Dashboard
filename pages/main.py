@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 
-from pages.utils import parse_dates, load_groups, save_group_csv, delete_group_csv
+from utils import parse_dates, load_groups, save_group_csv, delete_group_csv
 
 st.set_page_config(page_title="Revenue PRO", layout="wide")
 

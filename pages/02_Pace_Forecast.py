@@ -3,7 +3,7 @@ import pandas as pd
 import altair as alt
 from datetime import date
 
-from pages.utils import compute_kpis, pace_series, pace_forecast_month
+from utils import compute_kpis, pace_series, pace_forecast_month
 
 st.header("Pace y Forecast")
 
