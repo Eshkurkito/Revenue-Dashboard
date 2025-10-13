@@ -1,9 +1,9 @@
 import pandas as pd
+import numpy as np
 import streamlit as st
 from datetime import date, timedelta
 from typing import Optional, List, Dict, Any, Tuple
 import math
-import numpy as np
 from pathlib import Path
 import os
 
@@ -37,9 +37,17 @@ def group_selector(label: str, all_props: list[str], key_prefix: str, default: O
     return selected
 
 def parse_dates(df: pd.DataFrame) -> pd.DataFrame:
+    # Soporta texto, datetime y seriales de Excel
     for col in ["Fecha alta", "Fecha entrada", "Fecha salida"]:
         if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors="coerce")
+            s = df[col]
+            try:
+                if pd.api.types.is_numeric_dtype(s):
+                    df[col] = pd.to_datetime(s, unit="D", origin="1899-12-30", errors="coerce")
+                else:
+                    df[col] = pd.to_datetime(s, errors="coerce")
+            except Exception:
+                df[col] = pd.to_datetime(df[col], errors="coerce")
     return df
 
 @st.cache_data(show_spinner=False)

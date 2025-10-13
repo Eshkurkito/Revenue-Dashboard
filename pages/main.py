@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-
+from pathlib import Path
 from utils import parse_dates, load_groups, save_group_csv, delete_group_csv
 
 st.set_page_config(page_title="Revenue PRO", layout="wide")
@@ -14,13 +14,25 @@ def load_data() -> pd.DataFrame:
     if isinstance(st.session_state.get("raw"), pd.DataFrame) and not st.session_state["raw"].empty:
         return st.session_state["raw"]
 
-    up = st.sidebar.file_uploader("Sube CSV de reservas", type=["csv"])
-    if up:
-        df = pd.read_csv(up)
+    up = st.sidebar.file_uploader("Sube reservas (CSV o Excel)", type=["csv", "xlsx", "xls"])
+    if not up:
+        return pd.DataFrame()
+
+    ext = Path(up.name).suffix.lower()
+    try:
+        if ext == ".csv":
+            df = pd.read_csv(up)
+        else:
+            # Excel: permite elegir hoja
+            xls = pd.ExcelFile(up)
+            sheet = st.sidebar.selectbox("Hoja Excel", xls.sheet_names, index=0, key="xlsx_sheet")
+            df = xls.parse(sheet)
         df = _parse_dates_cached(df)
         st.session_state["raw"] = df
         return df
-    return pd.DataFrame()
+    except Exception as e:
+        st.error(f"No se pudo leer el archivo ({ext}). Revisa el formato. Detalle: {e}")
+        return pd.DataFrame()
 
 st.sidebar.title("Parámetros globales")
 raw = load_data()
