@@ -1,23 +1,46 @@
-import requests
+import os, json, requests
 import streamlit as st
 from streamlit_lottie import st_lottie
 
 LOGO_PATH = "assets/images/florit-flats-logo.png"  # ← tu logo
 
+# Rutas (usa JSON locales o URLs)
 LOTTIE = {
-    "consulta": "https://assets7.lottiefiles.com/packages/lf20_5ngs2ksb.json",
-    "pro": "https://assets7.lottiefiles.com/packages/lf20_x62chJ.json",
-    "whatif": "https://assets9.lottiefiles.com/packages/lf20_9Zoynq.json",
+    "consulta": "assets/lottie/consulta.json",
+    "pro": "assets/lottie/pro.json",
+    "whatif": "assets/lottie/whatif.json",
 }
 
-def _load_lottie(url: str):
+def _load_lottie(src: str):
+    if not src:
+        return None
     try:
-        r = requests.get(url, timeout=8)
-        if r.status_code == 200:
-            return r.json()
+        if os.path.exists(src):  # archivo local
+            with open(src, "r", encoding="utf-8") as f:
+                return json.load(f)
+        if src.lower().startswith(("http://", "https://")):  # URL
+            r = requests.get(src, timeout=7)
+            if r.ok:
+                return r.json()
     except Exception:
         pass
     return None
+
+def _safe_lottie(data, height: int, key: str, label: str):
+    # Evita que streamlit_lottie lance excepción si data es None
+    try:
+        if isinstance(data, dict):
+            st_lottie(data, height=height, key=key)
+        else:
+            st.markdown(
+                f'<div style="height:{height}px;display:flex;align-items:center;justify-content:center;opacity:.6;">🖼️ {label}</div>',
+                unsafe_allow_html=True,
+            )
+    except Exception:
+        st.markdown(
+            f'<div style="height:{height}px;display:flex;align-items:center;justify-content:center;opacity:.6;">🖼️ {label}</div>',
+            unsafe_allow_html=True,
+        )
 
 def _inject_css():
     st.markdown(
@@ -87,8 +110,8 @@ def render_landing():
     for col, (title, key, desc) in zip(cols, tiles):
         with col:
             st.markdown('<div class="tile">', unsafe_allow_html=True)
-            anim = _load_lottie(LOTTIE[key])
-            st_lottie(anim, height=140, key=f"lot_{key}")
+            anim = _load_lottie(LOTTIE.get(key))
+            _safe_lottie(anim, height=140, key=f"lot_{key}", label=title)  # ← reemplaza st_lottie(...)
             st.markdown(f"**{title}**")
             st.caption(desc)
             clicks[key] = st.button("Entrar", key=f"btn_{key}", use_container_width=True)
