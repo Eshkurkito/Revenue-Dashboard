@@ -2,6 +2,7 @@ import pandas as pd
 import streamlit as st
 from datetime import date
 from utils import period_inputs
+from landing_ui import render_landing
 
 # --- Define la función aquí ---
 def cargar_dataframe():
@@ -20,9 +21,39 @@ from alerts_module import render_alerts_module
 from what_if import render_what_if
 
 # Configuración de página
-st.set_page_config(page_title="Consultas OTB & Dashboard", layout="wide")
-st.title("📊 OTB Analytics – KPIs & Dashboard")
-st.caption("Sube tus Excel una vez, configura parámetros en la barra lateral y usa cualquiera de los modos.")
+st.set_page_config(page_title="Revenue Dashboard", page_icon="📊", layout="wide")
+st.markdown("""
+<style>
+.stApp { background: radial-gradient(1200px 600px at 10% 0%, #0b1220 0%, #0e1117 25%, #111827 60%, #0b0f1a 100%); }
+</style>
+""", unsafe_allow_html=True)
+
+with st.sidebar:
+    if st.button("⬅️ Volver al inicio"):
+        st.session_state.view = "landing"
+        st.experimental_rerun()
+
+if "view" not in st.session_state:
+    st.session_state.view = "landing"
+
+if st.session_state.view == "landing":
+    render_landing()
+
+elif st.session_state.view == "consulta":
+    from consulta_normal import render_consulta_normal
+    render_consulta_normal()
+
+elif st.session_state.view == "pro":
+    from cuadro_mando_pro import render_cuadro_mando_pro
+    render_cuadro_mando_pro()
+
+elif st.session_state.view == "whatif":
+    from what_if import render_what_if
+    raw = st.session_state.get("df_active") or st.session_state.get("raw")
+    try:
+        render_what_if(raw)
+    except TypeError:
+        render_what_if()
 
 # -------- Sidebar: carga de datos --------
 st.sidebar.header("Carga de datos")
