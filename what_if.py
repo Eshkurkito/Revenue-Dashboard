@@ -349,7 +349,9 @@ def render_what_if(raw: pd.DataFrame | None = None):
         .encode(
             x=alt.X("Grupo:N", sort="-y", title=None),
             y=alt.Y("Ingresos:Q", title="Ingresos (€)"),
-            color=alt.Color("Serie:N", scale=alt.Scale(domain=["Base","Escenario"], range=["#9e9e9e","#1f77b4"]), title=None),
+            color=alt.Color("Serie:N",
+                scale=alt.Scale(domain=["Base","Escenario"], range=["#9e9e9e","#2e485f"]),
+                title=None),
             tooltip=[alt.Tooltip("Grupo:N"), alt.Tooltip("Serie:N"), alt.Tooltip("Ingresos:Q", format=",.2f")],
         )
         .properties(height=340)

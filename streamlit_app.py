@@ -2,7 +2,7 @@ import pandas as pd
 import streamlit as st
 from datetime import date
 from utils import period_inputs
-from landing_ui import render_landing
+from landing_ui import render_landing, LOGO_PATH
 
 # --- Define la función aquí ---
 def cargar_dataframe():
@@ -22,13 +22,52 @@ from what_if import render_what_if
 
 # Configuración de página
 st.set_page_config(page_title="Revenue Dashboard", page_icon="📊", layout="wide")
+
+# Estilos globales (tema claro + color corporativo)
 st.markdown("""
 <style>
-.stApp { background: radial-gradient(1200px 600px at 10% 0%, #0b1220 0%, #0e1117 25%, #111827 60%, #0b0f1a 100%); }
+:root{
+  --brand:#2e485f;        /* Florit Flats */
+  --brand-600:#264052;    /* hover/bordes */
+  --brand-50:#f3f6f9;     /* fondos suaves */
+}
+.stApp { background:#ffffff; }
+
+/* Tarjetas y paneles */
+.block-container { padding-top: 1.2rem; }
+[data-testid="stSidebar"] { background: var(--brand-50); }
+
+/* Botones */
+.stButton > button, .btn-primary {
+  background: var(--brand);
+  color: #fff;
+  border: 1px solid var(--brand-600);
+  border-radius: 10px;
+}
+.stButton > button:hover, .btn-primary:hover {
+  background: var(--brand-600);
+  border-color: var(--brand-600);
+}
+
+/* Métricas */
+[data-testid="stMetricDelta"] { color: var(--brand) !important; }
+
+/* Tablas: cabecera sutil */
+[data-testid="stTable"], .stDataFrame thead tr th {
+  background: var(--brand-50) !important;
+}
+
+/* Enlaces/selecciones activas */
+a, .st-af { color: var(--brand); }
 </style>
 """, unsafe_allow_html=True)
 
 with st.sidebar:
+    # Logo en la sidebar
+    try:
+        st.image(LOGO_PATH, use_column_width=True)
+    except Exception:
+        st.write("Florit Flats")
     if st.button("⬅️ Volver al inicio"):
         st.session_state.view = "landing"
         st.experimental_rerun()
