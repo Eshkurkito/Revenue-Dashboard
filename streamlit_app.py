@@ -1,6 +1,6 @@
 import pandas as pd
 import streamlit as st
-from landing_ui import render_landing, LOGO_PATH
+from landing_ui import render_landing, get_logo_path, LOGO_PATH  # ← añade get_logo_path
 
 # --- helpers ---
 def cargar_dataframe():
@@ -43,9 +43,10 @@ a, .st-af { color: var(--brand); }
 
 # --- Sidebar: logo + carga de datos ---
 with st.sidebar:
-    try:
-        st.image(LOGO_PATH, use_column_width=True)
-    except Exception:
+    logo = get_logo_path()
+    if logo:
+        st.image(logo, use_container_width=True)  # antes: use_column_width=True
+    else:
         st.write("Florit Flats")
     if st.button("⬅️ Volver al inicio"):
         st.session_state.view = "landing"
