@@ -31,7 +31,13 @@ st.markdown("""
 <style>
 :root{ --brand:#2e485f; --brand-600:#264052; --brand-50:#f6f8fb; }
 .stApp { background:#ffffff; }
-.block-container { padding-top: 1.2rem; }
+
+/* FIX: más espacio arriba para que no se corte el primer título */
+main .block-container { padding-top: calc(2.4rem + env(safe-area-inset-top)) !important; }
+/* Evita colapso de márgenes del primer H1/H2 */
+main .block-container h1:first-child,
+main .block-container h2:first-child { margin-top: .25rem !important; }
+
 [data-testid="stSidebar"] { background: var(--brand-50); }
 .stButton > button, .btn-primary { background: var(--brand); color: #fff; border: 1px solid var(--brand-600); border-radius: 10px; }
 .stButton > button:hover, .btn-primary:hover { background: var(--brand-600); border-color: var(--brand-600); }
