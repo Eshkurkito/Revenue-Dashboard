@@ -4,7 +4,17 @@ from streamlit_lottie import st_lottie
 
 LOGO_PATH = "assets/images/florit-flats-logo.png"  # ← tu logo
 
-# Rutas (usa JSON locales o URLs)
+# Activa/Desactiva animaciones (Lottie)
+USE_ANIMATIONS = False  # ← pon True si quieres animaciones
+
+# Import opcional (no rompe si no está instalado)
+try:
+    from streamlit_lottie import st_lottie
+except Exception:
+    st_lottie = None
+    USE_ANIMATIONS = False
+
+# Rutas (si usas animaciones)
 LOTTIE = {
     "consulta": "assets/lottie/consulta.json",
     "pro": "assets/lottie/pro.json",
@@ -80,6 +90,33 @@ def _inject_css():
         unsafe_allow_html=True,
     )
 
+def _tile_media(title: str, key: str):
+    if USE_ANIMATIONS and st_lottie:
+        anim = _load_lottie(LOTTIE.get(key))
+        if isinstance(anim, dict):
+            st_lottie(anim, height=140, key=f"lot_{key}")
+            return
+    # Placeholder estático (sin animación)
+    st.markdown(
+        f'''
+        <div style="height:140px;display:flex;align-items:center;justify-content:center;
+                    border-radius:12px;background:#f3f6f9;color:#2e485f;border:1px solid #e5e7eb;">
+            <span style="font-weight:600;">{title}</span>
+        </div>
+        ''',
+        unsafe_allow_html=True,
+    )
+
+# Helper de rerun compatible
+def _rerun():
+    try:
+        st.rerun()
+    except Exception:
+        try:
+            st.experimental_rerun()
+        except Exception:
+            pass
+
 def render_landing():
     _inject_css()
 
@@ -110,8 +147,7 @@ def render_landing():
     for col, (title, key, desc) in zip(cols, tiles):
         with col:
             st.markdown('<div class="tile">', unsafe_allow_html=True)
-            anim = _load_lottie(LOTTIE.get(key))
-            _safe_lottie(anim, height=140, key=f"lot_{key}", label=title)  # ← reemplaza st_lottie(...)
+            _tile_media(title, key)  # ← reemplaza st_lottie(...)
             st.markdown(f"**{title}**")
             st.caption(desc)
             clicks[key] = st.button("Entrar", key=f"btn_{key}", use_container_width=True)
@@ -119,10 +155,10 @@ def render_landing():
 
     if clicks.get("consulta"):
         st.session_state.view = "consulta"
-        st.experimental_rerun()
+        _rerun()
     if clicks.get("pro"):
         st.session_state.view = "pro"
-        st.experimental_rerun()
+        _rerun()
     if clicks.get("whatif"):
         st.session_state.view = "whatif"
-        st.experimental_rerun()
+        _rerun()

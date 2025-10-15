@@ -62,6 +62,16 @@ a, .st-af { color: var(--brand); }
 </style>
 """, unsafe_allow_html=True)
 
+# Añade un helper de rerun compatible
+def _rerun():
+    try:
+        st.rerun()
+    except Exception:
+        try:
+            st.experimental_rerun()
+        except Exception:
+            pass
+
 with st.sidebar:
     # Logo en la sidebar
     try:
@@ -70,7 +80,7 @@ with st.sidebar:
         st.write("Florit Flats")
     if st.button("⬅️ Volver al inicio"):
         st.session_state.view = "landing"
-        st.experimental_rerun()
+        _rerun()
 
 if "view" not in st.session_state:
     st.session_state.view = "landing"
