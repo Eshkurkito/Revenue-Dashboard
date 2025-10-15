@@ -152,20 +152,10 @@ def render_landing():
 
     for col, (title, key, desc) in zip(cols, tiles):
         with col:
-            st.markdown('<div class="tile">', unsafe_allow_html=True)
-            if USE_ANIMATIONS:
-                _tile_media(title, key)  # solo si hay animaciones
-            st.markdown(f"**{title}**")
-            st.caption(desc)
-            clicks[key] = st.button("Entrar", key=f"btn_{key}", use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-
-    # Navegación
-    if clicks.get("consulta"):
-        st.session_state.view = "consulta"; _rerun()
-    if clicks.get("pro"):
-        st.session_state.view = "pro"; _rerun()
-    if clicks.get("whatif"):
-        st.session_state.view = "whatif"; _rerun()
-    if clicks.get("evolucion"):
-        st.session_state.view = "evolucion"; _rerun()
+            # ⬇️ Sustituir el div HTML por un container con borde
+            with st.container(border=True):
+                if USE_ANIMATIONS:
+                    _tile_media(title, key)
+                st.markdown(f"**{title}**")
+                st.caption(desc)
+                clicks[key] = st.button("Entrar", key=f"btn_{key}", use_container_width=True)
