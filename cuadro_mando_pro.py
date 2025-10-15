@@ -10,104 +10,71 @@ from utils import (
 )
 
 def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Intenta mapear columnas habituales al esquema esperado."""
     if df is None or df.empty:
-        return df
-    norm = {c: str(c).lower().strip().replace("_", " ").replace("-", " ") for c in df.columns}
-
-    def find(*cands) -> str | None:
+        return pd.DataFrame()
+    norm = {c: str(c).lower() for c in df.columns}
+    def find(*cands):
         for col, n in norm.items():
-            for cand in cands:
-                # coincidencia exacta o contiene la palabra clave
-                if n == cand or cand in n:
+            for c in cands:
+                if n == c or c in n:
                     return col
         return None
-
     mapping = {}
-    col_aloj = find("alojamiento", "propiedad", "property", "listing", "unidad", "apartamento", "room", "unit", "house", "piso", "villa")
+    col_aloj = find("alojamiento", "propiedad", "property", "listing", "unidad", "apartamento", "room", "unit")
     if col_aloj: mapping[col_aloj] = "Alojamiento"
-
     col_fa = find("fecha alta", "fecha de alta", "booking date", "fecha reserva", "creado", "created", "booked")
     if col_fa: mapping[col_fa] = "Fecha alta"
-
     col_fe = find("fecha entrada", "check in", "entrada", "arrival")
     if col_fe: mapping[col_fe] = "Fecha entrada"
-
     col_fs = find("fecha salida", "check out", "salida", "departure")
     if col_fs: mapping[col_fs] = "Fecha salida"
-
-    col_rev = find("alquiler con iva (€)", "alquiler con iva", "ingresos", "revenue", "importe", "total", "importe total", "precio total")
+    col_rev = find("alquiler con iva (€)", "alquiler con iva", "ingresos", "revenue", "importe", "total", "precio total")
     if col_rev: mapping[col_rev] = "Alquiler con IVA (€)"
-
-    if not mapping:
-        return df
-    return df.rename(columns=mapping)
+    return df.rename(columns=mapping) if mapping else df
 
 def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
-    if raw is None:
+    # --- seguridad ante falta de datos ---
+    if not isinstance(raw, pd.DataFrame) or raw.empty:
+        st.info("No hay datos cargados. Sube un archivo Excel/CSV en la barra lateral para usar el Cuadro de mando PRO.")
         st.stop()
 
-    with st.sidebar:
-        st.header("Parámetros – PRO")
-        pro_cut = st.date_input("Fecha de corte", value=date.today(), key="pro_cut")
-        pro_start, pro_end = period_inputs(
-            "Inicio del periodo", "Fin del periodo",
-            date(date.today().year, date.today().month, 1),
-            date.today(),
-            "pro_period"
-        )
-        inv_pro = st.number_input("Inventario actual (opcional)", min_value=0, value=0, step=1, key="pro_inv")
-        inv_pro_ly = st.number_input("Inventario LY (opcional)", min_value=0, value=0, step=1, key="pro_inv_ly")
-        ref_years_pro = st.slider("Años de referencia Pace", min_value=1, max_value=3, value=2, key="pro_ref_years")
-
-        st.header("Gestión de grupos")
-        groups = load_groups()
-        group_names = ["Ninguno"] + sorted(list(groups.keys()))
-        selected_group = st.selectbox("Grupo guardado", group_names)
-
-        if selected_group and selected_group != "Ninguno":
-            props_pro = groups[selected_group]
-            if st.button(f"Eliminar grupo '{selected_group}'"):
-                df_groups = pd.read_csv("grupos_guardados.csv")
-                df_groups = df_groups[df_groups["Grupo"] != selected_group]
-                df_groups.to_csv("grupos_guardados.csv", index=False)
-                st.success(f"Grupo '{selected_group}' eliminado.")
-                st.experimental_rerun()
-        else:
-            props_pro = group_selector(
-                "Alojamientos (opcional)",
-                sorted([str(x) for x in raw["Alojamiento"].dropna().unique()]),
-                key_prefix="pro_props",
-                default=[]
-            )
-
-        group_name = st.text_input("Nombre del grupo para guardar")
-        if st.button("Guardar grupo de pisos") and group_name and props_pro:
-            save_group_csv(group_name, props_pro)
-            st.success(f"Grupo '{group_name}' guardado.")
-
-    st.subheader("📊 Cuadro de mando (PRO)")
-
-    # KPIs actuales y LY
-    df = _standardize_columns(raw.copy() if isinstance(raw, pd.DataFrame) else pd.DataFrame())
-    if df is None or df.empty:
-        st.warning("No hay datos cargados. Sube un CSV/Excel en la portada.")
-        st.stop()
+    df = _standardize_columns(raw.copy())
 
     if "Alojamiento" not in df.columns:
-        st.error("No se encuentra la columna ‘Alojamiento’. Renombra tu archivo o mapea columnas equivalentes (p.ej. ‘Propiedad’, ‘Listing’).")
+        st.warning("No se encuentra la columna ‘Alojamiento’. Renombra tu archivo o usa un nombre equivalente (p.ej. ‘Propiedad’, ‘Listing’).")
         st.stop()
 
-    # Donde antes accedías a raw["Alojamiento"], usa df ya estandarizado:
+    # ========= CONTROLES (definen pro_* y otros) =========
     props_all = sorted(df["Alojamiento"].dropna().astype(str).unique())
-    # si más abajo usas compute_kpis o parseo de fechas, pásale df (no raw)
+
+    with st.sidebar:
+        st.subheader("Parámetros · PRO")
+        col_dates1, col_dates2 = st.columns(2)
+        # Periodo de estancias
+        pro_start = col_dates1.date_input("Inicio periodo", value=date.today().replace(day=1), key="pro_start")
+        pro_end   = col_dates2.date_input("Fin periodo", value=date.today(), key="pro_end")
+        # Fecha de corte
+        pro_cut   = st.date_input("Fecha de corte", value=date.today(), key="pro_cut")
+        # Inventarios
+        col_inv1, col_inv2 = st.columns(2)
+        inv_pro    = col_inv1.number_input("Inventario actual", min_value=0, value=0, step=1, key="inv_pro")
+        inv_pro_ly = col_inv2.number_input("Inventario LY",     min_value=0, value=0, step=1, key="inv_pro_ly")
+        # Alojamientos
+        props_pro = st.multiselect("Alojamientos", options=props_all, default=[], key="props_pro")
+        # Años de referencia para Pace
+        ref_years_pro = st.selectbox("Años de referencia (Pace)", options=[1, 2, 3], index=0, key="ref_years_pro")
+
+    # Normaliza: None si no se selecciona nada
+    props_pro = props_pro if props_pro else None
+
+    # ========= KPIs (usa las variables definidas arriba) =========
     by_prop_now, tot_now = compute_kpis(
         df,
         pd.to_datetime(pro_cut),
         pd.to_datetime(pro_start),
         pd.to_datetime(pro_end),
         int(inv_pro) if inv_pro > 0 else None,
-        props_pro if props_pro else None,
+        props_pro,
     )
     _, tot_ly_cut = compute_kpis(
         df,
@@ -115,7 +82,7 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
         pd.to_datetime(pro_start) - pd.DateOffset(years=1),
         pd.to_datetime(pro_end) - pd.DateOffset(years=1),
         int(inv_pro_ly) if inv_pro_ly > 0 else None,
-        props_pro if props_pro else None,
+        props_pro,
     )
     cutoff_ly_final = pd.to_datetime(pro_end) - pd.DateOffset(years=1)
     _, tot_ly_final = compute_kpis(
@@ -124,7 +91,7 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
         pd.to_datetime(pro_start) - pd.DateOffset(years=1),
         pd.to_datetime(pro_end) - pd.DateOffset(years=1),
         int(inv_pro_ly) if inv_pro_ly > 0 else None,
-        props_pro if props_pro else None,
+        props_pro,
     )
 
     # NUEVO: Ingresos LY-2 (a este corte) y LY-2 final
@@ -134,7 +101,7 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
         pd.to_datetime(pro_start) - pd.DateOffset(years=2),
         pd.to_datetime(pro_end) - pd.DateOffset(years=2),
         int(inv_pro_ly) if inv_pro_ly > 0 else None,
-        props_pro if props_pro else None,
+        props_pro,
     )
     cutoff_ly2_final = pd.to_datetime(pro_end) - pd.DateOffset(years=2)
     _, tot_ly2_final_ing = compute_kpis(
@@ -143,7 +110,7 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
         pd.to_datetime(pro_start) - pd.DateOffset(years=2),
         pd.to_datetime(pro_end) - pd.DateOffset(years=2),
         int(inv_pro_ly) if inv_pro_ly > 0 else None,
-        props_pro if props_pro else None,
+        props_pro,
     )
 
     # ====== Ingresos ======

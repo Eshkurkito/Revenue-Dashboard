@@ -16,6 +16,9 @@ def _safe_call(view_fn):
         return view_fn(raw)
     except TypeError:
         return view_fn()
+    except (KeyError, ValueError):
+        st.info("Necesitas cargar un archivo antes de acceder a este módulo.")
+        return
 
 def _rerun():
     try:
