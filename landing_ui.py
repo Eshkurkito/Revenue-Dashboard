@@ -1,8 +1,7 @@
 import os, json, requests
+from pathlib import Path
 import streamlit as st
 from streamlit_lottie import st_lottie
-
-LOGO_PATH = "assets/images/florit-flats-logo.png"  # ← tu logo
 
 # Activa/Desactiva animaciones (Lottie)
 USE_ANIMATIONS = False  # ← pon True si quieres animaciones
@@ -117,14 +116,28 @@ def _rerun():
         except Exception:
             pass
 
+def get_logo_path() -> str | None:
+    base = Path(__file__).resolve().parent
+    candidates = [
+        base / "assets" / "florit-flats-logo.png",
+        base / "assets" / "images" / "florit-flats-logo.png",
+        Path.cwd() / "assets" / "florit-flats-logo.png",
+        Path.cwd() / "assets" / "images" / "florit-flats-logo.png",
+    ]
+    for p in candidates:
+        if p.exists():
+            return str(p)
+    return None
+
+LOGO_PATH = get_logo_path() or "assets/florit-flats-logo.png"
+
 def render_landing():
     _inject_css()
-
-    # Logo arriba del landing
-    try:
-        st.image(LOGO_PATH, width=160)
-    except Exception:
-        st.caption("Logo no disponible (revisa la ruta LOGO_PATH).")
+    logo = get_logo_path()
+    if logo:
+        st.image(logo, width=160)
+    else:
+        st.caption("Logo no disponible (revisa assets/florit-flats-logo.png).")
 
     st.markdown(
         """
@@ -136,13 +149,14 @@ def render_landing():
         unsafe_allow_html=True,
     )
     st.write("")
-    cols = st.columns(3, gap="large")
+    # Menú (añadimos Evolución por fecha de corte)
     tiles = [
         ("Consulta normal", "consulta", "KPIs, ocupación, ADR e ingresos por periodo."),
         ("Cuadro de mando PRO", "pro", "Análisis avanzado, pace y narrativa ejecutiva."),
         ("What‑if", "whatif", "Simula precio y pickup por grupos/propiedades."),
         ("Evolución por fecha de corte", "evolucion", "Cómo evolucionan KPIs al mover la fecha de corte."),
     ]
+    cols = st.columns(len(tiles), gap="large")
     clicks = {}
 
     for col, (title, key, desc) in zip(cols, tiles):
@@ -154,15 +168,12 @@ def render_landing():
             clicks[key] = st.button("Entrar", key=f"btn_{key}", use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
+    # Navegación
     if clicks.get("consulta"):
-        st.session_state.view = "consulta"
-        _rerun()
+        st.session_state.view = "consulta"; _rerun()
     if clicks.get("pro"):
-        st.session_state.view = "pro"
-        _rerun()
+        st.session_state.view = "pro"; _rerun()
     if clicks.get("whatif"):
-        st.session_state.view = "whatif"
-        _rerun()
+        st.session_state.view = "whatif"; _rerun()
     if clicks.get("evolucion"):
-        st.session_state.view = "evolucion"
-        _rerun()
+        st.session_state.view = "evolucion"; _rerun()
