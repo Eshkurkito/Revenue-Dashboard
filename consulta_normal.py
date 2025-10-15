@@ -185,16 +185,3 @@ def render_consulta_normal(raw: pd.DataFrame | None = None):
             file_name="detalle_por_alojamiento.csv",
             mime="text/csv"
         )
-
-    st.write("Columnas detectadas:", list(raw.columns))
-
-    with st.sidebar:
-        st.header("Selección de grupo de alojamientos")
-        groups = load_groups()
-        group_names = sorted(list(groups.keys()))
-        selected_group = st.selectbox("Grupo guardado", group_names)
-        props_rc = groups[selected_group] if selected_group else []
-
-    # Filtra alojamientos según el grupo seleccionado
-    if props_rc:
-        raw = raw[raw["Alojamiento"].isin(props_rc)]
