@@ -36,32 +36,50 @@ def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df.rename(columns=mapping) if mapping else df
 
 def _load_saved_groups(props_all: list[str]) -> dict[str, list[str]]:
-    """Carga grupos desde JSON o CSV y filtra a props existentes."""
-    base = Path(__file__).resolve().parent / "assets"
+    """Carga grupos desde grupos_guardados.csv (root o assets) y cruza con props existentes."""
+    mod_dir = Path(__file__).resolve().parent
+    candidates = [
+        mod_dir / "grupos_guardados.csv",
+        mod_dir / "assets" / "grupos_guardados.csv",
+        Path.cwd() / "grupos_guardados.csv",
+        Path.cwd() / "assets" / "grupos_guardados.csv",
+    ]
+    path = next((p for p in candidates if p.exists()), None)
+    if not path:
+        return {}
+
+    # Lectura robusta (encoding fallback) y normalización de columnas
+    for enc in ("utf-8", "utf-8-sig", "cp1252", "latin-1"):
+        try:
+            dfg = pd.read_csv(path, encoding=enc)
+            break
+        except Exception:
+            dfg = None
+    if dfg is None or dfg.empty:
+        return {}
+
+    dfg.columns = [str(c).strip().lower() for c in dfg.columns]
+    col_g = "grupo" if "grupo" in dfg.columns else None
+    col_p = "alojamiento" if "alojamiento" in dfg.columns else None
+    if not (col_g and col_p):
+        return {}
+
+    dfg = (dfg.dropna(subset=[col_g, col_p])
+              .astype({col_g: "string", col_p: "string"}))
+    dfg[col_g] = dfg[col_g].str.strip()
+    dfg[col_p] = dfg[col_p].str.strip()
+
+    # Cruce case-insensitive con props existentes
+    props_map = {str(p).strip().upper(): str(p) for p in props_all}
+    def map_prop(p: str) -> str | None:
+        return props_map.get(str(p).strip().upper())
+
     groups: dict[str, list[str]] = {}
-
-    # JSON: {"Grupo A": ["Prop1","Prop2"], ...}
-    j = base / "groups_guardados.json"
-    if j.exists():
-        try:
-            data = json.loads(j.read_text(encoding="utf-8"))
-            groups.update({g: [p for p in map(str, v) if p in props_all] for g, v in data.items()})
-        except Exception:
-            pass
-
-    # CSV: columnas -> Grupo,Alojamiento (una fila por pareja)
-    c = base / "groups_guardados.csv"
-    if c.exists():
-        try:
-            df = pd.read_csv(c)
-            if {"Grupo", "Alojamiento"}.issubset(df.columns):
-                d = (df.dropna(subset=["Grupo","Alojamiento"])
-                        .astype(str)
-                        .groupby("Grupo")["Alojamiento"].apply(list).to_dict())
-                for g, v in d.items():
-                    groups[g] = [p for p in v if p in props_all]
-        except Exception:
-            pass
+    for g, sub in dfg.groupby(col_g):
+        mapped = [mp for p in sub[col_p].tolist() if (mp := map_prop(p))]
+        if mapped:
+            # único y ordenado
+            groups[g] = sorted(dict.fromkeys(mapped))
     return groups
 
 def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
