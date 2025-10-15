@@ -48,37 +48,49 @@ with st.sidebar:
     if logo:
         st.image(logo, width=140)
 
-    # Botones navegación y logout
     if st.button("⬅️ Volver al inicio", key="btn_home", use_container_width=True):
         st.session_state.view = "landing"; _rerun()
     logout_button()
 
     st.header("Carga de datos")
-    # Preferencia: auto-borrar al quitar archivo del uploader
     st.checkbox("Borrar datos al quitar el archivo", value=True, key="auto_clear_on_remove")
 
+    # Uploader con auto-carga (sin botón extra)
     uploaded_file = st.file_uploader("Carga tu archivo Excel/CSV", type=["xlsx", "csv"], key="uploader")
 
-    # Detecta cuando quitas el archivo del uploader (flanco de 1->0)
+    # Detecta cambios en el archivo y lo carga automáticamente
     prev_has = st.session_state.get("uploader_has_file", False)
     curr_has = uploaded_file is not None
     st.session_state.uploader_has_file = curr_has
+
+    if curr_has:
+        # firma del archivo para no recargar en cada rerun
+        size = getattr(uploaded_file, "size", None)
+        if size is None:
+            try:
+                size = uploaded_file.getbuffer().nbytes  # Streamlit < 1.31
+            except Exception:
+                size = None
+        sig = (uploaded_file.name, size)
+
+        if st.session_state.get("_last_file_sig") != sig:
+            try:
+                uploaded_file.seek(0)
+                if uploaded_file.name.lower().endswith(".xlsx"):
+                    st.session_state.raw = pd.read_excel(uploaded_file)
+                else:
+                    st.session_state.raw = pd.read_csv(uploaded_file)
+                st.session_state._last_file_sig = sig
+                st.toast("Archivo cargado correctamente.", icon="✅")
+            except Exception as e:
+                st.error(f"No se pudo leer el archivo: {e}")
+
+    # Auto-limpiar si quitas el archivo del uploader
     if prev_has and not curr_has and st.session_state.get("auto_clear_on_remove", True) and _get_raw() is not None:
         clear_data(reset_view=False)
         st.success("Datos borrados al quitar el archivo.")
 
-    # Cargar archivo manualmente
-    if uploaded_file is not None and st.button("Usar este archivo", key="btn_use_upload", use_container_width=True):
-        try:
-            if uploaded_file.name.lower().endswith(".xlsx"):
-                st.session_state.raw = pd.read_excel(uploaded_file)
-            else:
-                st.session_state.raw = pd.read_csv(uploaded_file)
-            st.success("Archivo cargado correctamente.")
-        except Exception as e:
-            st.error(f"No se pudo leer el archivo: {e}")
-
-    # Botón para limpiar datos cargados en cualquier momento
+    # Botón manual por si quieres limpiar en cualquier momento
     if _get_raw() is not None:
         if st.button("🧹 Quitar datos cargados", key="btn_clear_data", use_container_width=True):
             clear_data()
