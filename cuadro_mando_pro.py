@@ -101,21 +101,26 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
         groups = _load_saved_groups(props_all)
         group_names = ["(Sin grupo)"] + sorted(groups.keys())
 
+        # Estado inicial y saneo si el grupo guardado ya no existe
+        if "pro_group" not in st.session_state:
+            st.session_state.pro_group = "(Sin grupo)"
+        if "pro_props" not in st.session_state:
+            st.session_state.pro_props = []
+        if st.session_state.pro_group not in group_names:
+            st.session_state.pro_group = "(Sin grupo)"
+            st.session_state.pro_props = []
+
+        # Al cambiar de grupo, actualiza los alojamientos seleccionados
         def _on_group_change():
             g = st.session_state.get("pro_group")
-            st.session_state["pro_props"] = groups.get(g, []) if g and g != "(Sin grupo)" else []
-            try:
-                st.rerun()
-            except Exception:
-                pass
+            st.session_state["pro_props"] = (
+                groups.get(g, []) if g and g != "(Sin grupo)" else []
+            )
+            # No llames a st.rerun() aquí; Streamlit ya re‑ejecuta automáticamente
 
-        st.selectbox("Grupo guardado", group_names, index=0, key="pro_group",
-                     on_change=_on_group_change)
+        st.selectbox("Grupo guardado", group_names, key="pro_group", on_change=_on_group_change)
 
-        # Estado inicial del multiselect
-        if "pro_props" not in st.session_state:
-            st.session_state["pro_props"] = groups.get(st.session_state.get("pro_group"), []) or []
-
+        # Multiselect toma su valor de session_state["pro_props"]
         props_pro = st.multiselect("Alojamientos", options=props_all, key="pro_props")
 
         c3, c4 = st.columns(2)
