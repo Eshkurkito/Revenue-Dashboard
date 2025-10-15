@@ -9,6 +9,16 @@ def cargar_dataframe():
     # Devuelve un DataFrame vacío por defecto
     return pd.DataFrame()
 
+def _get_raw():
+    return st.session_state.get("df_active") or st.session_state.get("raw")
+
+def _safe_call(view_fn):
+    raw = _get_raw()
+    try:
+        return view_fn(raw)
+    except TypeError:
+        return view_fn()
+
 from consulta_normal import render_consulta_normal
 from resumen_comparativo import render_resumen_comparativo
 from kpis_por_meses import render_kpis_por_meses
@@ -90,19 +100,15 @@ if st.session_state.view == "landing":
 
 elif st.session_state.view == "consulta":
     from consulta_normal import render_consulta_normal
-    render_consulta_normal()
+    _safe_call(render_consulta_normal)
 
 elif st.session_state.view == "pro":
     from cuadro_mando_pro import render_cuadro_mando_pro
-    render_cuadro_mando_pro()
+    _safe_call(render_cuadro_mando_pro)
 
 elif st.session_state.view == "whatif":
     from what_if import render_what_if
-    raw = st.session_state.get("df_active") or st.session_state.get("raw")
-    try:
-        render_what_if(raw)
-    except TypeError:
-        render_what_if()
+    _safe_call(render_what_if)
 
 # -------- Sidebar: carga de datos --------
 st.sidebar.header("Carga de datos")
