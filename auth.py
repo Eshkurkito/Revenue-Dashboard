@@ -9,8 +9,8 @@ except ImportError:
 # Pega aquí los HASHES reales (empiezan por $2b$...), no contraseñas en claro
 CREDENTIALS = {
     "usernames": {
-        "admin": {"name": "Ilya", "password": "$2b$12$uPVHJLuX2eNnd6VAfx.L3ugH09tq9tdID2eTA4TUY3qkqaYGTZF4"},
-        "juan":  {"name": "Juan", "password": "$2b$12$YVBmi65h6ABHZYKWyLDdEeLYKHUAIaA.D8xoQLFwmTgGqy42/SrJ"},
+        "admin": {"name": "Ilya", "password": "$2b$12$uPVHJLuX2eNnd6VAfx.L3ugH09tq9tdID2eTA4TUY3qkqaYGTZF4."},
+        "juan":  {"name": "Juan", "password": "$2b$12$YVBmi65h6ABHZYKWyLDdEeLYKHUAIaA.D8xoQLFwmTgGqy42/SrJ."},
     }
 }
 
