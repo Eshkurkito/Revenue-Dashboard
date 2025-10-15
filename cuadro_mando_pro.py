@@ -36,7 +36,6 @@ def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df.rename(columns=mapping) if mapping else df
 
 def _load_saved_groups(props_all: list[str]) -> dict[str, list[str]]:
-    """Carga grupos desde grupos_guardados.csv (root o assets) y cruza con props existentes."""
     mod_dir = Path(__file__).resolve().parent
     candidates = [
         mod_dir / "grupos_guardados.csv",
@@ -48,7 +47,6 @@ def _load_saved_groups(props_all: list[str]) -> dict[str, list[str]]:
     if not path:
         return {}
 
-    # Lectura robusta (encoding fallback) y normalización de columnas
     for enc in ("utf-8", "utf-8-sig", "cp1252", "latin-1"):
         try:
             dfg = pd.read_csv(path, encoding=enc)
@@ -59,33 +57,28 @@ def _load_saved_groups(props_all: list[str]) -> dict[str, list[str]]:
         return {}
 
     dfg.columns = [str(c).strip().lower() for c in dfg.columns]
-    col_g = "grupo" if "grupo" in dfg.columns else None
-    col_p = "alojamiento" if "alojamiento" in dfg.columns else None
-    if not (col_g and col_p):
+    if not {"grupo", "alojamiento"}.issubset(dfg.columns):
         return {}
 
-    dfg = (dfg.dropna(subset=[col_g, col_p])
-              .astype({col_g: "string", col_p: "string"}))
-    dfg[col_g] = dfg[col_g].str.strip()
-    dfg[col_p] = dfg[col_p].str.strip()
+    dfg = dfg.dropna(subset=["grupo", "alojamiento"]).astype(str)
+    dfg["grupo"] = dfg["grupo"].str.strip()
+    dfg["alojamiento"] = dfg["alojamiento"].str.strip()
 
-    # Cruce case-insensitive con props existentes
     props_map = {str(p).strip().upper(): str(p) for p in props_all}
     def map_prop(p: str) -> str | None:
         return props_map.get(str(p).strip().upper())
 
     groups: dict[str, list[str]] = {}
-    for g, sub in dfg.groupby(col_g):
-        mapped = [mp for p in sub[col_p].tolist() if (mp := map_prop(p))]
+    for g, sub in dfg.groupby("grupo"):
+        mapped = [mp for p in sub["alojamiento"].tolist() if (mp := map_prop(p))]
         if mapped:
-            # único y ordenado
             groups[g] = sorted(dict.fromkeys(mapped))
     return groups
 
 def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
-    # --- seguridad ante falta de datos ---
+    # --- validación ---
     if not isinstance(raw, pd.DataFrame) or raw.empty:
-        st.info("No hay datos cargados. Sube un archivo Excel/CSV en la barra lateral para usar el Cuadro de mando PRO.")
+        st.info("No hay datos cargados. Sube un Excel/CSV en la barra lateral para usar PRO.")
         st.stop()
 
     df = raw.copy()
@@ -99,31 +92,41 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
     with st.sidebar:
         st.subheader("Parámetros · PRO")
 
-        # Fechas
-        col_dates1, col_dates2 = st.columns(2)
-        pro_start = col_dates1.date_input("Inicio periodo", value=date.today().replace(day=1), key="pro_start")
-        pro_end   = col_dates2.date_input("Fin periodo", value=date.today(), key="pro_end")
+        c1, c2 = st.columns(2)
+        pro_start = c1.date_input("Inicio periodo", value=date.today().replace(day=1), key="pro_start")
+        pro_end   = c2.date_input("Fin periodo", value=date.today(), key="pro_end")
         pro_cut   = st.date_input("Fecha de corte", value=date.today(), key="pro_cut")
 
-        # Selector de grupo (SIEMPRE visible) + preselección
+        # --- Grupos guardados (siempre visible) ---
         groups = _load_saved_groups(props_all)
         group_names = ["(Sin grupo)"] + sorted(groups.keys())
-        sel_group = st.selectbox("Grupo guardado", group_names, index=0, key="pro_grupo_guardado")
-        default_props = groups.get(sel_group, [])
 
-        # Alojamientos (permite ajustar tras elegir grupo)
-        props_pro = st.multiselect("Alojamientos", options=props_all,
-                                   default=default_props, key="props_pro")
+        def _on_group_change():
+            g = st.session_state.get("pro_group")
+            st.session_state["pro_props"] = groups.get(g, []) if g and g != "(Sin grupo)" else []
+            try:
+                st.rerun()
+            except Exception:
+                pass
 
-        # Inventarios y años de referencia
-        col_inv1, col_inv2 = st.columns(2)
-        inv_pro    = col_inv1.number_input("Inventario actual", min_value=0, value=0, step=1, key="inv_pro")
-        inv_pro_ly = col_inv2.number_input("Inventario LY",     min_value=0, value=0, step=1, key="inv_pro_ly")
+        st.selectbox("Grupo guardado", group_names, index=0, key="pro_group",
+                     on_change=_on_group_change)
+
+        # Estado inicial del multiselect
+        if "pro_props" not in st.session_state:
+            st.session_state["pro_props"] = groups.get(st.session_state.get("pro_group"), []) or []
+
+        props_pro = st.multiselect("Alojamientos", options=props_all, key="pro_props")
+
+        c3, c4 = st.columns(2)
+        inv_pro    = c3.number_input("Inventario actual", min_value=0, value=0, step=1, key="inv_pro")
+        inv_pro_ly = c4.number_input("Inventario LY",     min_value=0, value=0, step=1, key="inv_pro_ly")
         ref_years_pro = st.selectbox("Años de referencia (Pace)", options=[1, 2, 3], index=0, key="ref_years_pro")
 
-    # Filtro por alojamientos del grupo (si hay)
-    if props_pro:
-        df = df[df["Alojamiento"].isin(props_pro)]
+    # --- Filtro por alojamientos seleccionados ---
+    selected_props = st.session_state.get("pro_props") or []
+    if selected_props:
+        df = df[df["Alojamiento"].isin(selected_props)]
 
     # ========= KPIs (usa las variables definidas arriba) =========
     by_prop_now, tot_now = compute_kpis(
