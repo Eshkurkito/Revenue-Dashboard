@@ -1,5 +1,5 @@
-import streamlit as st
 import pandas as pd
+import streamlit as st
 import numpy as np
 import altair as alt
 from datetime import date
@@ -9,7 +9,41 @@ from utils import (
     _kai_cdm_pro_analysis,
 )
 
-def render_cuadro_mando_pro(raw):
+def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Intenta mapear columnas habituales al esquema esperado."""
+    if df is None or df.empty:
+        return df
+    norm = {c: str(c).lower().strip().replace("_", " ").replace("-", " ") for c in df.columns}
+
+    def find(*cands) -> str | None:
+        for col, n in norm.items():
+            for cand in cands:
+                # coincidencia exacta o contiene la palabra clave
+                if n == cand or cand in n:
+                    return col
+        return None
+
+    mapping = {}
+    col_aloj = find("alojamiento", "propiedad", "property", "listing", "unidad", "apartamento", "room", "unit", "house", "piso", "villa")
+    if col_aloj: mapping[col_aloj] = "Alojamiento"
+
+    col_fa = find("fecha alta", "fecha de alta", "booking date", "fecha reserva", "creado", "created", "booked")
+    if col_fa: mapping[col_fa] = "Fecha alta"
+
+    col_fe = find("fecha entrada", "check in", "entrada", "arrival")
+    if col_fe: mapping[col_fe] = "Fecha entrada"
+
+    col_fs = find("fecha salida", "check out", "salida", "departure")
+    if col_fs: mapping[col_fs] = "Fecha salida"
+
+    col_rev = find("alquiler con iva (€)", "alquiler con iva", "ingresos", "revenue", "importe", "total", "importe total", "precio total")
+    if col_rev: mapping[col_rev] = "Alquiler con IVA (€)"
+
+    if not mapping:
+        return df
+    return df.rename(columns=mapping)
+
+def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
     if raw is None:
         st.stop()
 
@@ -55,8 +89,20 @@ def render_cuadro_mando_pro(raw):
     st.subheader("📊 Cuadro de mando (PRO)")
 
     # KPIs actuales y LY
+    df = _standardize_columns(raw.copy() if isinstance(raw, pd.DataFrame) else pd.DataFrame())
+    if df is None or df.empty:
+        st.warning("No hay datos cargados. Sube un CSV/Excel en la portada.")
+        st.stop()
+
+    if "Alojamiento" not in df.columns:
+        st.error("No se encuentra la columna ‘Alojamiento’. Renombra tu archivo o mapea columnas equivalentes (p.ej. ‘Propiedad’, ‘Listing’).")
+        st.stop()
+
+    # Donde antes accedías a raw["Alojamiento"], usa df ya estandarizado:
+    props_all = sorted(df["Alojamiento"].dropna().astype(str).unique())
+    # si más abajo usas compute_kpis o parseo de fechas, pásale df (no raw)
     by_prop_now, tot_now = compute_kpis(
-        raw,
+        df,
         pd.to_datetime(pro_cut),
         pd.to_datetime(pro_start),
         pd.to_datetime(pro_end),
@@ -64,7 +110,7 @@ def render_cuadro_mando_pro(raw):
         props_pro if props_pro else None,
     )
     _, tot_ly_cut = compute_kpis(
-        raw,
+        df,
         pd.to_datetime(pro_cut) - pd.DateOffset(years=1),
         pd.to_datetime(pro_start) - pd.DateOffset(years=1),
         pd.to_datetime(pro_end) - pd.DateOffset(years=1),
@@ -73,7 +119,7 @@ def render_cuadro_mando_pro(raw):
     )
     cutoff_ly_final = pd.to_datetime(pro_end) - pd.DateOffset(years=1)
     _, tot_ly_final = compute_kpis(
-        raw,
+        df,
         cutoff_ly_final,
         pd.to_datetime(pro_start) - pd.DateOffset(years=1),
         pd.to_datetime(pro_end) - pd.DateOffset(years=1),
@@ -83,7 +129,7 @@ def render_cuadro_mando_pro(raw):
 
     # NUEVO: Ingresos LY-2 (a este corte) y LY-2 final
     _, tot_ly2_cut_ing = compute_kpis(
-        raw,
+        df,
         pd.to_datetime(pro_cut) - pd.DateOffset(years=2),
         pd.to_datetime(pro_start) - pd.DateOffset(years=2),
         pd.to_datetime(pro_end) - pd.DateOffset(years=2),
@@ -92,7 +138,7 @@ def render_cuadro_mando_pro(raw):
     )
     cutoff_ly2_final = pd.to_datetime(pro_end) - pd.DateOffset(years=2)
     _, tot_ly2_final_ing = compute_kpis(
-        raw,
+        df,
         cutoff_ly2_final,
         pd.to_datetime(pro_start) - pd.DateOffset(years=2),
         pd.to_datetime(pro_end) - pd.DateOffset(years=2),
@@ -112,7 +158,7 @@ def render_cuadro_mando_pro(raw):
     # ====== ADR ======
     st.subheader("🏷️ ADR (a fecha de corte)")
     _, tot_ly2_cut = compute_kpis(
-        raw,
+        df,
         pd.to_datetime(pro_cut) - pd.DateOffset(years=2),
         pd.to_datetime(pro_start) - pd.DateOffset(years=2),
         pd.to_datetime(pro_end) - pd.DateOffset(years=2),
@@ -126,7 +172,7 @@ def render_cuadro_mando_pro(raw):
 
     # Bandas ADR (P10, P50, P90)
     start_dt = pd.to_datetime(pro_start); end_dt = pd.to_datetime(pro_end)
-    dfb = raw[(raw["Fecha alta"] <= pd.to_datetime(pro_cut))].dropna(
+    dfb = df[(df["Fecha alta"] <= pd.to_datetime(pro_cut))].dropna(
         subset=["Fecha entrada", "Fecha salida", "Alquiler con IVA (€)"]
     ).copy()
     if props_pro:
@@ -165,7 +211,7 @@ def render_cuadro_mando_pro(raw):
     st.subheader("🏁 Ritmo de reservas (Pace)")
     try:
         pace_res = pace_forecast_month(
-            df=raw,
+            df=df,
             cutoff=pd.to_datetime(pro_cut),
             period_start=pd.to_datetime(pro_start),
             period_end=pd.to_datetime(pro_end),
@@ -197,7 +243,7 @@ def render_cuadro_mando_pro(raw):
     p_start_ly = pd.to_datetime(pro_start) - pd.DateOffset(years=1)
     p_end_ly   = pd.to_datetime(pro_end) - pd.DateOffset(years=1)
     base_cur = pace_series(
-        df=raw,
+        df=df,
         period_start=pd.to_datetime(pro_start),
         period_end=pd.to_datetime(pro_end),
         d_max=int(dmax_y),
@@ -205,7 +251,7 @@ def render_cuadro_mando_pro(raw):
         inv_override=int(inv_pro) if inv_pro > 0 else None,
     )
     base_ly = pace_series(
-        df=raw,
+        df=df,
         period_start=p_start_ly,
         period_end=p_end_ly,
         d_max=int(dmax_y),
@@ -257,7 +303,7 @@ def render_cuadro_mando_pro(raw):
                 rows = []
                 for c in pd.date_range(cstart, cend, freq="D"):
                     _, tot_now_e = compute_kpis(
-                        df_all=raw,
+                        df_all=df,
                         cutoff=c,
                         period_start=pd.to_datetime(pro_start),
                         period_end=pd.to_datetime(pro_end),
@@ -265,7 +311,7 @@ def render_cuadro_mando_pro(raw):
                         filter_props=props_pro if props_pro else None,
                     )
                     _, tot_ly_e = compute_kpis(
-                        df_all=raw,
+                        df_all=df,
                         cutoff=c - pd.DateOffset(years=1),
                         period_start=pd.to_datetime(pro_start) - pd.DateOffset(years=1),
                         period_end=pd.to_datetime(pro_end) - pd.DateOffset(years=1),
