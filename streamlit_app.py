@@ -84,9 +84,28 @@ with st.sidebar:
             clear_data()
 
 # --- Router (sin cambios) ---
-# if "view" not in st.session_state: st.session_state.view = "landing"
-# if st.session_state.view == "landing": render_landing()
-# elif st.session_state.view == "consulta": ...
-# elif st.session_state.view == "pro": ...
-# elif st.session_state.view == "whatif": ...
-# elif st.session_state.view == "evolucion": ...
+VALID_VIEWS = {"landing", "consulta", "pro", "whatif", "evolucion"}
+
+# Login primero
+if not require_login():
+    st.stop()
+
+# Asegura vista por defecto tras login
+if st.session_state.get("view") not in VALID_VIEWS:
+    st.session_state.view = "landing"
+
+# --- Router ---
+if st.session_state.view == "landing":
+    render_landing()
+elif st.session_state.view == "consulta":
+    from consulta_normal import render_consulta_normal
+    _safe_call(render_consulta_normal)
+elif st.session_state.view == "pro":
+    from cuadro_mando_pro import render_cuadro_mando_pro
+    _safe_call(render_cuadro_mando_pro)
+elif st.session_state.view == "whatif":
+    from what_if import render_what_if
+    _safe_call(render_what_if)
+elif st.session_state.view == "evolucion":
+    from evolucion_cutoff import render_evolucion_cutoff
+    _safe_call(render_evolucion_cutoff)

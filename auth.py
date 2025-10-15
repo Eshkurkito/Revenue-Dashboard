@@ -32,17 +32,15 @@ def require_login() -> bool:
 
     if submitted:
         uname, u = _resolve_user(username)
-        if not u:
-            st.error("Usuario no encontrado.")
-            return False
-        ok = bcrypt.checkpw(password.encode("utf-8"), _hash_to_bytes(u["hash"]))
-        if ok:
+        if u and bcrypt.checkpw(password.encode("utf-8"), _hash_to_bytes(u["hash"])):
             st.session_state.auth_user = {"username": uname, "name": u["name"]}
+            # Asegura vista inicial
+            st.session_state.view = "landing"
             st.success(f"Bienvenido, {u['name']}")
             try: st.rerun()
             except Exception: pass
             return True
-        st.error("Contraseña incorrecta.")
+        st.error("Usuario o contraseña incorrectos.")
         return False
 
     st.info("Introduce tus credenciales.")
