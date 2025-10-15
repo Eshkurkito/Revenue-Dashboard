@@ -141,6 +141,7 @@ def render_landing():
         ("Consulta normal", "consulta", "KPIs, ocupación, ADR e ingresos por periodo."),
         ("Cuadro de mando PRO", "pro", "Análisis avanzado, pace y narrativa ejecutiva."),
         ("What‑if", "whatif", "Simula precio y pickup por grupos/propiedades."),
+        ("Evolución por fecha de corte", "evolucion", "Cómo evolucionan KPIs al mover la fecha de corte."),
     ]
     clicks = {}
 
@@ -161,4 +162,7 @@ def render_landing():
         _rerun()
     if clicks.get("whatif"):
         st.session_state.view = "whatif"
+        _rerun()
+    if clicks.get("evolucion"):
+        st.session_state.view = "evolucion"
         _rerun()
