@@ -90,21 +90,12 @@ def _inject_css():
     )
 
 def _tile_media(title: str, key: str):
-    if USE_ANIMATIONS and st_lottie:
-        anim = _load_lottie(LOTTIE.get(key))
-        if isinstance(anim, dict):
-            st_lottie(anim, height=140, key=f"lot_{key}")
-            return
-    # Placeholder estático (sin animación)
-    st.markdown(
-        f'''
-        <div style="height:140px;display:flex;align-items:center;justify-content:center;
-                    border-radius:12px;background:#f3f6f9;color:#2e485f;border:1px solid #e5e7eb;">
-            <span style="font-weight:600;">{title}</span>
-        </div>
-        ''',
-        unsafe_allow_html=True,
-    )
+    # Sin animaciones: no renderizar nada (el placeholder era lo que parecía un botón)
+    if not (USE_ANIMATIONS and st_lottie):
+        return
+    anim = _load_lottie(LOTTIE.get(key))
+    if isinstance(anim, dict):
+        st_lottie(anim, height=140, key=f"lot_{key}")
 
 # Helper de rerun compatible
 def _rerun():
@@ -162,7 +153,8 @@ def render_landing():
     for col, (title, key, desc) in zip(cols, tiles):
         with col:
             st.markdown('<div class="tile">', unsafe_allow_html=True)
-            _tile_media(title, key)  # ← reemplaza st_lottie(...)
+            if USE_ANIMATIONS:
+                _tile_media(title, key)  # solo si hay animaciones
             st.markdown(f"**{title}**")
             st.caption(desc)
             clicks[key] = st.button("Entrar", key=f"btn_{key}", use_container_width=True)
