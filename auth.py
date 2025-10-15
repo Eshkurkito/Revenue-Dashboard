@@ -48,9 +48,11 @@ def require_login() -> bool:
     st.info("Introduce tus credenciales.")
     return False
 
-def logout_button():
-    if st.button("Cerrar sesión", key="btn_logout"):
+def logout_button(label: str = "Cerrar sesión"):
+    if st.button(label, key="btn_logout", use_container_width=True):
         for k in ["auth_user", "view", "raw", "df_active"]:
             st.session_state.pop(k, None)
-        try: st.rerun()
-        except Exception: pass
+        try:
+            st.rerun()
+        except Exception:
+            pass

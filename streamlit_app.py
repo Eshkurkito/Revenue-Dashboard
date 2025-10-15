@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 from landing_ui import render_landing, get_logo_path, LOGO_PATH  # ← añade get_logo_path
-from auth import require_login
+from auth import require_login, logout_button
 
 # --- helpers ---
 def cargar_dataframe():
@@ -41,10 +41,11 @@ with st.sidebar:
         st.image(logo, width=180)  # ajusta 140–200 según prefieras
     else:
         st.write("Florit Flats")
-    if st.button("⬅️ Volver al inicio"):
+    if st.button("⬅️ Volver al inicio", key="btn_home", use_container_width=True):
         st.session_state.view = "landing"
         _rerun()
 
+    logout_button()  # ← aquí debajo
     st.header("Carga de datos")
     uploaded_file = st.file_uploader("Carga tu archivo Excel/CSV", type=["xlsx", "csv"])
     if uploaded_file is not None and st.button("Usar este archivo"):
