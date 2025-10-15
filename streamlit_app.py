@@ -29,7 +29,6 @@ from prediccion_pace import render_prediccion_pace
 from cuadro_mando_pro import render_cuadro_mando_pro
 from alerts_module import render_alerts_module
 from what_if import render_what_if
-from evolucion_cutoff import render_evolucion_cutoff
 
 # Configuración de página
 st.set_page_config(page_title="Revenue Dashboard", page_icon="📊", layout="wide")
