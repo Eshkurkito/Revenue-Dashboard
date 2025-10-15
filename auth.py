@@ -8,8 +8,8 @@ except ImportError:
 # Sustituye los hashes por los tuyos
 CREDENTIALS = {
     "usernames": {
-        "admin": {"name": "Admin", "password": "$2b$12$HASH_ADMIN_AQUI"},
-        "juan":  {"name": "Juan",  "password": "$2b$12$HASH_JUAN_AQUI"},
+        "admin": {"name": "Ilya", "password": "Ilya2025"},
+        "juan":  {"name": "Juan",  "password": "Juan2025"},
     }
 }
 
