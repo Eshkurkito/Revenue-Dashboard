@@ -1,6 +1,7 @@
 import pandas as pd
 import streamlit as st
 from landing_ui import render_landing, get_logo_path, LOGO_PATH  # ← añade get_logo_path
+from auth import require_login
 
 # --- helpers ---
 def cargar_dataframe():
@@ -27,25 +28,11 @@ def _rerun():
 
 # --- página y tema ---
 st.set_page_config(page_title="Revenue Dashboard", page_icon="📊", layout="wide")
-st.markdown("""
-<style>
-:root{ --brand:#2e485f; --brand-600:#264052; --brand-50:#f6f8fb; }
-.stApp { background:#ffffff; }
+st.markdown("""<style>/* tu CSS */</style>""", unsafe_allow_html=True)
 
-/* FIX: más espacio arriba para que no se corte el primer título */
-main .block-container { padding-top: calc(2.4rem + env(safe-area-inset-top)) !important; }
-/* Evita colapso de márgenes del primer H1/H2 */
-main .block-container h1:first-child,
-main .block-container h2:first-child { margin-top: .25rem !important; }
-
-[data-testid="stSidebar"] { background: var(--brand-50); }
-.stButton > button, .btn-primary { background: var(--brand); color: #fff; border: 1px solid var(--brand-600); border-radius: 10px; }
-.stButton > button:hover, .btn-primary:hover { background: var(--brand-600); border-color: var(--brand-600); }
-[data-testid="stMetricDelta"] { color: var(--brand) !important; }
-[data-testid="stTable"], .stDataFrame thead tr th { background: var(--brand-50) !important; }
-a, .st-af { color: var(--brand); }
-</style>
-""", unsafe_allow_html=True)
+from auth import require_login
+if not require_login():
+    st.stop()
 
 # --- Sidebar: logo + carga de datos ---
 with st.sidebar:
