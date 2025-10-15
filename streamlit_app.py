@@ -51,7 +51,7 @@ a, .st-af { color: var(--brand); }
 with st.sidebar:
     logo = get_logo_path()
     if logo:
-        st.image(logo, use_container_width=True)  # antes: use_column_width=True
+        st.image(logo, width=180)  # ajusta 140–200 según prefieras
     else:
         st.write("Florit Flats")
     if st.button("⬅️ Volver al inicio"):

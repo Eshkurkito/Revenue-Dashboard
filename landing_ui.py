@@ -124,12 +124,7 @@ LOGO_PATH = get_logo_path() or "assets/florit-flats-logo.png"
 
 def render_landing():
     _inject_css()
-    logo = get_logo_path()
-    if logo:
-        st.image(logo, width=160)
-    else:
-        st.caption("Logo no disponible (revisa assets/florit-flats-logo.png).")
-
+    # Logo en cabecera eliminado para no duplicar con el de la barra lateral
     st.markdown(
         """
         <div class="hero">
