@@ -1,25 +1,51 @@
 import streamlit as st
-import streamlit_authenticator as stauth
+try:
+    import streamlit_authenticator as stauth
+except ImportError:
+    st.error("Falta 'streamlit-authenticator'. Instala: pip install streamlit-authenticator bcrypt")
+    st.stop()
 
-# Sustituye <HASH1>, <HASH2> por hashes reales
+# Sustituye los hashes por los tuyos
 CREDENTIALS = {
     "usernames": {
-        "admin": {"name": "Admin", "password": "Florit2025!"},
-        "juan":  {"name": "Marta",  "password": "Florit2025"},
+        "admin": {"name": "Admin", "password": "$2b$12$HASH_ADMIN_AQUI"},
+        "juan":  {"name": "Juan",  "password": "$2b$12$HASH_JUAN_AQUI"},
     }
 }
+
 COOKIE_NAME = "ff_auth"
-COOKIE_KEY = "ff_auth_key"
+COOKIE_KEY = "ff_auth_key"  # cambia por uno propio/aleatorio
 COOKIE_DAYS = 7
 
 def require_login() -> bool:
     authenticator = stauth.Authenticate(CREDENTIALS, COOKIE_NAME, COOKIE_KEY, COOKIE_DAYS)
-    name, status, username = authenticator.login("Iniciar sesión", "main")
-    if status:
+
+    # API nueva (>=0.3): usa keywords location y fields
+    try:
+        name, status, username = authenticator.login(
+            location="main",
+            fields={
+                "Form name": "Iniciar sesión",
+                "Username": "Usuario",
+                "Password": "Contraseña",
+            },
+        )
+    except TypeError:
+        # Compatibilidad API antigua: (form_name, location)
+        name, status, username = authenticator.login("Iniciar sesión", "main")
+
+    if status is True:
         st.session_state.user = {"name": name, "username": username}
         with st.sidebar:
-            authenticator.logout("Cerrar sesión")
+            # API nueva: location como keyword
+            try:
+                authenticator.logout(location="sidebar")
+            except TypeError:
+                authenticator.logout("Cerrar sesión", "sidebar")
         return True
-    if status is False:
+    elif status is False:
         st.error("Usuario o contraseña incorrectos.")
-    return False
+        return False
+    else:
+        st.info("Introduce tus credenciales.")
+        return False
