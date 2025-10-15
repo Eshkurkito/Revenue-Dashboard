@@ -38,81 +38,8 @@ def _overlap_nights_and_revenue(dfx: pd.DataFrame, p_start: pd.Timestamp, p_end:
     return n_in.to_numpy(dtype=float), rev_in
 
 def render_evolucion_cutoff(raw: pd.DataFrame | None = None):
-    st.header("📈 Evolución por fecha de corte")
-    if raw is None:
-        raw = st.session_state.get("df_active") or st.session_state.get("raw")
-    df = _ensure_parsed(raw if isinstance(raw, pd.DataFrame) else pd.DataFrame())
-    if df.empty:
-        st.info("No hay datos cargados. Vuelve a la portada y sube un CSV/Excel.")
-        return
-
-    with st.sidebar:
-        st.subheader("Parámetros")
-        today = date.today()
-        colp1, colp2 = st.columns(2)
-        p_start = colp1.date_input("Inicio del periodo (estancias)", value=today.replace(day=1))
-        p_end   = colp2.date_input("Fin del periodo (estancias)", value=today)
-        colc1, colc2 = st.columns(2)
-        c_start = colc1.date_input("Corte inicial", value=today.replace(day=1))
-        c_end   = colc2.date_input("Corte final", value=today)
-        props = sorted(df["Alojamiento"].dropna().unique()) if "Alojamiento" in df.columns else []
-        selected_props = st.multiselect("Alojamientos (opcional)", options=props, default=[])
-
-    dfx = df.copy()
-    if selected_props:
-        dfx = dfx[dfx["Alojamiento"].isin(selected_props)]
-
-    if pd.to_datetime(c_end) < pd.to_datetime(c_start):
-        st.error("El corte final debe ser posterior o igual al corte inicial.")
-        return
-    if pd.to_datetime(p_end) < pd.to_datetime(p_start):
-        st.error("El fin del periodo debe ser posterior o igual al inicio.")
-        return
-
-    cutoffs = pd.date_range(pd.to_datetime(c_start), pd.to_datetime(c_end), freq="D")
-    if len(cutoffs) == 0:
-        st.warning("Rango de cortes vacío.")
-        return
-
-    p_start_dt = pd.to_datetime(p_start).normalize()
-    p_end_dt = pd.to_datetime(p_end).normalize()
-    stays_overlap = (dfx["Fecha salida"] > p_start_dt) & (dfx["Fecha entrada"] <= p_end_dt + pd.Timedelta(days=1))
-    dfx = dfx[stays_overlap].copy()
-    if dfx.empty:
-        st.warning("No hay estancias que solapen el periodo seleccionado.")
-        return
-
-    rows = []
-    for cut in cutoffs:
-        dfc = dfx[(dfx["Fecha alta"].notna()) & (dfx["Fecha alta"].dt.normalize() <= cut.normalize())]
-        if dfc.empty:
-            rows.append({"corte": cut.date(), "noches": 0.0, "ingresos": 0.0, "adr": 0.0})
-            continue
-        n_in, rev_in = _overlap_nights_and_revenue(dfc, p_start_dt, p_end_dt)
-        nights = float(np.nansum(n_in))
-        revenue = float(np.nansum(rev_in))
-        adr = (revenue / nights) if nights > 0 else 0.0
-        rows.append({"corte": cut.date(), "noches": nights, "ingresos": revenue, "adr": adr})
-
-    evo = pd.DataFrame(rows)
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Ingresos OTB (último corte) €", f"{evo['ingresos'].iloc[-1]:,.2f}")
-    c2.metric("Noches OTB (último corte)", f"{evo['noches'].iloc[-1]:,.0f}".replace(",", "."))
-    c3.metric("ADR OTB (último corte) €", f"{evo['adr'].iloc[-1]:,.2f}")
-
-    base = alt.Chart(evo).encode(x=alt.X("corte:T", title="Fecha de corte"))
-    line_rev = base.mark_line(color=BRAND, strokeWidth=3).encode(y=alt.Y("ingresos:Q", title="Ingresos (€)"))
-    line_n = base.mark_line(color="#9e9e9e", strokeDash=[4,4]).encode(y=alt.Y("noches:Q", title="Noches"))
-    st.altair_chart((line_rev + line_n).properties(height=360), use_container_width=True)
-
-    st.subheader("Detalle")
-    st.dataframe(evo, use_container_width=True)
-    st.download_button(
-        "📥 Descargar evolución (CSV)",
-        data=evo.to_csv(index=False).encode("utf-8-sig"),
-        file_name="evolucion_por_corte.csv",
-        mime="text/csv",
-    )
+    """Entrada pública desde el menú: usa la versión completa con grupos, KPIs y comparación LY."""
+    return render_evolucion_corte(raw)
 
 def render_evolucion_corte(raw):
     if raw is None:
