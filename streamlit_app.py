@@ -1,3 +1,4 @@
+from pathlib import Path
 import pandas as pd
 import streamlit as st
 from auth import require_login, logout_button
@@ -6,6 +7,53 @@ from landing_ui import render_landing, get_logo_path
 # --- helpers ---
 def _get_raw():
     return st.session_state.get("df_active") or st.session_state.get("raw")
+
+def _user_id() -> str | None:
+    u = st.session_state.get("auth_user") or {}
+    return u.get("username")
+
+def _user_data_dir() -> Path:
+    return Path(__file__).resolve().parent / "_user_data"
+
+def _user_paths() -> tuple[Path, Path] | tuple[None, None]:
+    uid = _user_id()
+    if not uid:
+        return None, None
+    d = _user_data_dir(); d.mkdir(parents=True, exist_ok=True)
+    return d / f"{uid}.parquet", d / f"{uid}.csv"
+
+def _persist_user_dataset(df: pd.DataFrame):
+    p_parq, p_csv = _user_paths()
+    if not p_parq:
+        return
+    try:
+        df.to_parquet(p_parq, index=False)
+    except Exception:
+        df.to_csv(p_csv, index=False, encoding="utf-8")
+
+def _restore_user_dataset() -> bool:
+    p_parq, p_csv = _user_paths()
+    if not p_parq:
+        return False
+    try:
+        if p_parq.exists():
+            st.session_state.raw = pd.read_parquet(p_parq)
+            return True
+        if p_csv.exists():
+            st.session_state.raw = pd.read_csv(p_csv)
+            return True
+    except Exception:
+        pass
+    return False
+
+def _delete_user_dataset():
+    p_parq, p_csv = _user_paths()
+    for p in (p_parq, p_csv):
+        try:
+            if p and p.exists():
+                p.unlink(missing_ok=True)
+        except Exception:
+            pass
 
 def _rerun():
     try:
@@ -16,6 +64,7 @@ def _rerun():
 def clear_data(reset_view: bool = True):
     for k in ["raw", "df_active", "_last_file_sig", "uploader_has_file"]:
         st.session_state.pop(k, None)
+    _delete_user_dataset()
     try:
         st.cache_data.clear()
     except Exception:
@@ -38,6 +87,10 @@ def _safe_call(view_fn):
 if not require_login():
     st.stop()
 
+# Restaura automáticamente el último archivo del usuario
+if _get_raw() is None and _restore_user_dataset():
+    st.toast("Datos restaurados de la sesión anterior.", icon="💾")
+
 # --- SIDEBAR ---
 with st.sidebar:
     logo = get_logo_path()
@@ -45,23 +98,19 @@ with st.sidebar:
         st.image(logo, width=140)
 
     if st.button("⬅️ Volver al inicio", key="btn_home", use_container_width=True):
-        st.session_state.view = "landing"
-        _rerun()
-    logout_button()
+        st.session_state.view = "landing"; _rerun()
+    logout_button()  # borra también el dataset persistido
 
     st.header("Carga de datos")
     st.checkbox("Borrar datos al quitar el archivo", value=True, key="auto_clear_on_remove")
 
-    # Uploader con AUTO‑CARGA
     uploaded_file = st.file_uploader("Carga tu archivo Excel/CSV", type=["xlsx", "csv"], key="uploader")
 
-    # Detecta cambio de archivo y lo lee 1 sola vez
     prev_has = st.session_state.get("uploader_has_file", False)
     curr_has = uploaded_file is not None
     st.session_state.uploader_has_file = curr_has
 
     if curr_has:
-        # firma del archivo (nombre + tamaño) para evitar recargas innecesarias
         try:
             size = getattr(uploaded_file, "size", None) or uploaded_file.getbuffer().nbytes
         except Exception:
@@ -80,17 +129,16 @@ with st.sidebar:
                         uploaded_file.seek(0)
                         df = pd.read_csv(uploaded_file, encoding="latin-1")
                 st.session_state.raw = df
+                _persist_user_dataset(df)  # ← guarda en disco por usuario
                 st.session_state._last_file_sig = sig
                 st.toast(f"Archivo cargado: {df.shape[0]:,} filas · {df.shape[1]} columnas", icon="✅")
             except Exception as e:
                 st.error(f"No se pudo leer el archivo: {e}")
 
-    # Auto‑limpiar solo cuando realmente se retira el archivo del uploader
     if prev_has and not curr_has and st.session_state.get("auto_clear_on_remove", True) and _get_raw() is not None:
         clear_data(reset_view=False)
         st.success("Datos borrados al quitar el archivo.")
 
-    # Limpieza manual
     if _get_raw() is not None:
         if st.button("🧹 Quitar datos cargados", key="btn_clear_data", use_container_width=True):
             clear_data()
