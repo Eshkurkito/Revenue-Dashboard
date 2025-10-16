@@ -282,10 +282,24 @@ def render_kpis_por_meses(raw):
 
     st.dataframe(res.round(2), use_container_width=True)
 
-    chart = alt.Chart(res).transform_fold(["Noches","Ingresos","ADR"], as_=["KPI","Valor"]).mark_line(point=True).encode(
-        x="Mes:N", y="Valor:Q", color="KPI:N"
-    ).properties(height=280, use_container_width=True)
-    st.altair_chart(chart, use_container_width=True)
+    # Antes de graficar
+    res["Mes"] = res["Mes"].astype(str)
+
+    chart = (
+        alt.Chart(res)
+        .transform_fold(["Noches", "Ingresos", "ADR"], as_=["KPI", "Valor"])
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("Mes:N", title="Mes"),
+            y=alt.Y("Valor:Q", title="Valor"),
+            color=alt.Color("KPI:N", title="KPI"),
+            tooltip=["Mes:N", "KPI:N", alt.Tooltip("Valor:Q", format=".2f")],
+        )
+        .properties(height=280)  # ← quita use_container_width de aquí
+        .interactive()
+    )
+
+    st.altair_chart(chart, use_container_width=True)  # ← aquí sí
 
     st.download_button(
         "📥 Descargar (CSV)",
