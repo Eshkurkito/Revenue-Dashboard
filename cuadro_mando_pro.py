@@ -75,6 +75,39 @@ def _load_saved_groups(props_all: list[str]) -> dict[str, list[str]]:
             groups[g] = sorted(dict.fromkeys(mapped))
     return groups
 
+def _compute_adr_bands(df: pd.DataFrame, period_start, period_end, cutoff) -> pd.DataFrame:
+    """Devuelve bandas ADR (P10, Mediana, P90) por mes del periodo, a un corte dado."""
+    start_dt = pd.to_datetime(period_start)
+    end_dt = pd.to_datetime(period_end)
+    cut_dt = pd.to_datetime(cutoff)
+
+    dfb = (
+        df[(df["Fecha alta"] <= cut_dt)]
+        .dropna(subset=["Fecha entrada", "Fecha salida", "Alquiler con IVA (€)"])
+        .copy()
+    )
+    # Reservas que tocan el periodo
+    mask_b = ~((dfb["Fecha salida"] <= start_dt) | (dfb["Fecha entrada"] >= (end_dt + pd.Timedelta(days=1))))
+    dfb = dfb[mask_b]
+    if dfb.empty:
+        return pd.DataFrame(columns=["P10", "Mediana", "P90"])
+
+    dfb["los"] = (dfb["Fecha salida"].dt.normalize() - dfb["Fecha entrada"].dt.normalize()).dt.days.clip(lower=1)
+    dfb["adr_reserva"] = dfb["Alquiler con IVA (€)"] / dfb["los"]
+    dfb["Mes"] = dfb["Fecha entrada"].dt.to_period("M").astype(str)
+
+    def _pct_cols(x: pd.Series):
+        arr = x.dropna().values
+        if arr.size == 0:
+            return pd.Series({"P10": 0.0, "Mediana": 0.0, "P90": 0.0})
+        return pd.Series(
+            {"P10": float(np.percentile(arr, 10)), "Mediana": float(np.percentile(arr, 50)), "P90": float(np.percentile(arr, 90))}
+        )
+
+    bands = dfb.groupby("Mes")["adr_reserva"].apply(_pct_cols).reset_index()
+    bands_wide = bands.pivot(index="Mes", columns="level_1", values="adr_reserva").sort_index()
+    return bands_wide
+
 def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
     # --- validación ---
     if not isinstance(raw, pd.DataFrame) or raw.empty:
@@ -203,31 +236,41 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
     a2.metric("ADR LY (€)", f"{tot_ly_cut['adr']:.2f}")
     a3.metric("ADR LY-2 (€)", f"{tot_ly2_cut['adr']:.2f}")
 
-    # Bandas ADR (P10, P50, P90)
-    start_dt = pd.to_datetime(pro_start); end_dt = pd.to_datetime(pro_end)
-    dfb = df[(df["Fecha alta"] <= pd.to_datetime(pro_cut))].dropna(
-        subset=["Fecha entrada", "Fecha salida", "Alquiler con IVA (€)"]
-    ).copy()
-    if props_pro:
-        dfb = dfb[dfb["Alojamiento"].isin(props_pro)]
-    mask_b = ~((dfb["Fecha salida"] <= start_dt) | (dfb["Fecha entrada"] >= (end_dt + pd.Timedelta(days=1))))
-    dfb = dfb[mask_b]
-    if not dfb.empty:
-        dfb["los"] = (dfb["Fecha salida"].dt.normalize() - dfb["Fecha entrada"].dt.normalize()).dt.days.clip(lower=1)
-        dfb["adr_reserva"] = dfb["Alquiler con IVA (€)"] / dfb["los"]
-        dfb["Mes"] = dfb["Fecha entrada"].dt.to_period("M").astype(str)
-        def _pct_cols(x):
-            arr = x.dropna().values
-            if arr.size == 0:
-                return pd.Series({"P10": 0.0, "Mediana": 0.0, "P90": 0.0})
-            return pd.Series({"P10": np.percentile(arr,10), "Mediana": np.percentile(arr,50), "P90": np.percentile(arr,90)})
-        bands = dfb.groupby("Mes")["adr_reserva"].apply(_pct_cols).reset_index()
-        bands_wide = bands.pivot(index="Mes", columns="level_1", values="adr_reserva").sort_index()
-        st.dataframe(bands_wide[["P10","Mediana","P90"]], use_container_width=True)
+    # Bandas ADR (Actual, LY y LY-2)
+    bands_now = _compute_adr_bands(df, pro_start, pro_end, pro_cut)
+    bands_ly = _compute_adr_bands(
+        df,
+        pd.to_datetime(pro_start) - pd.DateOffset(years=1),
+        pd.to_datetime(pro_end) - pd.DateOffset(years=1),
+        pd.to_datetime(pro_cut) - pd.DateOffset(years=1),
+    )
+    bands_ly2 = _compute_adr_bands(
+        df,
+        pd.to_datetime(pro_start) - pd.DateOffset(years=2),
+        pd.to_datetime(pro_end) - pd.DateOffset(years=2),
+        pd.to_datetime(pro_cut) - pd.DateOffset(years=2),
+    )
+
+    if all(x is not None and not x.empty for x in [bands_now, bands_ly, bands_ly2]):
+        tbl = (
+            pd.DataFrame(index=sorted(set(bands_now.index) | set(bands_ly.index) | set(bands_ly2.index)))
+            .join(bands_now.add_suffix(" (Act)"))
+            .join(bands_ly.add_suffix(" (LY)"))
+            .join(bands_ly2.add_suffix(" (LY-2)"))
+            .fillna(0.0)
+            .sort_index()
+        )
+        order = []
+        for suf in [" (Act)", " (LY)", " (LY-2)"]:
+            order += [f"P10{suf}", f"Mediana{suf}", f"P90{suf}"]
+        cols = [c for c in order if c in tbl.columns]
+        tbl = tbl[cols]
+        st.dataframe(tbl, use_container_width=True)
         st.download_button(
             "📥 Descargar bandas ADR (CSV)",
-            data=bands_wide[["P10","Mediana","P90"]].reset_index().to_csv(index=False).encode("utf-8-sig"),
-            file_name="adr_bands_cdmpro.csv", mime="text/csv"
+            data=tbl.reset_index(names=["Mes"]).to_csv(index=False).encode("utf-8-sig"),
+            file_name="adr_bands_actual_ly_ly2.csv",
+            mime="text/csv",
         )
     else:
         st.info("Sin datos suficientes para bandas ADR en el periodo.")
