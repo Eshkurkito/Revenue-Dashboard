@@ -152,10 +152,13 @@ def render_resumen_comparativo(raw):
         if selected_group and selected_group != "Ninguno":
             props_rc = groups[selected_group]
             if st.button(f"Eliminar grupo '{selected_group}'"):
-                import pandas as pd
-                df = pd.read_csv(GROUPS_CSV)
+                # usar el alias pd del módulo; no reimportar dentro de la función
+                try:
+                    df = pd.read_csv(GROUPS_CSV, encoding="utf-8-sig")
+                except Exception:
+                    df = pd.read_csv(GROUPS_CSV)
                 df = df[df["Grupo"] != selected_group]
-                df.to_csv(GROUPS_CSV, index=False)
+                df.to_csv(GROUPS_CSV, index=False, encoding="utf-8-sig")
                 st.success(f"Grupo '{selected_group}' eliminado.")
                 try: st.rerun()
                 except Exception: pass
