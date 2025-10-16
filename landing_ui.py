@@ -141,7 +141,8 @@ def render_landing():
         ("Cuadro de mando PRO", "pro", "Análisis avanzado, pace y narrativa ejecutiva."),
         ("What-if", "whatif", "Simula precio y pickup por grupos/propiedades."),
         ("Evolución (cut-off)", "evolucion", "Comparativa por fecha de corte."),
-        ("Resumen comparativo", "resumen", "Comparativa por alojamiento: ADR, ocupación e ingresos."),  # ← nuevo
+        ("Resumen comparativo", "resumen", "Comparativa por alojamiento: ADR, ocupación e ingresos."),
+        ("KPIs por meses", "kpis_por_meses", "Resumen mensual: Noches, ADR, RevPAR e Ingresos."),  # ← nuevo
     ]
     cols = st.columns(len(tiles), gap="large")
     clicks = {}
@@ -164,5 +165,7 @@ def render_landing():
         st.session_state.view = "whatif"; _rerun()
     elif clicks.get("evolucion"):
         st.session_state.view = "evolucion"; _rerun()
-    elif clicks.get("resumen"):                     # ← nuevo
+    elif clicks.get("resumen"):
         st.session_state.view = "resumen"; _rerun()
+    elif clicks.get("kpis_por_meses"):                                  # ← nuevo
+        st.session_state.view = "kpis_por_meses"; _rerun()

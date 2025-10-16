@@ -6,6 +6,7 @@ import bcrypt
 USERS = {
     "admin": {"name": "Ilya", "hash": "$2b$12$1DiUTnV5R/.qd.qVXkwcl.E/8aBpPLX2tCE3YMTYx00pDZG9EUUYq"},
     "juan":  {"name": "Juan", "hash": "$2b$12$SxF2bjFuPXsHlfadHgEz1.7MmkOd6cqPSXEO5iv3hWCCEKgXkzzwC"},
+    "marta": {"name": "Marta", "hash": ""}
 }
 
 def _resolve_user(user_input: str):

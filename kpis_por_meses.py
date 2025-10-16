@@ -1,7 +1,30 @@
 import pandas as pd
+import numpy as np
 import streamlit as st
+import altair as alt
 from datetime import date
 from utils import compute_kpis, period_inputs, group_selector, load_groups
+
+def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    norm = {c: str(c).strip().lower() for c in df.columns}
+    def find(*keys):
+        for col, n in norm.items():
+            for k in keys:
+                if n == k or k in n:
+                    return col
+        return None
+    mapping = {}
+    a = find("alojamiento","propiedad","listing","unidad","apartamento","room","unit")
+    fi = find("fecha entrada","check in","entrada","arrival")
+    fo = find("fecha salida","check out","salida","departure")
+    fa = find("fecha alta","creado","booking","reserva","created")
+    rev = find("alquiler con iva","ingresos","revenue","importe","total")
+    if a:   mapping[a] = "Alojamiento"
+    if fi:  mapping[fi] = "Fecha entrada"
+    if fo:  mapping[fo] = "Fecha salida"
+    if fa:  mapping[fa] = "Fecha alta"
+    if rev: mapping[rev] = "Alquiler con IVA (€)"
+    return df.rename(columns=mapping) if mapping else df
 
 def render_kpis_por_meses(raw):
     with st.sidebar:
@@ -202,4 +225,71 @@ def render_kpis_por_meses(raw):
         data=buffer.getvalue(),
         file_name=f"kpis_mensuales_{year}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    if not isinstance(raw, pd.DataFrame) or raw.empty:
+        st.info("No hay datos cargados. Sube un archivo en la barra lateral.")
+        return
+    df = _standardize_columns(raw.copy())
+    needed = {"Fecha entrada","Fecha salida","Alquiler con IVA (€)"}
+    if not needed.issubset(df.columns):
+        st.warning("Faltan columnas necesarias (Fecha entrada, Fecha salida, Alquiler con IVA (€)).")
+        return
+
+    # Parámetros
+    c1, c2 = st.columns(2)
+    start = c1.date_input("Inicio", value=date.today().replace(day=1), key="kpm_start")
+    end   = c2.date_input("Fin", value=date.today(), key="kpm_end")
+    props = []
+    if "Alojamiento" in df.columns:
+        props = st.multiselect("Alojamientos (opcional)", sorted(df["Alojamiento"].astype(str).dropna().unique()),
+                               default=[], key="kpm_props")
+
+    # Filtro
+    df = df.dropna(subset=["Fecha entrada","Fecha salida","Alquiler con IVA (€)"]).copy()
+    df["Fecha entrada"] = pd.to_datetime(df["Fecha entrada"])
+    df["Fecha salida"]  = pd.to_datetime(df["Fecha salida"])
+    if props:
+        df = df[df["Alojamiento"].astype(str).isin(props)]
+
+    s = pd.to_datetime(start)
+    e = pd.to_datetime(end) + pd.Timedelta(days=1)  # incluir noche del último día
+
+    # Noches prorrateadas por mes y ADR por noche
+    si = df["Fecha entrada"].dt.normalize().values.astype("datetime64[D]")
+    eo = df["Fecha salida"].dt.normalize().values.astype("datetime64[D]")
+    los_total = (df["Fecha salida"].dt.normalize() - df["Fecha entrada"].dt.normalize()).dt.days.clip(lower=1)
+    rate = (df["Alquiler con IVA (€)"] / los_total).astype(float).values
+
+    # Genera rango mensual
+    months = pd.period_range(s.to_period("M"), e.to_period("M"), freq="M")
+    rows = []
+    for m in months:
+        ms = pd.Timestamp(m.start_time).to_datetime64()
+        me = (pd.Timestamp(m.end_time) + pd.Timedelta(days=1)).to_datetime64()
+        seg_s = np.maximum(si, ms)
+        seg_e = np.minimum(eo, me)
+        nights = (seg_e - seg_s).astype("timedelta64[D]").astype(int)
+        mask = nights > 0
+        if not np.any(mask):
+            rows.append({"Mes": str(m), "Noches": 0, "Ingresos": 0.0, "ADR": 0.0, "RevPAR": 0.0})
+            continue
+        noches = nights[mask].sum()
+        ingresos = float(np.sum(rate[mask] * nights[mask]))
+        adr = ingresos / noches if noches > 0 else 0.0
+        rows.append({"Mes": str(m), "Noches": int(noches), "Ingresos": ingresos, "ADR": adr, "RevPAR": adr})  # sin inventario
+    res = pd.DataFrame(rows)
+
+    st.dataframe(res.round(2), use_container_width=True)
+
+    chart = alt.Chart(res).transform_fold(["Noches","Ingresos","ADR"], as_=["KPI","Valor"]).mark_line(point=True).encode(
+        x="Mes:N", y="Valor:Q", color="KPI:N"
+    ).properties(height=280, use_container_width=True)
+    st.altair_chart(chart, use_container_width=True)
+
+    st.download_button(
+        "📥 Descargar (CSV)",
+        data=res.to_csv(index=False).encode("utf-8-sig"),
+        file_name="kpis_por_meses.csv",
+        mime="text/csv",
     )
