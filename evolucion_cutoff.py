@@ -7,6 +7,32 @@ from utils import compute_kpis, period_inputs, group_selector, help_block, load_
 
 BRAND = "#2e485f"
 
+# Cache de KPIs por corte. Se invalida con la firma del dataset y el grupo.
+@st.cache_data(max_entries=4096, ttl=3600, show_spinner=False)
+def _kpi_cached(df_key, props_key, cutoff, start, end, inv, _version=1):
+    # Esta función se liga dinámicamente con el DF filtrado (closure). No se usa directamente.
+    raise RuntimeError("Bind con make_kpi_cache")
+
+def make_kpi_cache(df_local: pd.DataFrame):
+    # Devuelve una función cacheada que usa df_local pero cuya clave depende de df_key/props_key/params
+    @st.cache_data(max_entries=4096, ttl=3600, show_spinner=False)
+    def _inner(df_key, props_key, cutoff, start, end, inv, _version=1):
+        _, tot = compute_kpis(
+            df_all=df_local,
+            cutoff=cutoff,
+            period_start=start,
+            period_end=end,
+            inventory_override=int(inv) if inv and inv > 0 else None,
+            filter_props=None,  # ya filtrado
+        )
+        return {
+            "ocupacion_pct": float(tot["ocupacion_pct"]),
+            "adr": float(tot["adr"]),
+            "revpar": float(tot["revpar"]),
+            "ingresos": float(tot["ingresos"]),
+        }
+    return _inner
+
 def _ensure_parsed(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
@@ -103,53 +129,58 @@ def render_evolucion_corte(raw):
             st.error("El inicio del rango de corte no puede ser posterior al fin.")
             st.stop()
 
-        # ---------- Serie ACTUAL ----------
+        # 1) Filtra una vez por alojamientos para reducir el DF
+        if "Alojamiento" not in raw.columns:
+            st.error("El archivo no contiene la columna 'Alojamiento'.")
+            st.stop()
+        if props_e:
+            df_sel = raw[raw["Alojamiento"].astype(str).isin(props_e)].copy()
+        else:
+            df_sel = raw
+
+        # 2) Prepara cache (clave pequeña basada en archivo+grupo)
+        df_key = st.session_state.get("_last_file_sig") or (df_sel.shape[0], tuple(df_sel.columns))
+        props_key = tuple(props_e) if props_e else ("__ALL__",)
+        kpi_cached = make_kpi_cache(df_sel)
+
+        # 3) Serie ACTUAL (cacheada por día)
+        cuts = pd.date_range(cut_start_ts, cut_end_ts, freq="D")
         rows_now = []
-        for c in pd.date_range(cut_start_ts, cut_end_ts, freq="D"):
-            _, tot = compute_kpis(
-                df_all=raw,
-                cutoff=c,
-                period_start=pd.to_datetime(evo_target_start),
-                period_end=pd.to_datetime(evo_target_end),
-                inventory_override=int(inv_e) if inv_e > 0 else None,
-                filter_props=props_e if props_e else None,
-            )
-            rows_now.append({
-                "Corte": c.normalize(),
-                "ocupacion_pct": float(tot["ocupacion_pct"]),
-                "adr": float(tot["adr"]),
-                "revpar": float(tot["revpar"]),
-                "ingresos": float(tot["ingresos"]),
-            })
+        with st.spinner("Calculando KPIs…"):
+            for c in cuts:
+                k = kpi_cached(
+                    df_key, props_key,
+                    c.normalize(),
+                    pd.to_datetime(evo_target_start),
+                    pd.to_datetime(evo_target_end),
+                    inv_e or 0
+                )
+                k["Corte"] = c.normalize()
+                rows_now.append(k)
         df_now = pd.DataFrame(rows_now)
         if df_now.empty:
             st.info("No hay datos para el rango seleccionado.")
             st.stop()
 
-        # ---------- Serie LY (opcional) ----------
+        # 4) Serie LY (opcional) usando la MISMA cache
         df_prev = pd.DataFrame()
         if compare_e:
             rows_prev = []
-            cut_start_prev = cut_start_ts - pd.DateOffset(years=1)
-            cut_end_prev   = cut_end_ts   - pd.DateOffset(years=1)
-            target_start_prev = pd.to_datetime(evo_target_start) - pd.DateOffset(years=1)
-            target_end_prev   = pd.to_datetime(evo_target_end)   - pd.DateOffset(years=1)
-            for c in pd.date_range(cut_start_prev, cut_end_prev, freq="D"):
-                _, tot2 = compute_kpis(
-                    df_all=raw,
-                    cutoff=c,
-                    period_start=target_start_prev,
-                    period_end=target_end_prev,
-                    inventory_override=int(inv_e_prev) if inv_e_prev > 0 else None,
-                    filter_props=props_e if props_e else None,
-                )
-                rows_prev.append({
-                    "Corte": (pd.to_datetime(c).normalize() + pd.DateOffset(years=1)),  # alineado al año actual
-                    "ocupacion_pct": float(tot2["ocupacion_pct"]),
-                    "adr": float(tot2["adr"]),
-                    "revpar": float(tot2["revpar"]),
-                    "ingresos": float(tot2["ingresos"]),
-                })
+            cuts_prev = pd.date_range(cut_start_ts - pd.DateOffset(years=1),
+                                      cut_end_ts   - pd.DateOffset(years=1), freq="D")
+            with st.spinner("Calculando KPIs LY…"):
+                for c in cuts_prev:
+                    k2 = kpi_cached(
+                        df_key, props_key,
+                        c.normalize(),
+                        pd.to_datetime(evo_target_start) - pd.DateOffset(years=1),
+                        pd.to_datetime(evo_target_end)   - pd.DateOffset(years=1),
+                        inv_e_prev or 0
+                    )
+                    rows_prev.append({
+                        "Corte": (pd.to_datetime(c).normalize() + pd.DateOffset(years=1)),  # alineado al año actual
+                        **k2
+                    })
             df_prev = pd.DataFrame(rows_prev)
 
         # ---------- Preparación long-form para graficar ----------
