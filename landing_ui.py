@@ -135,12 +135,13 @@ def render_landing():
         unsafe_allow_html=True,
     )
     st.write("")
-    # Menú (añadimos Evolución por fecha de corte)
+    # Tarjetas del menú
     tiles = [
         ("Consulta normal", "consulta", "KPIs, ocupación, ADR e ingresos por periodo."),
         ("Cuadro de mando PRO", "pro", "Análisis avanzado, pace y narrativa ejecutiva."),
-        ("What‑if", "whatif", "Simula precio y pickup por grupos/propiedades."),
-        ("Evolución por fecha de corte", "evolucion", "Cómo evolucionan KPIs al mover la fecha de corte."),
+        ("What-if", "whatif", "Simula precio y pickup por grupos/propiedades."),
+        ("Evolución (cut-off)", "evolucion", "Comparativa por fecha de corte."),
+        ("Resumen comparativo", "resumen", "Comparativa por alojamiento: ADR, ocupación e ingresos."),  # ← nuevo
     ]
     cols = st.columns(len(tiles), gap="large")
     clicks = {}
@@ -154,7 +155,7 @@ def render_landing():
                 st.caption(desc)
                 clicks[key] = st.button("Entrar", key=f"btn_{key}", use_container_width=True)
 
-    # Navegación (cambia la vista y recarga)
+    # Navegación
     if clicks.get("consulta"):
         st.session_state.view = "consulta"; _rerun()
     elif clicks.get("pro"):
@@ -163,3 +164,5 @@ def render_landing():
         st.session_state.view = "whatif"; _rerun()
     elif clicks.get("evolucion"):
         st.session_state.view = "evolucion"; _rerun()
+    elif clicks.get("resumen"):                     # ← nuevo
+        st.session_state.view = "resumen"; _rerun()
