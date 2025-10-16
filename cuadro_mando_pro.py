@@ -75,38 +75,73 @@ def _load_saved_groups(props_all: list[str]) -> dict[str, list[str]]:
             groups[g] = sorted(dict.fromkeys(mapped))
     return groups
 
-def _compute_adr_bands(df: pd.DataFrame, period_start, period_end, cutoff) -> pd.DataFrame:
-    """Devuelve bandas ADR (P10, Mediana, P90) por mes del periodo, a un corte dado."""
+def _weighted_quantile(values: np.ndarray, weights: np.ndarray, qs=(0.1, 0.5, 0.9)) -> dict:
+    if values.size == 0 or np.nansum(weights) <= 0:
+        return {"P10": 0.0, "Mediana": 0.0, "P90": 0.0}
+    m = ~np.isnan(values)
+    v = values[m]
+    w = weights[m]
+    if v.size == 0 or np.nansum(w) <= 0:
+        return {"P10": 0.0, "Mediana": 0.0, "P90": 0.0}
+    order = np.argsort(v)
+    v = v[order]
+    w = w[order]
+    cw = np.cumsum(w)
+    cw = cw / cw[-1]
+    res = {}
+    for q, name in zip(qs, ["P10", "Mediana", "P90"]):
+        idx = np.searchsorted(cw, q, side="left")
+        idx = min(idx, v.size - 1)
+        res[name] = float(v[idx])
+    return res
+
+def _compute_adr_bands_period_prorate(df: pd.DataFrame, period_start, period_end, cutoff) -> pd.Series:
+    """
+    Bandas ADR (P10/Mediana/P90) para TODO el periodo usando noches prorrateadas:
+    - Solo reservas con Fecha alta <= cutoff.
+    - Se prorratea el ingreso por noche y se cuentan solo las noches que caen dentro del periodo.
+    """
+    if df is None or df.empty:
+        return pd.Series({"P10": 0.0, "Mediana": 0.0, "P90": 0.0})
+
     start_dt = pd.to_datetime(period_start)
     end_dt = pd.to_datetime(period_end)
     cut_dt = pd.to_datetime(cutoff)
+    end_inclusive = end_dt + pd.Timedelta(days=1)  # para incluir la noche del último día
 
-    dfb = (
+    cols_needed = {"Fecha alta", "Fecha entrada", "Fecha salida", "Alquiler con IVA (€)"}
+    if not cols_needed.issubset(set(df.columns)):
+        return pd.Series({"P10": 0.0, "Mediana": 0.0, "P90": 0.0})
+
+    dfx = (
         df[(df["Fecha alta"] <= cut_dt)]
         .dropna(subset=["Fecha entrada", "Fecha salida", "Alquiler con IVA (€)"])
         .copy()
     )
-    # Reservas que tocan el periodo
-    mask_b = ~((dfb["Fecha salida"] <= start_dt) | (dfb["Fecha entrada"] >= (end_dt + pd.Timedelta(days=1))))
-    dfb = dfb[mask_b]
-    if dfb.empty:
-        return pd.DataFrame(columns=["P10", "Mediana", "P90"])
+    if dfx.empty:
+        return pd.Series({"P10": 0.0, "Mediana": 0.0, "P90": 0.0})
 
-    dfb["los"] = (dfb["Fecha salida"].dt.normalize() - dfb["Fecha entrada"].dt.normalize()).dt.days.clip(lower=1)
-    dfb["adr_reserva"] = dfb["Alquiler con IVA (€)"] / dfb["los"]
-    dfb["Mes"] = dfb["Fecha entrada"].dt.to_period("M").astype(str)
+    # Normaliza a días completos
+    s_all = dfx["Fecha entrada"].dt.normalize()
+    e_all = dfx["Fecha salida"].dt.normalize()
 
-    def _pct_cols(x: pd.Series):
-        arr = x.dropna().values
-        if arr.size == 0:
-            return pd.Series({"P10": 0.0, "Mediana": 0.0, "P90": 0.0})
-        return pd.Series(
-            {"P10": float(np.percentile(arr, 10)), "Mediana": float(np.percentile(arr, 50)), "P90": float(np.percentile(arr, 90))}
-        )
+    los_total = (e_all - s_all).dt.days.clip(lower=1)
+    nightly_rate = (dfx["Alquiler con IVA (€)"] / los_total).astype(float)
 
-    bands = dfb.groupby("Mes")["adr_reserva"].apply(_pct_cols).reset_index()
-    bands_wide = bands.pivot(index="Mes", columns="level_1", values="adr_reserva").sort_index()
-    return bands_wide
+    # Tramo de noches dentro del periodo
+    seg_start = np.maximum(s_all.values.astype("datetime64[D]"), start_dt.normalize().to_datetime64())
+    seg_end = np.minimum(e_all.values.astype("datetime64[D]"), end_inclusive.normalize().to_datetime64())
+    nights_in = (seg_end - seg_start).astype("timedelta64[D]").astype(int)
+
+    mask = nights_in > 0
+    if not np.any(mask):
+        return pd.Series({"P10": 0.0, "Mediana": 0.0, "P90": 0.0})
+
+    values = nightly_rate.values[mask]
+    weights = nights_in[mask].astype(float)
+
+    q = _weighted_quantile(values, weights, qs=(0.1, 0.5, 0.9))
+    return pd.Series(q)
 
 def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
     # --- validación ---
@@ -236,57 +271,33 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
     a2.metric("ADR LY (€)", f"{tot_ly_cut['adr']:.2f}")
     a3.metric("ADR LY-2 (€)", f"{tot_ly2_cut['adr']:.2f}")
 
-    # Bandas ADR (Actual, LY y LY-2) — 3 columnas y filas por periodo/año
-    bands_now = _compute_adr_bands(df, pro_start, pro_end, pro_cut)
-    bands_ly = _compute_adr_bands(
+    # === Bandas ADR (NOCHES PRORRATEADAS) — 3 filas x 3 columnas ===
+    bands_act = _compute_adr_bands_period_prorate(df, pro_start, pro_end, pro_cut)
+    bands_ly1 = _compute_adr_bands_period_prorate(
         df,
         pd.to_datetime(pro_start) - pd.DateOffset(years=1),
         pd.to_datetime(pro_end) - pd.DateOffset(years=1),
         pd.to_datetime(pro_cut) - pd.DateOffset(years=1),
     )
-    bands_ly2 = _compute_adr_bands(
+    bands_ly2 = _compute_adr_bands_period_prorate(
         df,
         pd.to_datetime(pro_start) - pd.DateOffset(years=2),
         pd.to_datetime(pro_end) - pd.DateOffset(years=2),
         pd.to_datetime(pro_cut) - pd.DateOffset(years=2),
     )
 
-    def _tag(dfm: pd.DataFrame, label: str, order: int) -> pd.DataFrame:
-        if dfm is None or dfm.empty:
-            return pd.DataFrame(columns=["P10", "Mediana", "P90", "__order__", "__period__"])
-        t = dfm.copy()
-        # parsea índice 'YYYY-MM' a Period para ordenar
-        period = pd.PeriodIndex(t.index, freq="M")
-        t["__period__"] = period
-        t["__order__"] = order
-        # Índice visible: 'YYYY-MM (Act|LY|LY-2)'
-        t.index = [f"{p.strftime('%Y-%m')} ({label})" for p in period]
-        return t
+    adr_bandas_tbl = pd.DataFrame(
+        [bands_act.round(2), bands_ly1.round(2), bands_ly2.round(2)],
+        index=["Act", "LY-1", "LY-2"],
+    )[["P10", "Mediana", "P90"]]
 
-    tbl = pd.concat(
-        [
-            _tag(bands_now, "Act", 0),
-            _tag(bands_ly, "LY", 1),
-            _tag(bands_ly2, "LY-2", 2),
-        ],
-        axis=0,
-        sort=False,
+    st.dataframe(adr_bandas_tbl, use_container_width=True)
+    st.download_button(
+        "📥 Descargar bandas ADR (CSV)",
+        data=adr_bandas_tbl.reset_index(names=["Periodo"]).to_csv(index=False).encode("utf-8-sig"),
+        file_name="adr_bandas_prorrateadas_act_ly1_ly2.csv",
+        mime="text/csv",
     )
-
-    if not tbl.empty:
-        # Ordena Act -> LY -> LY-2 y por mes dentro de cada año
-        tbl = tbl.sort_values(["__order__", "__period__"])
-        # Deja solo tres columnas como pediste
-        tbl = tbl[["P10", "Mediana", "P90"]]
-        st.dataframe(tbl, use_container_width=True)
-        st.download_button(
-            "📥 Descargar bandas ADR (CSV)",
-            data=tbl.reset_index(names=["Periodo"]).to_csv(index=False).encode("utf-8-sig"),
-            file_name="adr_bandas_act_ly_ly2.csv",
-            mime="text/csv",
-        )
-    else:
-        st.info("Sin datos suficientes para bandas ADR en el periodo.")
 
     # ====== Ocupación ======
     st.subheader("🏨 Ocupación (periodo seleccionado)")
