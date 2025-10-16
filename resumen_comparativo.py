@@ -1,5 +1,7 @@
-import pandas as pd
 import streamlit as st
+import pandas as pd
+import numpy as np
+import calendar
 from datetime import date
 
 # --- Fallbacks si no existe utils.py ---
@@ -127,13 +129,18 @@ def render_resumen_comparativo(raw):
         st.warning("No hay datos cargados.")
         st.stop()
 
+    # Fechas por defecto (mes actual) sin usar pd.Timestamp
+    today = date.today()
+    default_start = today.replace(day=1)
+    last_day = calendar.monthrange(today.year, today.month)[1]
+    default_end = date(today.year, today.month, last_day)
+
     with st.sidebar:
         st.header("Parámetros – Resumen comparativo")
-        cutoff_rc = st.date_input("Fecha de corte", value=date.today(), key="cut_resumen_comp")
+        cutoff_rc = st.date_input("Fecha de corte", value=today, key="cut_resumen_comp")
         start_rc, end_rc = period_inputs(
             "Inicio del periodo", "Fin del periodo",
-            date(date.today().year, date.today().month, 1),
-            (pd.Timestamp.today().to_period("M").end_time).date(),
+            default_start, default_end,
             "resumen_comp"
         )
 
