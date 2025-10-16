@@ -167,5 +167,5 @@ def render_landing():
         st.session_state.view = "evolucion"; _rerun()
     elif clicks.get("resumen"):
         st.session_state.view = "resumen"; _rerun()
-    elif clicks.get("kpis_por_meses"):                                  # ← nuevo
+    elif clicks.get("kpis_por_meses"):  # ← nuevo
         st.session_state.view = "kpis_por_meses"; _rerun()
