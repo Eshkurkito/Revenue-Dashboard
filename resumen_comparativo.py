@@ -1,7 +1,58 @@
 import pandas as pd
 import streamlit as st
 from datetime import date
-from utils import period_inputs, group_selector, save_group_csv, load_groups, GROUPS_CSV
+
+# --- Fallbacks si no existe utils.py ---
+try:
+    from utils import period_inputs, group_selector, save_group_csv, load_groups, GROUPS_CSV
+except Exception:
+    from pathlib import Path
+
+    GROUPS_CSV = Path(__file__).resolve().parent / "grupos_guardados.csv"
+
+    def period_inputs(label_start, label_end, default_start, default_end, key_prefix="resumen_comp"):
+        c1, c2 = st.columns(2)
+        start = c1.date_input(label_start, value=default_start, key=f"{key_prefix}_start")
+        end   = c2.date_input(label_end,   value=default_end,   key=f"{key_prefix}_end")
+        return start, end
+
+    def group_selector(label, options, key_prefix="resumen_comp", default=None):
+        return st.multiselect(label, options=options, default=(default or []), key=f"{key_prefix}_props")
+
+    def _read_csv_any(path: Path):
+        for enc in ("utf-8", "utf-8-sig", "cp1252", "latin-1"):
+            try:
+                return pd.read_csv(path, encoding=enc)
+            except Exception:
+                pass
+        return None
+
+    def load_groups() -> dict[str, list[str]]:
+        if not GROUPS_CSV.exists():
+            return {}
+        df = _read_csv_any(GROUPS_CSV)
+        if df is None or df.empty:
+            return {}
+        cols = {c.lower(): c for c in df.columns}
+        if not {"grupo", "alojamiento"}.issubset(set(cols.keys())):
+            return {}
+        gcol, pcol = cols["grupo"], cols["alojamiento"]
+        d = (
+            df.dropna(subset=[gcol, pcol])
+              .astype({gcol: str, pcol: str})
+              .groupby(gcol)[pcol].apply(list).to_dict()
+        )
+        # quita duplicados manteniendo orden
+        return {g: list(dict.fromkeys(v)) for g, v in d.items()}
+
+    def save_group_csv(name: str, props: list[str]):
+        rows = [{"Grupo": name, "Alojamiento": p} for p in props]
+        if GROUPS_CSV.exists():
+            old = _read_csv_any(GROUPS_CSV)
+            dfw = pd.concat([old, pd.DataFrame(rows)], ignore_index=True) if old is not None else pd.DataFrame(rows)
+        else:
+            dfw = pd.DataFrame(rows)
+        dfw.to_csv(GROUPS_CSV, index=False, encoding="utf-8-sig")
 
 def compute_kpis(
     df_all: pd.DataFrame,
@@ -86,7 +137,6 @@ def render_resumen_comparativo(raw):
             "resumen_comp"
         )
 
-        # --- Sistema de grupos ---
         st.header("Gestión de grupos")
         groups = load_groups()
         group_names = ["Ninguno"] + sorted(list(groups.keys()))
@@ -95,14 +145,16 @@ def render_resumen_comparativo(raw):
         if selected_group and selected_group != "Ninguno":
             props_rc = groups[selected_group]
             if st.button(f"Eliminar grupo '{selected_group}'"):
+                import pandas as pd
                 df = pd.read_csv(GROUPS_CSV)
                 df = df[df["Grupo"] != selected_group]
                 df.to_csv(GROUPS_CSV, index=False)
                 st.success(f"Grupo '{selected_group}' eliminado.")
-                st.experimental_rerun()
+                try: st.rerun()
+                except Exception: pass
         else:
             if "Alojamiento" not in raw.columns:
-                st.warning("No se encontró la columna 'Alojamiento'. Sube un archivo válido o revisa el nombre de la columna.")
+                st.warning("No se encontró la columna 'Alojamiento'.")
                 st.stop()
             props_rc = group_selector(
                 "Filtrar alojamientos (opcional)",
