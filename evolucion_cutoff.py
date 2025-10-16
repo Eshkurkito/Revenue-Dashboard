@@ -146,17 +146,20 @@ def render_evolucion_corte(raw):
         # 3) Serie ACTUAL (cacheada por día)
         cuts = pd.date_range(cut_start_ts, cut_end_ts, freq="D")
         rows_now = []
-        with st.spinner("Calculando KPIs…"):
-            for c in cuts:
-                k = kpi_cached(
-                    df_key, props_key,
-                    c.normalize(),
-                    pd.to_datetime(evo_target_start),
-                    pd.to_datetime(evo_target_end),
-                    inv_e or 0
-                )
-                k["Corte"] = c.normalize()
-                rows_now.append(k)
+        prog_now = st.progress(0, text="Calculando KPIs… 0/0")
+        total_now = len(cuts) or 1
+        for i, c in enumerate(cuts, start=1):
+            k = kpi_cached(
+                df_key, props_key,
+                c.normalize(),
+                pd.to_datetime(evo_target_start),
+                pd.to_datetime(evo_target_end),
+                inv_e or 0
+            )
+            k["Corte"] = c.normalize()
+            rows_now.append(k)
+            prog_now.progress(i/total_now, text=f"Calculando KPIs… {i}/{total_now}")
+        prog_now.empty()
         df_now = pd.DataFrame(rows_now)
         if df_now.empty:
             st.info("No hay datos para el rango seleccionado.")
@@ -168,19 +171,22 @@ def render_evolucion_corte(raw):
             rows_prev = []
             cuts_prev = pd.date_range(cut_start_ts - pd.DateOffset(years=1),
                                       cut_end_ts   - pd.DateOffset(years=1), freq="D")
-            with st.spinner("Calculando KPIs LY…"):
-                for c in cuts_prev:
-                    k2 = kpi_cached(
-                        df_key, props_key,
-                        c.normalize(),
-                        pd.to_datetime(evo_target_start) - pd.DateOffset(years=1),
-                        pd.to_datetime(evo_target_end)   - pd.DateOffset(years=1),
-                        inv_e_prev or 0
-                    )
-                    rows_prev.append({
-                        "Corte": (pd.to_datetime(c).normalize() + pd.DateOffset(years=1)),  # alineado al año actual
-                        **k2
-                    })
+            prog_prev = st.progress(0, text="Calculando KPIs LY… 0/0")
+            total_prev = len(cuts_prev) or 1
+            for i, c in enumerate(cuts_prev, start=1):
+                k2 = kpi_cached(
+                    df_key, props_key,
+                    c.normalize(),
+                    pd.to_datetime(evo_target_start) - pd.DateOffset(years=1),
+                    pd.to_datetime(evo_target_end)   - pd.DateOffset(years=1),
+                    inv_e_prev or 0
+                )
+                rows_prev.append({
+                    "Corte": (pd.to_datetime(c).normalize() + pd.DateOffset(years=1)),  # alineado al año actual
+                    **k2
+                })
+                prog_prev.progress(i/total_prev, text=f"Calculando KPIs LY… {i}/{total_prev}")
+            prog_prev.empty()
             df_prev = pd.DataFrame(rows_prev)
 
         # ---------- Preparación long-form para graficar ----------
