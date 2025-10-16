@@ -236,7 +236,7 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
     a2.metric("ADR LY (€)", f"{tot_ly_cut['adr']:.2f}")
     a3.metric("ADR LY-2 (€)", f"{tot_ly2_cut['adr']:.2f}")
 
-    # Bandas ADR (Actual, LY y LY-2)
+    # Bandas ADR (Actual, LY y LY-2) — alineadas por mes del periodo actual
     bands_now = _compute_adr_bands(df, pro_start, pro_end, pro_cut)
     bands_ly = _compute_adr_bands(
         df,
@@ -251,20 +251,43 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
         pd.to_datetime(pro_cut) - pd.DateOffset(years=2),
     )
 
-    if all(x is not None and not x.empty for x in [bands_now, bands_ly, bands_ly2]):
-        tbl = (
-            pd.DataFrame(index=sorted(set(bands_now.index) | set(bands_ly.index) | set(bands_ly2.index)))
-            .join(bands_now.add_suffix(" (Act)"))
-            .join(bands_ly.add_suffix(" (LY)"))
-            .join(bands_ly2.add_suffix(" (LY-2)"))
-            .fillna(0.0)
-            .sort_index()
-        )
-        order = []
-        for suf in [" (Act)", " (LY)", " (LY-2)"]:
-            order += [f"P10{suf}", f"Mediana{suf}", f"P90{suf}"]
-        cols = [c for c in order if c in tbl.columns]
-        tbl = tbl[cols]
+    def _as_period(dfm: pd.DataFrame) -> pd.DataFrame:
+        if dfm is None or dfm.empty:
+            return pd.DataFrame(columns=["P10","Mediana","P90"])
+        out = dfm.copy()
+        out.index = pd.PeriodIndex(out.index, freq="M")
+        return out
+
+    bands_now = _as_period(bands_now)
+    bands_ly = _as_period(bands_ly)
+    bands_ly2 = _as_period(bands_ly2)
+
+    # Índice (meses) del periodo actual
+    start_m = pd.to_datetime(pro_start).to_period("M")
+    end_m = pd.to_datetime(pro_end).to_period("M")
+    act_idx = pd.period_range(start=start_m, end=end_m, freq="M")
+
+    # Alinear filas: LY +12 meses, LY-2 +24 meses para coincidir con Act
+    if not bands_ly.empty:
+        bands_ly.index = bands_ly.index + 12
+    if not bands_ly2.empty:
+        bands_ly2.index = bands_ly2.index + 24
+
+    bands_now = bands_now.reindex(act_idx)
+    bands_ly = bands_ly.reindex(act_idx)
+    bands_ly2 = bands_ly2.reindex(act_idx)
+
+    if not bands_now.empty:
+        # Combinar y aplanar encabezados como "P10 (Act)", "P10 (LY)", "P10 (LY-2)"
+        tbl_multi = pd.concat({"Act": bands_now, "LY": bands_ly, "LY-2": bands_ly2}, axis=1)
+        # Orden de subcolumnas
+        order = ["P10", "Mediana", "P90"]
+        tbl_multi = tbl_multi.reindex(columns=pd.MultiIndex.from_product([["Act","LY","LY-2"], order]))
+        # Aplanar
+        tbl = tbl_multi.copy()
+        tbl.columns = [f"{sub} ({top})" for top, sub in tbl.columns]
+        tbl.index = tbl.index.astype(str)
+
         st.dataframe(tbl, use_container_width=True)
         st.download_button(
             "📥 Descargar bandas ADR (CSV)",
