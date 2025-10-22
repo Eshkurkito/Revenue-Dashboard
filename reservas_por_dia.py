@@ -150,6 +150,94 @@ def render_reservas_por_dia(raw: pd.DataFrame | None = None):
     )
     st.altair_chart(chart, use_container_width=True)
 
+    # ===================== NUEVO: Patrones históricos =====================
+    st.subheader("🔍 Patrones históricos (mismo periodo en todos los años)")
+
+    def _doy_range(s_d: int, e_d: int) -> list[int]:
+        # Excluye 366 (evita problemas de años no bisiestos)
+        if s_d <= e_d:
+            doys = list(range(s_d, e_d + 1))
+        else:
+            doys = list(range(s_d, 366)) + list(range(1, e_d + 1))
+        return [d for d in doys if d <= 365]
+
+    # Dataset completo de fechas de alta (no solo el rango actual)
+    df_all = pd.DataFrame({"Fecha": fa.dropna().dt.normalize()})
+    if df_all.empty:
+        st.info("Sin fechas de alta para analizar patrones.")
+        return
+    df_all["Año"] = df_all["Fecha"].dt.year
+    df_all["DOY"] = df_all["Fecha"].dt.dayofyear.clip(upper=365)  # 366 -> 365
+    years = sorted(df_all["Año"].unique().tolist())
+
+    s_doy = pd.to_datetime(start).dayofyear
+    e_doy = pd.to_datetime(end).dayofyear
+    window_doys = _doy_range(s_doy, e_doy)
+
+    df_win = df_all[df_all["DOY"].isin(window_doys)].copy()
+    if df_win.empty:
+        st.info("No hay reservas históricas en este periodo para detectar patrones.")
+    else:
+        # Matriz Año x DOY con conteos diarios
+        mat = (
+            df_win.groupby(["Año", "DOY"])
+            .size()
+            .unstack(fill_value=0)
+            .reindex(index=years, columns=window_doys, fill_value=0)
+        )
+
+        avg = mat.mean(axis=0)  # media por DOY
+        std = mat.std(axis=0)
+        n_years = float(len(years))
+        avg_df = (
+            pd.DataFrame({"DOY": avg.index.astype(int), "Media": avg.values, "Std": std.values})
+            .sort_values("DOY")
+            .reset_index(drop=True)
+        )
+        # Fecha "de ejemplo" en el año actual para el eje X
+        base_year = date.today().year
+        avg_df["FechaPlot"] = pd.to_datetime(base_year * 1000 + avg_df["DOY"], format="%Y%j")
+        # Suavizado 7D
+        avg_df["Media7D"] = avg_df["Media"].rolling(7, center=True, min_periods=1).mean()
+
+        # Gráfico perfil medio
+        c1 = alt.Chart(avg_df).mark_line(color="#2e485f").encode(
+            x=alt.X("FechaPlot:T", title="Fecha (alineada al año actual)"),
+            y=alt.Y("Media:Q", title="Reservas medias por día"),
+            tooltip=[alt.Tooltip("FechaPlot:T", title="Fecha"),
+                     alt.Tooltip("Media:Q", format=".2f"),
+                     alt.Tooltip("Std:Q", format=".2f", title="Desv. típica"),
+                     alt.Tooltip(value=f"{int(n_years)}", title="Años considerados")],
+        )
+        c2 = alt.Chart(avg_df).mark_line(color="#7aa6d9").encode(
+            x="FechaPlot:T", y=alt.Y("Media7D:Q", title=""),
+        )
+        st.altair_chart((c1 + c2).properties(height=280), use_container_width=True)
+
+        # Top 10 fechas con mayor media de reservas
+        top = avg_df.nlargest(10, "Media").copy()
+        top["Fecha"] = top["FechaPlot"].dt.strftime("%d-%b")
+        top_tbl = top[["Fecha", "Media", "Std"]].rename(columns={"Media": "Media reservas", "Std": "Desv. típica"})
+        st.write("Top 10 fechas recurrentes con más reservas (media histórica en el periodo):")
+        st.dataframe(top_tbl.round(2), use_container_width=True)
+
+        # Totales por año en el mismo periodo
+        tot_year = (
+            df_win.groupby("Año")
+            .size()
+            .reindex(years, fill_value=0)
+            .rename("Reservas")
+            .reset_index()
+        )
+        bar = alt.Chart(tot_year).mark_bar(color="#2e485f").encode(
+            x=alt.X("Año:O", title="Año"),
+            y=alt.Y("Reservas:Q", title="Total reservas (periodo)"),
+            tooltip=["Año:O", "Reservas:Q"],
+        ).properties(height=220)
+        st.altair_chart(bar, use_container_width=True)
+
+    # ===================== FIN Patrones históricos =====================
+
     # Descarga
     export = plot_df[["Serie", "Fecha", "Reservas"]].copy()
     export["Fecha"] = pd.to_datetime(export["Fecha"]).dt.date
