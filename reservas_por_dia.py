@@ -201,6 +201,10 @@ def render_reservas_por_dia(raw: pd.DataFrame | None = None):
         avg_df["Media7D"] = avg_df["Media"].rolling(7, center=True, min_periods=1).mean()
         # NUEVO: constante para tooltip
         avg_df["Anios"] = int(n_years)
+        # NUEVO: día de la semana (ES)
+        dias_es = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"]
+        avg_df["wd"] = avg_df["FechaPlot"].dt.dayofweek
+        avg_df["DiaSemana"] = avg_df["wd"].map({i:n for i,n in enumerate(dias_es)})
 
         # Gráfico perfil medio
         c1 = alt.Chart(avg_df).mark_line(color="#2e485f").encode(
@@ -208,9 +212,10 @@ def render_reservas_por_dia(raw: pd.DataFrame | None = None):
             y=alt.Y("Media:Q", title="Reservas medias por día"),
             tooltip=[
                 alt.Tooltip("FechaPlot:T", title="Fecha"),
+                alt.Tooltip("DiaSemana:N", title="Día semana"),  # ← añadido
                 alt.Tooltip("Media:Q", format=".2f"),
                 alt.Tooltip("Std:Q", format=".2f", title="Desv. típica"),
-                alt.Tooltip("Anios:Q", title="Años considerados"),  # ← reemplaza value=
+                alt.Tooltip("Anios:Q", title="Años considerados"),
             ],
         )
         c2 = alt.Chart(avg_df).mark_line(color="#7aa6d9").encode(
@@ -221,9 +226,25 @@ def render_reservas_por_dia(raw: pd.DataFrame | None = None):
         # Top 10 fechas con mayor media de reservas
         top = avg_df.nlargest(10, "Media").copy()
         top["Fecha"] = top["FechaPlot"].dt.strftime("%d-%b")
-        top_tbl = top[["Fecha", "Media", "Std"]].rename(columns={"Media": "Media reservas", "Std": "Desv. típica"})
+        top_tbl = top[["Fecha", "DiaSemana", "Media", "Std"]].rename(
+            columns={"DiaSemana":"Día sem.", "Media": "Media reservas", "Std": "Desv. típica"}
+        )
         st.write("Top 10 fechas recurrentes con más reservas (media histórica en el periodo):")
         st.dataframe(top_tbl.round(2), use_container_width=True)
+
+        # NUEVO: Media por día de la semana en el periodo
+        dow_df = (
+            avg_df.groupby(["wd","DiaSemana"], sort=False)["Media"]
+                  .mean()
+                  .reset_index()
+                  .sort_values("wd")
+        )
+        bar_dow = alt.Chart(dow_df).mark_bar(color="#2e485f").encode(
+            x=alt.X("DiaSemana:N", sort=dias_es, title="Día semana"),
+            y=alt.Y("Media:Q", title="Reservas medias"),
+            tooltip=[alt.Tooltip("DiaSemana:N", title="Día"), alt.Tooltip("Media:Q", format=".2f")],
+        ).properties(height=220)
+        st.altair_chart(bar_dow, use_container_width=True)
 
         # Totales por año en el mismo periodo
         tot_year = (
