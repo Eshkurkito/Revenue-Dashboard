@@ -38,7 +38,7 @@ def _ensure_fecha_alta(df: pd.DataFrame) -> pd.Series:
     return pd.to_datetime(s1.dt.normalize())
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def _daily_bookings_from_series(fechas: pd.Series, start: date, end: date) -> pd.DataFrame:
+def _daily_bookings_from_series(fechas: pd.Series, start: date, end: date, _v: int = 2) -> pd.DataFrame:
     """Cuenta reservas por día (Fecha alta ya parseada) en [start, end]."""
     if fechas is None or fechas.empty:
         return pd.DataFrame(columns=["Fecha", "Reservas"])
@@ -49,8 +49,13 @@ def _daily_bookings_from_series(fechas: pd.Series, start: date, end: date) -> pd
     if ser.empty:
         return pd.DataFrame({"Fecha": rng, "Reservas": np.zeros(len(rng), dtype=int)})
     counts = ser.value_counts().rename_axis("Fecha").sort_index()
-    counts = counts.reindex(rng, fill_value=0).rename("Reservas").reset_index()
-    return counts
+    counts = counts.reindex(rng, fill_value=0).rename("Reservas")
+    # Asegura nombres de columnas correctos en todas las versiones de pandas
+    try:
+        dfc = counts.reset_index(names=["Fecha"])
+    except TypeError:
+        dfc = counts.reset_index().rename(columns={"index": "Fecha"})
+    return dfc
 
 def _align_for_plot(df: pd.DataFrame, shift_years: int, label: str) -> pd.DataFrame:
     out = df.copy()
