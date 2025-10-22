@@ -37,6 +37,25 @@ def _ensure_fecha_alta(df: pd.DataFrame) -> pd.Series:
     # Normaliza a medianoche
     return pd.to_datetime(s1.dt.normalize())
 
+def _ensure_fecha_entrada(df: pd.DataFrame) -> pd.Series:
+    """
+    Devuelve una Serie datetime con la columna 'Fecha entrada', alineada al índice del DF.
+    Soporta duplicados de nombre y serial de Excel.
+    """
+    if df is None or df.empty:
+        return pd.Series(dtype="datetime64[ns]")
+    mask = (df.columns.astype(str) == "Fecha entrada")
+    if mask.sum() == 0:
+        raise KeyError("El archivo no contiene la columna 'Fecha entrada'.")
+    serie = df.loc[:, mask].iloc[:, 0] if mask.sum() > 1 else df["Fecha entrada"]
+    s1 = pd.to_datetime(serie, errors="coerce", dayfirst=True, infer_datetime_format=True)
+    if s1.isna().mean() > 0.8:
+        s_num = pd.to_numeric(serie, errors="coerce")
+        s2 = pd.to_datetime(s_num, unit="d", origin="1899-12-30", errors="coerce")
+        if s2.notna().sum() > s1.notna().sum():
+            s1 = s2
+    return pd.to_datetime(s1.dt.normalize())
+
 @st.cache_data(ttl=1800, show_spinner=False)
 def _daily_bookings_from_series(fechas: pd.Series, start: date, end: date, _v: int = 2) -> pd.DataFrame:
     """Cuenta reservas por día (Fecha alta ya parseada) en [start, end]."""
@@ -91,6 +110,16 @@ def render_reservas_por_dia(raw: pd.DataFrame | None = None):
         default_start = default_end - timedelta(days=60)
         start = st.date_input("Inicio (Fecha alta)", value=default_start, key="rpd_start")
         end = st.date_input("Fin (Fecha alta)", value=default_end, key="rpd_end")
+
+        # === NUEVO: Filtro por periodo de estancia (Fecha entrada) ===
+        use_stay = st.checkbox("Filtrar por periodo de estancia (Fecha entrada)", value=False, key="rpd_use_stay")
+        if use_stay:
+            # por defecto: mes actual
+            stay_start = st.date_input("Estancia desde (Fecha entrada)", value=today.replace(day=1), key="rpd_stay_start")
+            stay_end   = st.date_input("Estancia hasta (Fecha entrada)", value=default_end, key="rpd_stay_end")
+        else:
+            stay_start, stay_end = None, None
+
         compare_ly1 = st.checkbox("Comparar con LY-1", value=True, key="rpd_cmp_ly1")
         compare_ly2 = st.checkbox("Comparar con LY-2", value=True, key="rpd_cmp_ly2")
         run = st.button("Generar", type="primary", use_container_width=True, key="rpd_run")
@@ -98,17 +127,40 @@ def render_reservas_por_dia(raw: pd.DataFrame | None = None):
     if start > end:
         st.error("La fecha de inicio no puede ser posterior a la fecha de fin.")
         return
+    if use_stay and (pd.to_datetime(stay_start) > pd.to_datetime(stay_end)):
+        st.error("La fecha de estancia 'desde' no puede ser posterior a 'hasta'.")
+        return
 
     if not run:
         st.info("Elige fechas y pulsa Generar.")
         return
 
-    # Series
-    act = _daily_bookings_from_series(fa, start, end)
-    ly1 = _daily_bookings_from_series(fa, pd.to_datetime(start) - pd.DateOffset(years=1),
-                                         pd.to_datetime(end) - pd.DateOffset(years=1)) if compare_ly1 else pd.DataFrame()
-    ly2 = _daily_bookings_from_series(fa, pd.to_datetime(start) - pd.DateOffset(years=2),
-                                         pd.to_datetime(end) - pd.DateOffset(years=2)) if compare_ly2 else pd.DataFrame()
+    # === Series filtradas por periodo de estancia (si aplica) ===
+    if use_stay:
+        try:
+            fe_all = _ensure_fecha_entrada(raw)
+        except KeyError as e:
+            st.error(str(e))
+            return
+        s0 = pd.to_datetime(stay_start).normalize()
+        e0 = pd.to_datetime(stay_end).normalize()
+        # Act: estancias en [s0,e0]
+        m_act = fe_all.notna() & (fe_all >= s0) & (fe_all <= e0)
+        # LY-1 / LY-2: mismo periodo desplazado un año
+        m_ly1 = fe_all.notna() & (fe_all >= (s0 - pd.DateOffset(years=1))) & (fe_all <= (e0 - pd.DateOffset(years=1)))
+        m_ly2 = fe_all.notna() & (fe_all >= (s0 - pd.DateOffset(years=2))) & (fe_all <= (e0 - pd.DateOffset(years=2)))
+        fa_act = fa[m_act].dropna()
+        fa_ly1 = fa[m_ly1].dropna()
+        fa_ly2 = fa[m_ly2].dropna()
+    else:
+        fa_act, fa_ly1, fa_ly2 = fa, fa, fa
+
+    # Series (Fecha alta en el rango [start,end] con el posible filtro de estancia)
+    act = _daily_bookings_from_series(fa_act, start, end)
+    ly1 = _daily_bookings_from_series(fa_ly1, pd.to_datetime(start) - pd.DateOffset(years=1),
+                                     pd.to_datetime(end)   - pd.DateOffset(years=1)) if compare_ly1 else pd.DataFrame()
+    ly2 = _daily_bookings_from_series(fa_ly2, pd.to_datetime(start) - pd.DateOffset(years=2),
+                                     pd.to_datetime(end)   - pd.DateOffset(years=2)) if compare_ly2 else pd.DataFrame()
 
     if act.empty and (ly1.empty and ly2.empty):
         st.info("No hay reservas en el rango seleccionado.")
@@ -153,14 +205,6 @@ def render_reservas_por_dia(raw: pd.DataFrame | None = None):
     # ===================== NUEVO: Patrones históricos =====================
     st.subheader("🔍 Patrones históricos (mismo periodo en todos los años)")
 
-    def _doy_range(s_d: int, e_d: int) -> list[int]:
-        # Excluye 366 (evita problemas de años no bisiestos)
-        if s_d <= e_d:
-            doys = list(range(s_d, e_d + 1))
-        else:
-            doys = list(range(s_d, 366)) + list(range(1, e_d + 1))
-        return [d for d in doys if d <= 365]
-
     # Dataset completo de fechas de alta (no solo el rango actual)
     df_all = pd.DataFrame({"Fecha": fa.dropna().dt.normalize()})
     if df_all.empty:
@@ -170,8 +214,15 @@ def render_reservas_por_dia(raw: pd.DataFrame | None = None):
     df_all["DOY"] = df_all["Fecha"].dt.dayofyear.clip(upper=365)  # 366 -> 365
     years = sorted(df_all["Año"].unique().tolist())
 
+    # Ventana de análisis por Fecha alta (lo que eliges arriba en start/end), expresada como DOY
     s_doy = pd.to_datetime(start).dayofyear
     e_doy = pd.to_datetime(end).dayofyear
+    def _doy_range(s_d: int, e_d: int) -> list[int]:
+        if s_d <= e_d:
+            doys = list(range(s_d, e_d + 1))
+        else:
+            doys = list(range(s_d, 366)) + list(range(1, e_d + 1))
+        return [d for d in doys if d <= 365]
     window_doys = _doy_range(s_doy, e_doy)
 
     df_win = df_all[df_all["DOY"].isin(window_doys)].copy()
