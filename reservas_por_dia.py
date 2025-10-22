@@ -44,6 +44,31 @@ def _align_for_plot(df: pd.DataFrame, shift_years: int, label: str) -> pd.DataFr
         out["FechaPlot"] = pd.to_datetime(out["Fecha"])
     return out
 
+def _select_or_create_fecha_alta(df: pd.DataFrame) -> pd.DataFrame:
+    """Garantiza una única columna 'Fecha alta' válida (maneja duplicadas y parsea)."""
+    df = df.copy()
+    patt = re.compile(r"(fecha\s*alta|created|creado|creation|reserva|booking)", re.I)
+    cand = [c for c in df.columns if patt.search(str(c))]
+
+    # Si hay varias/ninguna, pedir selección
+    if len(cand) != 1:
+        sel = st.selectbox("Selecciona la columna de 'Fecha alta'", cand or list(df.columns), key="rpd_col_fecha_alta")
+        if not sel:
+            raise ValueError("No se ha seleccionado columna de 'Fecha alta'.")
+        fecha_col = sel
+    else:
+        fecha_col = cand[0]
+
+    # Construye una única columna 'Fecha alta' sin duplicados
+    serie = df[fecha_col]
+    while "Fecha alta" in df.columns:
+        df.drop(columns=["Fecha alta"], inplace=True)  # elimina duplicadas previas
+    df["Fecha alta"] = serie
+
+    # Parseo robusto (formatos europeos)
+    df["Fecha alta"] = pd.to_datetime(df["Fecha alta"], errors="coerce", dayfirst=True, infer_datetime_format=True)
+    return df
+
 def render_reservas_por_dia(raw: pd.DataFrame | None = None):
     st.header("Reservas recibidas por día (Fecha alta)")
     if not isinstance(raw, pd.DataFrame) or raw.empty:
@@ -52,22 +77,12 @@ def render_reservas_por_dia(raw: pd.DataFrame | None = None):
 
     df = _standardize_columns(raw.copy())
 
-    # --- Selección/normalización de 'Fecha alta' ---
-    if "Fecha alta" not in df.columns:
-        # sugerir columnas candidatas
-        cols = list(df.columns)
-        cand = [c for c in cols if re.search(r"(fecha|alta|crea|book|reserva|created)", str(c).lower())]
-        sel = st.selectbox("Selecciona la columna de 'Fecha alta'", cand, key="rpd_col_fecha_alta")
-        if not sel:
-            st.warning("Selecciona la columna que contiene la Fecha alta de la reserva.")
-            return
-        df = df.rename(columns={sel: "Fecha alta"})
-
-    # Asegura tipo datetime
+    # --- NUEVO: asegura 'Fecha alta' única y parseada ---
     try:
-        df["Fecha alta"] = pd.to_datetime(df["Fecha alta"], errors="coerce")
+        df = _select_or_create_fecha_alta(df)
     except Exception:
-        df["Fecha alta"] = pd.to_datetime(df["Fecha alta"].astype(str), errors="coerce")
+        st.warning("Selecciona la columna de 'Fecha alta' para continuar.")
+        return
 
     if df["Fecha alta"].isna().all():
         st.warning("No se pudieron interpretar las fechas de ‘Fecha alta’.")
