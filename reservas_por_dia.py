@@ -6,6 +6,10 @@ import re
 import string
 from datetime import date, timedelta
 
+# Helper: intenta recuperar el DF desde session_state si no viene por parámetro
+def _get_raw_session():
+    return st.session_state.get("df_active") or st.session_state.get("raw")
+
 def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
     norm = {c: str(c).strip().lower() for c in df.columns}
     def find(*keys):
@@ -94,10 +98,11 @@ def _select_or_create_fecha_alta(df: pd.DataFrame) -> pd.DataFrame:
 
 def render_reservas_por_dia(raw: pd.DataFrame | None = None):
     st.header("Reservas recibidas por día (Fecha alta)")
+    if raw is None:
+        raw = _get_raw_session()
     if not isinstance(raw, pd.DataFrame) or raw.empty:
-        st.info("No hay datos cargados. Sube un archivo en la barra lateral.")
+        st.info("No hay datos cargados. Sube un archivo en la barra lateral y pulsa Generar.")
         return
-
     df = _standardize_columns(raw.copy())
 
     # --- NUEVO: asegura 'Fecha alta' única y parseada ---

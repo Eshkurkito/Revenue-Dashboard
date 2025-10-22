@@ -6,6 +6,7 @@ from landing_ui import render_landing, get_logo_path
 
 # --- helpers ---
 def _get_raw():
+    # intenta devolver el DF cargado en la sesión
     return st.session_state.get("df_active") or st.session_state.get("raw")
 
 def _user_id() -> str | None:
@@ -75,18 +76,14 @@ def clear_data(reset_view: bool = True):
 
 def _safe_call(view_fn):
     raw = _get_raw()
-    # Si no hay archivo, mensaje claro y no llamamos al módulo
     if raw is None or (hasattr(raw, "empty") and getattr(raw, "empty", False)):
-        st.info("Sube un archivo en la barra lateral para continuar.")
+        st.info("Sube un archivo en la barra lateral y luego pulsa el botón Generar en el módulo.")
         return
     try:
-        # Llama pasando el DF
-        return view_fn(raw)
+        return view_fn(raw)            # ← pasa el DF al módulo
     except TypeError:
-        # Si el módulo no acepta argumento, inténtalo sin él
         return view_fn()
     except Exception as e:
-        # No ocultes el error: muéstralo y permite depurar
         st.error("Ocurrió un error en este módulo.")
         with st.expander("Detalles del error"):
             st.exception(e)
@@ -177,6 +174,6 @@ elif st.session_state.view == "resumen":
 elif st.session_state.view == "kpis_por_meses":
     from kpis_por_meses import render_kpis_por_meses
     _safe_call(render_kpis_por_meses)
-elif st.session_state.view == "reservas_por_dia":  # ← nuevo
+elif st.session_state.view == "reservas_por_dia":
     from reservas_por_dia import render_reservas_por_dia
     _safe_call(render_reservas_por_dia)
