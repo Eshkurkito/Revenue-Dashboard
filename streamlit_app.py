@@ -144,7 +144,7 @@ with st.sidebar:
             clear_data()
 
 # --- Router ---
-VALID_VIEWS = {"landing", "consulta", "pro", "whatif", "evolucion", "resumen", "kpis_por_meses"}
+VALID_VIEWS = {"landing", "consulta", "pro", "whatif", "evolucion", "resumen", "kpis_por_meses", "reservas_por_dia"}
 if st.session_state.get("view") not in VALID_VIEWS:
     st.session_state.view = "landing"
 
@@ -168,3 +168,6 @@ elif st.session_state.view == "resumen":
 elif st.session_state.view == "kpis_por_meses":
     from kpis_por_meses import render_kpis_por_meses
     _safe_call(render_kpis_por_meses)
+elif st.session_state.view == "reservas_por_dia":  # ← nuevo
+    from reservas_por_dia import render_reservas_por_dia
+    _safe_call(render_reservas_por_dia)

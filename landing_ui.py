@@ -142,7 +142,8 @@ def render_landing():
         ("What-if", "whatif", "Simula precio y pickup por grupos/propiedades."),
         ("Evolución (cut-off)", "evolucion", "Comparativa por fecha de corte."),
         ("Resumen comparativo", "resumen", "Comparativa por alojamiento: ADR, ocupación e ingresos."),
-        ("KPIs por meses", "kpis_por_meses", "Resumen mensual: Noches, ADR, RevPAR e Ingresos."),  # ← nuevo
+        ("KPIs por meses", "kpis_por_meses", "Resumen mensual: Noches, ADR, RevPAR e Ingresos."),
+        ("Reservas por día", "reservas_por_dia", "Reservas recibidas por fecha de alta con comparación LY y LY-2."),  # ← nuevo
     ]
     cols = st.columns(len(tiles), gap="large")
     clicks = {}
@@ -167,5 +168,7 @@ def render_landing():
         st.session_state.view = "evolucion"; _rerun()
     elif clicks.get("resumen"):
         st.session_state.view = "resumen"; _rerun()
-    elif clicks.get("kpis_por_meses"):  # ← nuevo
+    elif clicks.get("kpis_por_meses"):
         st.session_state.view = "kpis_por_meses"; _rerun()
+    elif clicks.get("reservas_por_dia"):  # ← nuevo
+        st.session_state.view = "reservas_por_dia"; _rerun()
