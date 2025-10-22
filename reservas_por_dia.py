@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 import altair as alt
+import re
 from datetime import date, timedelta
 
 def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -50,8 +51,26 @@ def render_reservas_por_dia(raw: pd.DataFrame | None = None):
         return
 
     df = _standardize_columns(raw.copy())
+
+    # --- Selección/normalización de 'Fecha alta' ---
     if "Fecha alta" not in df.columns:
-        st.warning("No se encuentra la columna ‘Fecha alta’ en el archivo.")
+        # sugerir columnas candidatas
+        cols = list(df.columns)
+        cand = [c for c in cols if re.search(r"(fecha|alta|crea|book|reserva|created)", str(c).lower())]
+        sel = st.selectbox("Selecciona la columna de 'Fecha alta'", cand, key="rpd_col_fecha_alta")
+        if not sel:
+            st.warning("Selecciona la columna que contiene la Fecha alta de la reserva.")
+            return
+        df = df.rename(columns={sel: "Fecha alta"})
+
+    # Asegura tipo datetime
+    try:
+        df["Fecha alta"] = pd.to_datetime(df["Fecha alta"], errors="coerce")
+    except Exception:
+        df["Fecha alta"] = pd.to_datetime(df["Fecha alta"].astype(str), errors="coerce")
+
+    if df["Fecha alta"].isna().all():
+        st.warning("No se pudieron interpretar las fechas de ‘Fecha alta’.")
         return
 
     # Parámetros (sidebar)
@@ -61,6 +80,10 @@ def render_reservas_por_dia(raw: pd.DataFrame | None = None):
         default_start = today - timedelta(days=60)
         start = st.date_input("Inicio (Fecha alta)", value=default_start, key="rpd_start")
         end   = st.date_input("Fin (Fecha alta)",    value=today,         key="rpd_end")
+        if start > end:
+            st.error("La fecha de inicio no puede ser posterior a la de fin.")
+            return
+
         if "Alojamiento" in df.columns:
             props = st.multiselect(
                 "Alojamientos (opcional)",
@@ -83,6 +106,10 @@ def render_reservas_por_dia(raw: pd.DataFrame | None = None):
                              pd.to_datetime(end)   - pd.DateOffset(years=1)) if compare_ly1 else pd.DataFrame()
     ly2 = _daily_bookings(df, pd.to_datetime(start) - pd.DateOffset(years=2),
                              pd.to_datetime(end)   - pd.DateOffset(years=2)) if compare_ly2 else pd.DataFrame()
+
+    if act.empty and (ly1.empty and ly2.empty):
+        st.info("No hay reservas en el rango seleccionado.")
+        return
 
     # Alinear para superponer en el eje de fechas del año actual
     act_p = _align_for_plot(act, 0, "Act")
