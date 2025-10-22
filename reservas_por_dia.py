@@ -237,6 +237,57 @@ def render_reservas_por_dia(raw: pd.DataFrame | None = None):
         .interactive()
     )
     st.altair_chart(chart, use_container_width=True)
+    # --- NUEVO: alineación por día de la semana ---
+    st.subheader("Alineación por día de la semana (Act / LY-1 / LY-2)")
+    dias_es = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"]
+
+    def _align_weekday(df: pd.DataFrame, label: str, start_dt) -> pd.DataFrame:
+        if df is None or df.empty:
+            return pd.DataFrame(columns=["Slot","SlotLabel","Semana","Dia","Reservas","Serie","Fecha"])
+        d = df.copy()
+        d["Fecha"] = pd.to_datetime(d["Fecha"])
+        d["wd"] = d["Fecha"].dt.weekday
+        d["Dia"] = d["wd"].map({i:n for i,n in enumerate(dias_es)})
+        # Semana relativa al inicio del rango correspondiente
+        delta = (d["Fecha"] - pd.to_datetime(start_dt)).dt.days
+        d["Semana"] = (delta // 7).astype(int) + 1
+        # Etiqueta ordenable Semana-Día
+        d["Slot"] = d["Semana"] * 7 + d["wd"]
+        d["SlotLabel"] = "S" + d["Semana"].astype(str) + "-" + d["Dia"]
+        d["Serie"] = label
+        return d[["Slot","SlotLabel","Semana","Dia","Reservas","Serie","Fecha"]]
+
+    aligned = []
+    aligned.append(_align_weekday(act, "Act", start))
+    if compare_ly1 and not ly1.empty:
+        aligned.append(_align_weekday(ly1, "LY-1", pd.to_datetime(start) - pd.DateOffset(years=1)))
+    if compare_ly2 and not ly2.empty:
+        aligned.append(_align_weekday(ly2, "LY-2", pd.to_datetime(start) - pd.DateOffset(years=2)))
+
+    aligned_df = pd.concat([x for x in aligned if not x.empty], ignore_index=True) if aligned else pd.DataFrame()
+    if not aligned_df.empty:
+        order_labels = aligned_df.sort_values("Slot")["SlotLabel"].unique().tolist()
+        chart_wd = (
+            alt.Chart(aligned_df)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("SlotLabel:N", sort=order_labels, title="Semana - Día"),
+                y=alt.Y("Reservas:Q", title="Reservas por día"),
+                color=alt.Color("Serie:N", title="Serie"),
+                tooltip=[
+                    alt.Tooltip("Serie:N"),
+                    alt.Tooltip("Semana:Q", title="Semana"),
+                    alt.Tooltip("Dia:N", title="Día"),
+                    alt.Tooltip("Fecha:T", title="Fecha real"),
+                    alt.Tooltip("Reservas:Q", title="Reservas"),
+                ],
+            )
+            .properties(height=300)
+            .interactive()
+        )
+        st.altair_chart(chart_wd, use_container_width=True)
+    else:
+        st.info("No hay datos suficientes para la alineación por día de la semana.")
 
     # ===================== Patrones históricos (respetando filtros) =====================
     st.subheader("🔍 Patrones históricos (mismo periodo en todos los años)")
@@ -363,17 +414,19 @@ def render_reservas_por_dia(raw: pd.DataFrame | None = None):
 
     def _align_weekday(df: pd.DataFrame, label: str, start_dt) -> pd.DataFrame:
         if df is None or df.empty:
-            return pd.DataFrame(columns=["Slot","SemanaIdx","DiaSemana","Reservas","Serie","Fecha"])
+            return pd.DataFrame(columns=["Slot","SlotLabel","Semana","Dia","Reservas","Serie","Fecha"])
         d = df.copy()
         d["Fecha"] = pd.to_datetime(d["Fecha"])
         d["wd"] = d["Fecha"].dt.weekday
-        d["DiaSemana"] = d["wd"].map({i:n for i,n in enumerate(dias_es)})
+        d["Dia"] = d["wd"].map({i:n for i,n in enumerate(dias_es)})
+        # Semana relativa al inicio del rango correspondiente
         delta = (d["Fecha"] - pd.to_datetime(start_dt)).dt.days
-        d["SemanaIdx"] = (delta // 7).astype(int) + 1
-        d["Slot"] = d["SemanaIdx"] * 7 + d["wd"]
+        d["Semana"] = (delta // 7).astype(int) + 1
+        # Etiqueta ordenable Semana-Día
+        d["Slot"] = d["Semana"] * 7 + d["wd"]
+        d["SlotLabel"] = "S" + d["Semana"].astype(str) + "-" + d["Dia"]
         d["Serie"] = label
-        d["SlotLabel"] = "S" + d["SemanaIdx"].astype(str) + "-" + d["DiaSemana"]
-        return d[["Slot","SlotLabel","SemanaIdx","DiaSemana","Reservas","Serie","Fecha"]]
+        return d[["Slot","SlotLabel","Semana","Dia","Reservas","Serie","Fecha"]]
 
     # Construye datasets alineados (usa los mismos rangos que ya calculaste arriba)
     aligned_frames = []
@@ -392,13 +445,13 @@ def render_reservas_por_dia(raw: pd.DataFrame | None = None):
             alt.Chart(aligned_df)
             .mark_line(point=True)
             .encode(
-                x=alt.X("SlotLabel:N", sort=order_labels, title="Semana - Día de la semana"),
+                x=alt.X("SlotLabel:N", sort=order_labels, title="Semana - Día"),
                 y=alt.Y("Reservas:Q", title="Reservas por día"),
                 color=alt.Color("Serie:N", title="Serie"),
                 tooltip=[
                     alt.Tooltip("Serie:N"),
-                    alt.Tooltip("SemanaIdx:Q", title="Semana"),
-                    alt.Tooltip("DiaSemana:N", title="Día"),
+                    alt.Tooltip("Semana:Q", title="Semana"),
+                    alt.Tooltip("Dia:N", title="Día"),
                     alt.Tooltip("Fecha:T", title="Fecha real"),
                     alt.Tooltip("Reservas:Q", title="Reservas"),
                 ],
