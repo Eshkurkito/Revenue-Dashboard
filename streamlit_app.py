@@ -1,6 +1,8 @@
+import streamlit as st
+st.set_page_config(page_title="Revenue Dashboard", layout="wide", initial_sidebar_state="expanded")
+
 from pathlib import Path
 import pandas as pd
-import streamlit as st
 from auth import require_login, logout_button
 from landing_ui import render_landing, get_logo_path
 
