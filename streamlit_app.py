@@ -75,12 +75,21 @@ def clear_data(reset_view: bool = True):
 
 def _safe_call(view_fn):
     raw = _get_raw()
+    # Si no hay archivo, mensaje claro y no llamamos al módulo
+    if raw is None or (hasattr(raw, "empty") and getattr(raw, "empty", False)):
+        st.info("Sube un archivo en la barra lateral para continuar.")
+        return
     try:
+        # Llama pasando el DF
         return view_fn(raw)
     except TypeError:
+        # Si el módulo no acepta argumento, inténtalo sin él
         return view_fn()
-    except (KeyError, ValueError):
-        st.info("Necesitas cargar un archivo antes de acceder a este módulo.")
+    except Exception as e:
+        # No ocultes el error: muéstralo y permite depurar
+        st.error("Ocurrió un error en este módulo.")
+        with st.expander("Detalles del error"):
+            st.exception(e)
         return
 
 # --- login ---
