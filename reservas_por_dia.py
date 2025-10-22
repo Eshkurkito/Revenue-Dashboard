@@ -1,197 +1,143 @@
+import streamlit as st
 import pandas as pd
 import numpy as np
-import streamlit as st
 import altair as alt
-import re
-import string
 from datetime import date, timedelta
 
-# Helper: intenta recuperar el DF desde session_state si no viene por parámetro
+# Recupera el DF si el router no lo pasó
 def _get_raw_session():
     return st.session_state.get("df_active") or st.session_state.get("raw")
 
-def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
-    norm = {c: str(c).strip().lower() for c in df.columns}
-    def find(*keys):
-        for col, n in norm.items():
-            for k in keys:
-                if n == k or k in n:
-                    return col
-        return None
-    mapping = {}
-    a  = find("alojamiento","propiedad","listing","unidad","apartamento","room","unit")
-    fa = find("fecha alta","creado","created","booking","reserva","created at","creation")
-    if a:  mapping[a] = "Alojamiento"
-    if fa: mapping[fa] = "Fecha alta"
-    return df.rename(columns=mapping) if mapping else df
+def _ensure_fecha_alta(df: pd.DataFrame) -> pd.Series:
+    """
+    Devuelve una Serie datetime con la columna 'Fecha alta'.
+    - Si hay columnas duplicadas con el mismo nombre, usa la primera.
+    - Intenta parseo flexible: texto (dayfirst) y serial Excel.
+    """
+    if df is None or df.empty:
+        return pd.Series(dtype="datetime64[ns]")
+
+    # Tomar la primera columna que se llame exactamente 'Fecha alta'
+    mask = (df.columns.astype(str) == "Fecha alta")
+    if mask.sum() == 0:
+        raise KeyError("El archivo no contiene la columna 'Fecha alta'.")
+    serie = df.loc[:, mask].iloc[:, 0] if mask.sum() > 1 else df["Fecha alta"]
+
+    # Intento 1: parseo normal
+    s1 = pd.to_datetime(serie, errors="coerce", dayfirst=True, infer_datetime_format=True)
+
+    # Intento 2: si casi todo quedó NaT, prueba como serial Excel
+    if s1.isna().mean() > 0.8:
+        s_num = pd.to_numeric(serie, errors="coerce")
+        s2 = pd.to_datetime(s_num, unit="d", origin="1899-12-30", errors="coerce")
+        # Elige el que tenga más válidos
+        if s2.notna().sum() > s1.notna().sum():
+            s1 = s2
+
+    # Normaliza a medianoche
+    return pd.to_datetime(s1.dt.normalize())
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def _daily_bookings(df: pd.DataFrame, start: date, end: date) -> pd.DataFrame:
-    """Cuenta reservas por día (Fecha alta) entre start y end (incl.)."""
-    dfx = df.dropna(subset=["Fecha alta"]).copy()
-    dfx["Fecha alta"] = pd.to_datetime(dfx["Fecha alta"]).dt.normalize()
+def _daily_bookings_from_series(fechas: pd.Series, start: date, end: date) -> pd.DataFrame:
+    """Cuenta reservas por día (Fecha alta ya parseada) en [start, end]."""
+    if fechas is None or fechas.empty:
+        return pd.DataFrame(columns=["Fecha", "Reservas"])
     s = pd.to_datetime(start).normalize()
-    e = (pd.to_datetime(end)).normalize()
-    dfx = dfx[(dfx["Fecha alta"] >= s) & (dfx["Fecha alta"] <= e)]
-    if dfx.empty:
-        rng = pd.date_range(s, e, freq="D")
+    e = pd.to_datetime(end).normalize()
+    ser = fechas[(fechas >= s) & (fechas <= e)]
+    rng = pd.date_range(s, e, freq="D")
+    if ser.empty:
         return pd.DataFrame({"Fecha": rng, "Reservas": np.zeros(len(rng), dtype=int)})
-    series = dfx.groupby("Fecha alta").size().rename("Reservas")
-    ser_full = series.reindex(pd.date_range(s, e, freq="D"), fill_value=0)
-    return ser_full.reset_index(names=["Fecha"])
+    counts = ser.value_counts().rename_axis("Fecha").sort_index()
+    counts = counts.reindex(rng, fill_value=0).rename("Reservas").reset_index()
+    return counts
 
 def _align_for_plot(df: pd.DataFrame, shift_years: int, label: str) -> pd.DataFrame:
     out = df.copy()
     out["Serie"] = label
-    if shift_years != 0:
-        out["FechaPlot"] = (pd.to_datetime(out["Fecha"]) + pd.DateOffset(years=shift_years))
-    else:
-        out["FechaPlot"] = pd.to_datetime(out["Fecha"])
+    out["FechaPlot"] = pd.to_datetime(out["Fecha"]) + pd.DateOffset(years=shift_years)
     return out
-
-def _excel_letter(idx: int) -> str:
-    # 0->A, 25->Z, 26->AA...
-    letters = string.ascii_uppercase
-    s = ""
-    n = idx
-    while True:
-        n, r = divmod(n, 26)
-        s = letters[r] + s
-        if n == 0:
-            break
-        n -= 1
-    return s
-
-def _select_or_create_fecha_alta(df: pd.DataFrame) -> pd.DataFrame:
-    """Garantiza una única columna 'Fecha alta' válida (maneja duplicadas y parsea)."""
-    df = df.copy()
-    patt = re.compile(r"(fecha\s*alta|created|creado|creation|reserva|booking)", re.I)
-    all_cols = list(df.columns)
-    cand = [c for c in all_cols if patt.search(str(c))]
-
-    # Si hay 1 candidata, úsala; si hay 0 o varias, deja elegir con letras A,B,... y por defecto F
-    if len(cand) == 1:
-        fecha_col = cand[0]
-    else:
-        label_map = {f"{_excel_letter(i)} · {col}": col for i, col in enumerate(all_cols)}
-        # default: F si existe, si no la primera
-        default_idx = 5 if len(all_cols) > 5 else 0
-        labels = list(label_map.keys())
-        selected = st.selectbox(
-            "Selecciona la columna de 'Fecha alta' (ej. F)",
-            options=labels,
-            index=default_idx,
-            key="rpd_col_fecha_alta",
-        )
-        fecha_col = label_map[selected]
-
-    # Quita duplicadas previas y crea una única 'Fecha alta'
-    while "Fecha alta" in df.columns:
-        df.drop(columns=["Fecha alta"], inplace=True)
-    df["Fecha alta"] = df[fecha_col]
-
-    # Parseo robusto (formatos ES)
-    df["Fecha alta"] = pd.to_datetime(
-        df["Fecha alta"], errors="coerce", dayfirst=True, infer_datetime_format=True
-    )
-    return df
 
 def render_reservas_por_dia(raw: pd.DataFrame | None = None):
     st.header("Reservas recibidas por día (Fecha alta)")
+
     if raw is None:
         raw = _get_raw_session()
     if not isinstance(raw, pd.DataFrame) or raw.empty:
-        st.info("No hay datos cargados. Sube un archivo en la barra lateral y pulsa Generar.")
+        st.info("Sube un archivo en la barra lateral para continuar.")
         return
-    df = _standardize_columns(raw.copy())
 
-    # --- NUEVO: asegura 'Fecha alta' única y parseada ---
+    # Asegura 'Fecha alta'
     try:
-        df = _select_or_create_fecha_alta(df)
-    except Exception:
-        st.warning("Selecciona la columna de 'Fecha alta' para continuar.")
+        fa = _ensure_fecha_alta(raw)
+    except KeyError as e:
+        st.error(str(e))
         return
 
-    if df["Fecha alta"].isna().all():
-        st.warning("No se pudieron interpretar las fechas de ‘Fecha alta’.")
+    if fa.isna().all():
+        st.warning("No se pudieron interpretar las fechas de 'Fecha alta'.")
         return
 
-    # Parámetros (sidebar)
+    # Parámetros en sidebar
     with st.sidebar:
         st.subheader("Parámetros · Reservas por día")
         today = date.today()
-        default_start = today - timedelta(days=60)
+        default_end = today
+        default_start = default_end - timedelta(days=60)
         start = st.date_input("Inicio (Fecha alta)", value=default_start, key="rpd_start")
-        end   = st.date_input("Fin (Fecha alta)",    value=today,         key="rpd_end")
-        if start > end:
-            st.error("La fecha de inicio no puede ser posterior a la de fin.")
-            return
-
-        if "Alojamiento" in df.columns:
-            props = st.multiselect(
-                "Alojamientos (opcional)",
-                sorted(df["Alojamiento"].astype(str).dropna().unique()),
-                key="rpd_props",
-            )
-        else:
-            props = []
-
+        end = st.date_input("Fin (Fecha alta)", value=default_end, key="rpd_end")
         compare_ly1 = st.checkbox("Comparar con LY-1", value=True, key="rpd_cmp_ly1")
         compare_ly2 = st.checkbox("Comparar con LY-2", value=True, key="rpd_cmp_ly2")
+        run = st.button("Generar", type="primary", use_container_width=True, key="rpd_run")
 
-        # ← nuevo: botón para disparar el cálculo
-        run_rpd = st.button("Generar", type="primary", use_container_width=True, key="rpd_run")
+    if start > end:
+        st.error("La fecha de inicio no puede ser posterior a la fecha de fin.")
+        return
 
-    # Si no se pulsa, no hacemos cálculos
-    if not run_rpd:
+    if not run:
         st.info("Elige fechas y pulsa Generar.")
         return
 
-    # Filtro por alojamientos (solo cuando se pulsa Generar)
-    if props and "Alojamiento" in df.columns:
-        df = df[df["Alojamiento"].astype(str).isin(props)].copy()
-
     # Series
-    act = _daily_bookings(df, start, end)
-    ly1 = _daily_bookings(df, pd.to_datetime(start) - pd.DateOffset(years=1),
-                             pd.to_datetime(end)   - pd.DateOffset(years=1)) if compare_ly1 else pd.DataFrame()
-    ly2 = _daily_bookings(df, pd.to_datetime(start) - pd.DateOffset(years=2),
-                             pd.to_datetime(end)   - pd.DateOffset(years=2)) if compare_ly2 else pd.DataFrame()
+    act = _daily_bookings_from_series(fa, start, end)
+    ly1 = _daily_bookings_from_series(fa, pd.to_datetime(start) - pd.DateOffset(years=1),
+                                         pd.to_datetime(end) - pd.DateOffset(years=1)) if compare_ly1 else pd.DataFrame()
+    ly2 = _daily_bookings_from_series(fa, pd.to_datetime(start) - pd.DateOffset(years=2),
+                                         pd.to_datetime(end) - pd.DateOffset(years=2)) if compare_ly2 else pd.DataFrame()
 
     if act.empty and (ly1.empty and ly2.empty):
         st.info("No hay reservas en el rango seleccionado.")
         return
 
-    # Alinear para superponer en el eje de fechas del año actual
-    act_p = _align_for_plot(act, 0, "Act")
-    ly1_p = _align_for_plot(ly1, 1, "LY-1") if not ly1.empty else pd.DataFrame()
-    ly2_p = _align_for_plot(ly2, 2, "LY-2") if not ly2.empty else pd.DataFrame()
-    plot_df = pd.concat([x for x in [act_p, ly1_p, ly2_p] if not x.empty], ignore_index=True)
-    plot_df["FechaPlot"] = pd.to_datetime(plot_df["FechaPlot"])
-
-    # Tabla resumen
-    totals = (
-        plot_df.groupby("Serie")["Reservas"]
-        .sum()
-        .reindex(["Act","LY-1","LY-2"])
-        .dropna()
-        .rename("Total reservas")
-        .reset_index()
-    )
-    st.dataframe(totals, use_container_width=True)
+    # Totales
+    totals = []
+    totals.append({"Serie": "Act", "Total reservas": int(act["Reservas"].sum())})
+    if not ly1.empty:
+        totals.append({"Serie": "LY-1", "Total reservas": int(ly1["Reservas"].sum())})
+    if not ly2.empty:
+        totals.append({"Serie": "LY-2", "Total reservas": int(ly2["Reservas"].sum())})
+    st.dataframe(pd.DataFrame(totals), use_container_width=True)
 
     # Gráfico
+    act_p = _align_for_plot(act, 0, "Act")
+    frames = [act_p]
+    if not ly1.empty:
+        frames.append(_align_for_plot(ly1, 1, "LY-1"))
+    if not ly2.empty:
+        frames.append(_align_for_plot(ly2, 2, "LY-2"))
+    plot_df = pd.concat(frames, ignore_index=True)
+
     chart = (
         alt.Chart(plot_df)
         .mark_line(point=True)
         .encode(
             x=alt.X("FechaPlot:T", title="Fecha (alineada)"),
-            y=alt.Y("sum(Reservas):Q", title="Reservas por día"),
+            y=alt.Y("Reservas:Q", title="Reservas por día"),
             color=alt.Color("Serie:N", title="Serie"),
             tooltip=[
                 alt.Tooltip("Serie:N"),
                 alt.Tooltip("Fecha:T", title="Fecha real"),
-                alt.Tooltip("Reservas:Q", title="Reservas", aggregate="sum"),
+                alt.Tooltip("Reservas:Q", title="Reservas"),
             ],
         )
         .properties(height=320)
@@ -200,7 +146,7 @@ def render_reservas_por_dia(raw: pd.DataFrame | None = None):
     st.altair_chart(chart, use_container_width=True)
 
     # Descarga
-    export = plot_df[["Serie","Fecha","Reservas"]].copy()
+    export = plot_df[["Serie", "Fecha", "Reservas"]].copy()
     export["Fecha"] = pd.to_datetime(export["Fecha"]).dt.date
     st.download_button(
         "📥 Descargar series (CSV)",
