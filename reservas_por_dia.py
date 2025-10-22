@@ -96,7 +96,15 @@ def render_reservas_por_dia(raw: pd.DataFrame | None = None):
         compare_ly1 = st.checkbox("Comparar con LY-1", value=True, key="rpd_cmp_ly1")
         compare_ly2 = st.checkbox("Comparar con LY-2", value=True, key="rpd_cmp_ly2")
 
-    # Filtro por alojamientos
+        # ← nuevo: botón para disparar el cálculo
+        run_rpd = st.button("Generar", type="primary", use_container_width=True, key="rpd_run")
+
+    # Si no se pulsa, no hacemos cálculos
+    if not run_rpd:
+        st.info("Elige fechas y pulsa Generar.")
+        return
+
+    # Filtro por alojamientos (solo cuando se pulsa Generar)
     if props and "Alojamiento" in df.columns:
         df = df[df["Alojamiento"].astype(str).isin(props)].copy()
 
