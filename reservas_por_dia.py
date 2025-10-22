@@ -199,15 +199,19 @@ def render_reservas_por_dia(raw: pd.DataFrame | None = None):
         avg_df["FechaPlot"] = pd.to_datetime(base_year * 1000 + avg_df["DOY"], format="%Y%j")
         # Suavizado 7D
         avg_df["Media7D"] = avg_df["Media"].rolling(7, center=True, min_periods=1).mean()
+        # NUEVO: constante para tooltip
+        avg_df["Anios"] = int(n_years)
 
         # Gráfico perfil medio
         c1 = alt.Chart(avg_df).mark_line(color="#2e485f").encode(
             x=alt.X("FechaPlot:T", title="Fecha (alineada al año actual)"),
             y=alt.Y("Media:Q", title="Reservas medias por día"),
-            tooltip=[alt.Tooltip("FechaPlot:T", title="Fecha"),
-                     alt.Tooltip("Media:Q", format=".2f"),
-                     alt.Tooltip("Std:Q", format=".2f", title="Desv. típica"),
-                     alt.Tooltip(value=f"{int(n_years)}", title="Años considerados")],
+            tooltip=[
+                alt.Tooltip("FechaPlot:T", title="Fecha"),
+                alt.Tooltip("Media:Q", format=".2f"),
+                alt.Tooltip("Std:Q", format=".2f", title="Desv. típica"),
+                alt.Tooltip("Anios:Q", title="Años considerados"),  # ← reemplaza value=
+            ],
         )
         c2 = alt.Chart(avg_df).mark_line(color="#7aa6d9").encode(
             x="FechaPlot:T", y=alt.Y("Media7D:Q", title=""),
