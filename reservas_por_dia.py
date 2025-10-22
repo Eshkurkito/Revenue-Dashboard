@@ -3,6 +3,7 @@ import numpy as np
 import streamlit as st
 import altair as alt
 import re
+import string
 from datetime import date, timedelta
 
 def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -44,29 +45,51 @@ def _align_for_plot(df: pd.DataFrame, shift_years: int, label: str) -> pd.DataFr
         out["FechaPlot"] = pd.to_datetime(out["Fecha"])
     return out
 
+def _excel_letter(idx: int) -> str:
+    # 0->A, 25->Z, 26->AA...
+    letters = string.ascii_uppercase
+    s = ""
+    n = idx
+    while True:
+        n, r = divmod(n, 26)
+        s = letters[r] + s
+        if n == 0:
+            break
+        n -= 1
+    return s
+
 def _select_or_create_fecha_alta(df: pd.DataFrame) -> pd.DataFrame:
     """Garantiza una única columna 'Fecha alta' válida (maneja duplicadas y parsea)."""
     df = df.copy()
     patt = re.compile(r"(fecha\s*alta|created|creado|creation|reserva|booking)", re.I)
-    cand = [c for c in df.columns if patt.search(str(c))]
+    all_cols = list(df.columns)
+    cand = [c for c in all_cols if patt.search(str(c))]
 
-    # Si hay varias/ninguna, pedir selección
-    if len(cand) != 1:
-        sel = st.selectbox("Selecciona la columna de 'Fecha alta'", cand or list(df.columns), key="rpd_col_fecha_alta")
-        if not sel:
-            raise ValueError("No se ha seleccionado columna de 'Fecha alta'.")
-        fecha_col = sel
-    else:
+    # Si hay 1 candidata, úsala; si hay 0 o varias, deja elegir con letras A,B,... y por defecto F
+    if len(cand) == 1:
         fecha_col = cand[0]
+    else:
+        label_map = {f"{_excel_letter(i)} · {col}": col for i, col in enumerate(all_cols)}
+        # default: F si existe, si no la primera
+        default_idx = 5 if len(all_cols) > 5 else 0
+        labels = list(label_map.keys())
+        selected = st.selectbox(
+            "Selecciona la columna de 'Fecha alta' (ej. F)",
+            options=labels,
+            index=default_idx,
+            key="rpd_col_fecha_alta",
+        )
+        fecha_col = label_map[selected]
 
-    # Construye una única columna 'Fecha alta' sin duplicados
-    serie = df[fecha_col]
+    # Quita duplicadas previas y crea una única 'Fecha alta'
     while "Fecha alta" in df.columns:
-        df.drop(columns=["Fecha alta"], inplace=True)  # elimina duplicadas previas
-    df["Fecha alta"] = serie
+        df.drop(columns=["Fecha alta"], inplace=True)
+    df["Fecha alta"] = df[fecha_col]
 
-    # Parseo robusto (formatos europeos)
-    df["Fecha alta"] = pd.to_datetime(df["Fecha alta"], errors="coerce", dayfirst=True, infer_datetime_format=True)
+    # Parseo robusto (formatos ES)
+    df["Fecha alta"] = pd.to_datetime(
+        df["Fecha alta"], errors="coerce", dayfirst=True, infer_datetime_format=True
+    )
     return df
 
 def render_reservas_por_dia(raw: pd.DataFrame | None = None):
