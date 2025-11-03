@@ -39,14 +39,23 @@ def _wkhtmltopdf_version(path: str | None):
         return None
 
 def _pdfkit_config():
-    path = _wkhtmltopdf_detect()
+    """
+    Busca wkhtmltopdf en Cloud (Linux) y local (Windows).
+    """
+    candidates = [
+        os.environ.get("WKHTMLTOPDF_PATH"),
+        (st.secrets.get("wkhtmltopdf_path") if hasattr(st, "secrets") else None),
+        "/usr/bin/wkhtmltopdf",          # ← Streamlit Cloud
+        "/usr/local/bin/wkhtmltopdf",
+        r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe",
+        r"C:\Program Files (x86)\wkhtmltopdf\bin\wkhtmltopdf.exe",
+        shutil.which("wkhtmltopdf"),
+    ]
+    path = next((p for p in candidates if p and os.path.exists(p)), None)
     if not path:
         return None
-    try:
-        import pdfkit
-        return pdfkit.configuration(wkhtmltopdf=path)
-    except Exception:
-        return None
+    import pdfkit
+    return pdfkit.configuration(wkhtmltopdf=path)
 
 # ----------------- Utilidades -----------------
 def _std_cols(df: pd.DataFrame) -> pd.DataFrame:
@@ -484,3 +493,13 @@ def _plot_adr_png(act: pd.DataFrame, ly: pd.DataFrame, gran: str) -> str:
     ax.legend()
     fig.tight_layout()
     return _png_from_plt(fig)
+
+import subprocess, pathlib
+wk_path = next((p for p in ["/usr/bin/wkhtmltopdf", shutil.which("wkhtmltopdf")] if p), None)
+wk_ver = None
+try:
+    if wk_path:
+        wk_ver = subprocess.check_output([wk_path, "--version"], text=True).strip()
+except Exception:
+    wk_ver = None
+st.caption(f"wkhtmltopdf: {'OK' if wk_path else 'NO'} · Ruta: {wk_path or '—'} · Versión: {wk_ver or '—'}")
