@@ -285,20 +285,14 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
         height=60
     )
     try:
-        import pdfkit  # requiere wkhtmltopdf instalado
-        html = f"""
-        <h2>{TITLE}</h2>
-        <p><b>Apartamento:</b> {apto or '—'} &nbsp; | &nbsp; <b>Propietario:</b> {owner or '—'}</p>
-        <p><b>Periodo ACT:</b> {_period_label(start,end)} &nbsp; | &nbsp; <b>Periodo LY:</b> {_period_label(pd.to_datetime(start)-pd.DateOffset(years=1), pd.to_datetime(end)-pd.DateOffset(years=1))}</p>
-        <ul>
-          <li>Ingresos ACT: €{k_act['ingresos']:,.0f} — LY: €{k_ly['ingresos']:,.0f}</li>
-          <li>ADR ACT: €{k_act['adr']:,.0f} — LY: €{k_ly['adr']:,.0f}</li>
-          <li>Noches ACT: {k_act['noches']:,.0f} — LY: {k_ly['noches']:,.0f}</li>
-        </ul>
-        <h3>Comentarios</h3>
-        <p>{(comments or '—').replace('\n','<br>')}</p>
-        """
-        pdf_bytes = pdfkit.from_string(html, False)
-        st.download_button("Descargar PDF (experimental)", data=pdf_bytes, file_name="informe_propietario.pdf", mime="application/pdf")
+        import pdfkit, os, shutil
+        wk = shutil.which("wkhtmltopdf") or r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
+        cfg = pdfkit.configuration(wkhtmltopdf=wk) if wk and os.path.exists(wk) else None
+        pdf_bytes = pdfkit.from_string(html, False, configuration=cfg) if cfg else None
+        if pdf_bytes:
+            st.download_button("Descargar PDF (experimental)", data=pdf_bytes,
+                               file_name="informe_propietario.pdf", mime="application/pdf")
+        else:
+            st.caption("wkhtmltopdf no encontrado. Usa el botón Imprimir/Guardar PDF.")
     except Exception:
         st.caption("Si instalas wkhtmltopdf en el servidor, se habilitará la descarga PDF directa. De momento usa Imprimir/Guardar PDF del navegador.")
