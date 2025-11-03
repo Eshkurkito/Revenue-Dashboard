@@ -1,9 +1,45 @@
+from pathlib import Path
+import json
 import pandas as pd
 import streamlit as st
 from datetime import date
 from utils import compute_kpis, period_inputs, group_selector, help_block, compute_portal_share, save_group_csv, load_groups, GROUPS_CSV
 
-def render_consulta_normal(raw):
+def _load_saved_groups(props_all: list[str]) -> dict[str, list[str]]:
+    base = Path(__file__).resolve().parent
+    # JSON: {"Grupo A":["Prop1","Prop2"], ...}
+    j = base / "assets" / "groups_guardados.json"
+    if j.exists():
+        try:
+            data = json.loads(j.read_text(encoding="utf-8"))
+            return {g: [p for p in v if p in props_all] for g, v in data.items()}
+        except Exception:
+            pass
+    # CSV: columnas Grupo,Alojamiento (una fila por pareja)
+    c = base / "assets" / "groups_guardados.csv"
+    if c.exists():
+        try:
+            df = pd.read_csv(c)
+            if {"Grupo","Alojamiento"}.issubset(df.columns):
+                d = (df.dropna(subset=["Grupo","Alojamiento"])
+                        .astype(str)
+                        .groupby("Grupo")["Alojamiento"].apply(list).to_dict())
+                return {g: [p for p in v if p in props_all] for g, v in d.items()}
+        except Exception:
+            pass
+    return {}
+
+def _group_selector_sidebar(df: pd.DataFrame):
+    props_all = sorted(df["Alojamiento"].dropna().astype(str).unique()) if "Alojamiento" in df.columns else []
+    groups = _load_saved_groups(props_all)
+    if not groups:
+        return [], None
+    names = ["(Sin grupo)"] + sorted(groups.keys())
+    sel = st.sidebar.selectbox("Grupo guardado", names, key="consulta_grupo_guardado")
+    selected_props = groups.get(sel, []) if sel and sel != "(Sin grupo)" else []
+    return selected_props, sel
+
+def render_consulta_normal(raw: pd.DataFrame | None = None):
     if raw is None:
         st.stop()
     # Normaliza los nombres de columna
@@ -149,16 +185,3 @@ def render_consulta_normal(raw):
             file_name="detalle_por_alojamiento.csv",
             mime="text/csv"
         )
-
-    st.write("Columnas detectadas:", list(raw.columns))
-
-    with st.sidebar:
-        st.header("Selección de grupo de alojamientos")
-        groups = load_groups()
-        group_names = sorted(list(groups.keys()))
-        selected_group = st.selectbox("Grupo guardado", group_names)
-        props_rc = groups[selected_group] if selected_group else []
-
-    # Filtra alojamientos según el grupo seleccionado
-    if props_rc:
-        raw = raw[raw["Alojamiento"].isin(props_rc)]

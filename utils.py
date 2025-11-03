@@ -1,63 +1,118 @@
+from __future__ import annotations
+
+import os
+import math
+from typing import Optional, List, Dict, Any, Tuple
+from datetime import date
+
+import numpy as np
 import pandas as pd
 import streamlit as st
-from datetime import date, timedelta
-from typing import Optional, List, Dict, Any, Tuple
-import math
-import numpy as np
-from pathlib import Path
-import os
 
-# ===== Grupos de alojamientos (CSV reutilizable) =====
+# =========================
+# Persistencia de grupos
+# =========================
+GROUPS_CSV = "grupos_guardados.csv"
 
-GROUPS_CSV = "grupos_guardados.csv"  # Se guarda en la raíz del repositorio
-
-def save_group_csv(group_name, props_list):
-    if os.path.exists(GROUPS_CSV):
-        df = pd.read_csv(GROUPS_CSV)
-    else:
-        df = pd.DataFrame(columns=["Grupo", "Alojamiento"])
-    # Elimina grupo si ya existe (evita duplicados)
-    df = df[df["Grupo"] != group_name]
-    new_rows = [{"Grupo": group_name, "Alojamiento": prop} for prop in props_list]
-    df = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
-    df.to_csv(GROUPS_CSV, index=False)
-
-def load_groups():
+def load_groups() -> Dict[str, List[str]]:
     if not os.path.exists(GROUPS_CSV):
         return {}
-    df = pd.read_csv(GROUPS_CSV)
-    groups = {}
-    for group_name in df["Grupo"].unique():
-        props = df[df["Grupo"] == group_name]["Alojamiento"].tolist()
-        groups[group_name] = props
-    return groups
+    try:
+        df = pd.read_csv(GROUPS_CSV)
+        if "Grupo" in df.columns and "Alojamiento" in df.columns:
+            out: Dict[str, List[str]] = {}
+            for g, sub in df.groupby("Grupo"):
+                out[str(g)] = sorted(list(sub["Alojamiento"].dropna().astype(str).unique()))
+            return out
+    except Exception:
+        pass
+    return {}
 
-def group_selector(label: str, all_props: list[str], key_prefix: str, default: Optional[list[str]] = None) -> list[str]:
-    selected = st.multiselect(label, options=all_props, default=default or [], key=f"{key_prefix}_selector")
-    return selected
+def save_group_csv(name: str, props: List[str]) -> None:
+    name = str(name).strip()
+    if not name or not props:
+        return
+    cur = pd.DataFrame({"Grupo": [name] * len(props), "Alojamiento": list(map(str, props))})
+    if os.path.exists(GROUPS_CSV):
+        try:
+            prev = pd.read_csv(GROUPS_CSV)
+            prev = prev[prev["Grupo"] != name]
+            cur = pd.concat([prev, cur], ignore_index=True)
+        except Exception:
+            pass
+    cur.to_csv(GROUPS_CSV, index=False, encoding="utf-8-sig")
 
+def delete_group_csv(name: str) -> None:
+    if not os.path.exists(GROUPS_CSV):
+        return
+    try:
+        df = pd.read_csv(GROUPS_CSV)
+        df = df[df["Grupo"] != name]
+        df.to_csv(GROUPS_CSV, index=False, encoding="utf-8-sig")
+    except Exception:
+        pass
+
+def group_selector(label: str, all_props: List[str], key_prefix: str, default: Optional[List[str]] = None) -> List[str]:
+    return st.multiselect(label, options=sorted(all_props), default=default or [], key=f"{key_prefix}_selector")
+
+# =========================
+# UI helpers
+# =========================
+def period_inputs(label_start: str, label_end: str, default_start: date, default_end: date, key_prefix: str) -> Tuple[date, date]:
+    c1, c2 = st.columns(2)
+    d1 = c1.date_input(label_start, value=default_start, key=f"{key_prefix}_start")
+    d2 = c2.date_input(label_end, value=default_end, key=f"{key_prefix}_end")
+    return d1, d2
+
+def help_block(txt: str):
+    st.info(txt)
+
+# =========================
+# Parsing de datos
+# =========================
 def parse_dates(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return df
+    if "Alojamiento" in df.columns:
+        df["Alojamiento"] = df["Alojamiento"].astype(str).str.strip()
     for col in ["Fecha alta", "Fecha entrada", "Fecha salida"]:
         if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors="coerce")
+            s = df[col]
+            try:
+                if pd.api.types.is_numeric_dtype(s):
+                    df[col] = pd.to_datetime(s, unit="D", origin="1899-12-30", errors="coerce")
+                else:
+                    df[col] = pd.to_datetime(s, errors="coerce")
+            except Exception:
+                df[col] = pd.to_datetime(df[col], errors="coerce")
+            df[col] = pd.to_datetime(df[col], errors="coerce").dt.normalize()
+    if "Alquiler con IVA (€)" in df.columns:
+        df["Alquiler con IVA (€)"] = pd.to_numeric(df["Alquiler con IVA (€)"], errors="coerce").fillna(0.0)
+    else:
+        df["Alquiler con IVA (€)"] = 0.0
     return df
 
-@st.cache_data(show_spinner=False)
-def get_inventory(df: pd.DataFrame, override: Optional[int]) -> int:
-    if override is not None and override > 0:
-        return int(override)
-    return df["Alojamiento"].nunique()
+# =========================
+# Núcleo KPIs
+# =========================
+def _safe_float(x, default=0.0) -> float:
+    try:
+        v = float(x)
+        return v if math.isfinite(v) else default
+    except Exception:
+        return default
 
-def help_block(kind: str):
-    if kind == "Consulta normal":
-        st.info("Consulta normal: muestra KPIs totales y por alojamiento para el periodo y corte seleccionados.")
-    # Puedes añadir más tipos si quieres
-
-def period_inputs(label_start: str, label_end: str, default_start: date, default_end: date, key_prefix: str) -> Tuple[date, date]:
-    col1, col2 = st.columns(2)
-    start = col1.date_input(label_start, value=default_start, key=f"{key_prefix}_start")
-    end = col2.date_input(label_end, value=default_end, key=f"{key_prefix}_end")
-    return start, end
+def _prep_df(df_all: pd.DataFrame, filter_props: Optional[List[str]] = None) -> pd.DataFrame:
+    if df_all is None or df_all.empty:
+        return pd.DataFrame(columns=["Alojamiento","Fecha alta","Fecha entrada","Fecha salida","Alquiler con IVA (€)"])
+    df = parse_dates(df_all.copy())
+    if filter_props:
+        props_set = set(map(str, filter_props))
+        df = df[df["Alojamiento"].astype(str).isin(props_set)]
+    df = df.dropna(subset=["Fecha entrada", "Fecha salida"])
+    df = df[df["Fecha salida"] > df["Fecha entrada"]].copy()
+    df["los"] = (df["Fecha salida"] - df["Fecha entrada"]).dt.days.clip(lower=1)
+    return df
 
 def compute_kpis(
     df_all: pd.DataFrame,
@@ -66,60 +121,65 @@ def compute_kpis(
     period_end: pd.Timestamp,
     inventory_override: Optional[int] = None,
     filter_props: Optional[List[str]] = None,
-) -> Tuple[pd.DataFrame, dict]:
-    df_cut = df_all[df_all["Fecha alta"] <= cutoff].copy()
-    if filter_props:
-        df_cut = df_cut[df_cut["Alojamiento"].isin(filter_props)]
-    df_cut = df_cut.dropna(subset=["Fecha entrada", "Fecha salida"]).copy()
+) -> Tuple[pd.DataFrame, Dict[str, float]]:
+    df = _prep_df(df_all, filter_props)
+    if df.empty:
+        empty = pd.DataFrame(columns=["Alojamiento", "Noches ocupadas", "Ingresos", "ADR"])
+        return empty, {"noches_ocupadas": 0, "noches_disponibles": 0, "ocupacion_pct": 0.0, "ingresos": 0.0, "adr": 0.0, "revpar": 0.0}
 
-    inv_detected = len(set(filter_props)) if filter_props else df_all["Alojamiento"].nunique()
-    inv_eff = int(inventory_override) if (inventory_override is not None and int(inventory_override) > 0) else int(inv_detected)
-    days = (period_end - period_start).days + 1
-    noches_disponibles = inv_eff * days if days > 0 else 0
+    cutoff = pd.to_datetime(cutoff).normalize()
+    ps = pd.to_datetime(period_start).normalize()
+    pe = pd.to_datetime(period_end).normalize()
 
-    if df_cut.empty:
-        total = {
-            "noches_ocupadas": 0,
-            "noches_disponibles": noches_disponibles,
-            "ocupacion_pct": 0.0,
-            "ingresos": 0.0,
-            "adr": 0.0,
-            "revpar": 0.0,
-        }
-        return pd.DataFrame(columns=["Alojamiento", "Noches ocupadas", "Ingresos", "ADR"]), total
+    df = df[df["Fecha alta"].notna() & (df["Fecha alta"] <= cutoff)]
+    if df.empty:
+        days = max((pe - ps).days + 1, 0)
+        inv_eff = len(set(map(str, filter_props))) if filter_props else df_all["Alojamiento"].astype(str).nunique()
+        noches_disponibles = int(inv_eff) * days if days > 0 else 0
+        empty = pd.DataFrame(columns=["Alojamiento", "Noches ocupadas", "Ingresos", "ADR"])
+        return empty, {"noches_ocupadas": 0, "noches_disponibles": noches_disponibles, "ocupacion_pct": 0.0, "ingresos": 0.0, "adr": 0.0, "revpar": 0.0}
 
-    one_day = np.timedelta64(1, 'D')
-    start_ns = np.datetime64(pd.to_datetime(period_start))
-    end_excl_ns = np.datetime64(pd.to_datetime(period_end) + pd.Timedelta(days=1))
+    one_day = np.timedelta64(1, "D")
+    start_ns = np.datetime64(ps)
+    end_excl_ns = np.datetime64(pe + pd.Timedelta(days=1))
+    arr_e = df["Fecha entrada"].values.astype("datetime64[ns]")
+    arr_s = df["Fecha salida"].values.astype("datetime64[ns]")
 
-    arr_e = df_cut["Fecha entrada"].values.astype('datetime64[ns]')
-    arr_s = df_cut["Fecha salida"].values.astype('datetime64[ns]')
-
-    total_nights = ((arr_s - arr_e) / one_day).astype('int64')
+    total_nights = ((arr_s - arr_e) / one_day).astype("int64")
     total_nights = np.clip(total_nights, 0, None)
 
     ov_start = np.maximum(arr_e, start_ns)
     ov_end = np.minimum(arr_s, end_excl_ns)
-    ov_days = ((ov_end - ov_start) / one_day).astype('int64')
+    ov_days = ((ov_end - ov_start) / one_day).astype("int64")
     ov_days = np.clip(ov_days, 0, None)
 
-    price = df_cut["Alquiler con IVA (€)"].values.astype('float64')
-    with np.errstate(divide='ignore', invalid='ignore'):
+    price = df["Alquiler con IVA (€)"].astype("float64").values
+    with np.errstate(divide="ignore", invalid="ignore"):
         share = np.where(total_nights > 0, ov_days / total_nights, 0.0)
     income = price * share
 
-    props = df_cut["Alojamiento"].astype(str).values
+    props = df["Alojamiento"].astype(str).values
     df_agg = pd.DataFrame({"Alojamiento": props, "Noches": ov_days, "Ingresos": income})
     by_prop = df_agg.groupby("Alojamiento", as_index=False).sum(numeric_only=True)
     by_prop.rename(columns={"Noches": "Noches ocupadas"}, inplace=True)
     by_prop["ADR"] = np.where(by_prop["Noches ocupadas"] > 0, by_prop["Ingresos"] / by_prop["Noches ocupadas"], 0.0)
-    by_prop = by_prop.sort_values("Alojamiento")
+    by_prop = by_prop.sort_values("Ingresos", ascending=False)
 
-    noches_ocupadas = int(by_prop["Noches ocupadas"].sum())
+    noches_ocupadas = float(by_prop["Noches ocupadas"].sum())
     ingresos = float(by_prop["Ingresos"].sum())
-    adr = float(ingresos / noches_ocupadas) if noches_ocupadas > 0 else 0.0
-    ocupacion_pct = (noches_ocupadas / noches_disponibles * 100) if noches_disponibles > 0 else 0.0
-    revpar = ingresos / noches_disponibles if noches_disponibles > 0 else 0.0
+    adr = ingresos / noches_ocupadas if noches_ocupadas > 0 else 0.0
+
+    days = max((pe - ps).days + 1, 0)
+    inv_detected = len(set(map(str, filter_props))) if filter_props else df_all["Alojamiento"].astype(str).nunique()
+    inv_eff = int(inventory_override) if (inventory_override is not None and int(inventory_override) > 0) else int(inv_detected)
+    noches_disponibles = inv_eff * days if days > 0 else 0
+
+    ocupacion_pct = (noches_ocupadas / noches_disponibles * 100.0) if noches_disponibles > 0 else 0.0
+    revpar = (ingresos / noches_disponibles) if noches_disponibles > 0 else 0.0
+
+    for col in ["Alojamiento", "Noches ocupadas", "Ingresos", "ADR"]:
+        if col not in by_prop.columns:
+            by_prop[col] = 0
 
     tot = {
         "noches_ocupadas": noches_ocupadas,
@@ -129,13 +189,11 @@ def compute_kpis(
         "adr": adr,
         "revpar": revpar,
     }
-    # Asegura que las columnas existen en el DataFrame de salida
-    for col in ["Alojamiento", "Noches ocupadas", "Ingresos", "ADR"]:
-        if col not in by_prop.columns:
-            by_prop[col] = 0
-
     return by_prop, tot
 
+# =========================
+# Mix por portal (prorrateo simple)
+# =========================
 def compute_portal_share(
     df_all: pd.DataFrame,
     cutoff: pd.Timestamp,
@@ -143,26 +201,54 @@ def compute_portal_share(
     period_end: pd.Timestamp,
     filter_props: Optional[List[str]] = None,
     portal_col: str = "Agente/Intermediario",
-) -> Optional[pd.DataFrame]:
-    if portal_col not in df_all.columns:
-        return None
-    df_cut = df_all[df_all["Fecha alta"] <= cutoff].copy()
-    if filter_props:
-        df_cut = df_cut[df_cut["Alojamiento"].isin(filter_props)]
-    df_cut = df_cut.dropna(subset=["Fecha entrada", "Fecha salida"]).copy()
-    df_cut = df_cut[
-        (df_cut["Fecha entrada"] <= period_end) & (df_cut["Fecha salida"] >= period_start)
-    ]
-    if df_cut.empty:
-        return pd.DataFrame(columns=["Portal", "Reservas", "% Reservas"])
-    portal_counts = df_cut[portal_col].value_counts().reset_index()
-    portal_counts.columns = ["Portal", "Reservas"]
-    portal_counts["% Reservas"] = portal_counts["Reservas"] / portal_counts["Reservas"].sum() * 100
+) -> pd.DataFrame:
+    if df_all is None or df_all.empty or portal_col not in df_all.columns:
+        return pd.DataFrame(columns=["Portal","Reservas","% Reservas","Noches","Ingresos"])
+    df = _prep_df(df_all, filter_props)
+    if df.empty:
+        return pd.DataFrame(columns=["Portal","Reservas","% Reservas","Noches","Ingresos"])
+    cutoff = pd.to_datetime(cutoff).normalize()
+    ps = pd.to_datetime(period_start).normalize()
+    pe = pd.to_datetime(period_end).normalize()
+    df = df[(df["Fecha alta"].notna()) & (df["Fecha alta"] <= cutoff)]
+    if df.empty:
+        return pd.DataFrame(columns=["Portal","Reservas","% Reservas","Noches","Ingresos"])
 
-    return portal_counts
+    # Overlap por reserva (prorrateo por noches/ingresos dentro del periodo)
+    one_day = np.timedelta64(1, "D")
+    start_ns = np.datetime64(ps)
+    end_excl_ns = np.datetime64(pe + pd.Timedelta(days=1))
+    arr_e = df["Fecha entrada"].values.astype("datetime64[ns]")
+    arr_s = df["Fecha salida"].values.astype("datetime64[ns]")
 
+    total_nights = ((arr_s - arr_e) / one_day).astype("int64")
+    total_nights = np.clip(total_nights, 0, None)
+    ov_start = np.maximum(arr_e, start_ns)
+    ov_end = np.minimum(arr_s, end_excl_ns)
+    ov_days = ((ov_end - ov_start) / one_day).astype("int64")
+    ov_days = np.clip(ov_days, 0, None)
+
+    price = df["Alquiler con IVA (€)"].astype("float64").values
+    with np.errstate(divide="ignore", invalid="ignore"):
+        share = np.where(total_nights > 0, ov_days / total_nights, 0.0)
+    income = price * share
+
+    portal = df[portal_col].astype(str).values
+    d = pd.DataFrame({"Portal": portal, "Noches": ov_days, "Ingresos": income})
+    res = d.groupby("Portal", as_index=False).sum(numeric_only=True)
+    # “Reservas” aproximadas: contar filas con aporte >0
+    res_cnt = pd.Series(portal)[ov_days > 0]
+    res_cnt = res_cnt.value_counts().rename_axis("Portal").reset_index(name="Reservas")
+    res = res.merge(res_cnt, on="Portal", how="left").fillna({"Reservas": 0})
+    total_res = max(int(res["Reservas"].sum()), 1)
+    res["% Reservas"] = res["Reservas"] / total_res * 100.0
+    res = res[["Portal","Reservas","% Reservas","Noches","Ingresos"]].sort_values("Ingresos", ascending=False)
+    return res
+
+# =========================
+# Pace y Forecast P50
+# =========================
 def _pace_get(d: dict, keys: list, default=0.0):
-    """Devuelve d[k] usando alias posibles."""
     if not isinstance(d, dict):
         return default
     for k in keys:
@@ -178,22 +264,13 @@ def pace_series(
     props: Optional[List[str]] = None,
     inv_override: Optional[int] = None,
 ) -> pd.DataFrame:
-    """
-    Serie base de Pace: noches confirmadas por D (días entre alta y entrada).
-    """
-    if df is None or df.empty:
+    dfx = _prep_df(df, props)
+    if dfx.empty:
         return pd.DataFrame(columns=["D", "noches"])
-    dfx = df.copy()
-    dfx = dfx.dropna(subset=["Fecha alta", "Fecha entrada", "Fecha salida"])
-    if props:
-        dfx = dfx[dfx["Alojamiento"].isin(props)]
-    # Filtrar reservas que impactan en el periodo (por fecha de entrada)
     dfx = dfx[(dfx["Fecha entrada"] >= pd.to_datetime(period_start)) & (dfx["Fecha entrada"] <= pd.to_datetime(period_end))]
     if dfx.empty:
         return pd.DataFrame(columns=["D", "noches"])
-    dfx["D"] = (dfx["Fecha entrada"].dt.normalize() - dfx["Fecha alta"].dt.normalize()).dt.days
-    dfx["D"] = dfx["D"].clip(lower=0, upper=int(d_max))
-    dfx["los"] = (dfx["Fecha salida"].dt.normalize() - dfx["Fecha entrada"].dt.normalize()).dt.days.clip(lower=1)
+    dfx["D"] = (dfx["Fecha entrada"] - dfx["Fecha alta"]).dt.days.clip(lower=0, upper=int(d_max))
     out = dfx.groupby("D", as_index=False)["los"].sum().rename(columns={"los": "noches"}).sort_values("D")
     return out
 
@@ -207,13 +284,9 @@ def pace_forecast_month(
     props: Optional[List[str]] = None,
     inv_override: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """
-    Forecast simple estilo P50: usa años anteriores para estimar pickup típico pendiente.
-    """
     if df is None or df.empty:
         return {}
 
-    # Actual OTB en el corte
     _, tot_now = compute_kpis(
         df_all=df,
         cutoff=pd.to_datetime(cutoff),
@@ -226,34 +299,17 @@ def pace_forecast_month(
     ingresos_otb = float(tot_now.get("ingresos", 0.0))
     adr_now = float(tot_now.get("adr", 0.0))
 
-    # Construye pickup típico usando ref_years años anteriores
-    pickups = []
-    adr_tails = []
+    pickups, adr_tails = [], []
     for y in range(1, int(ref_years) + 1):
         p_start_y = pd.to_datetime(period_start) - pd.DateOffset(years=y)
         p_end_y   = pd.to_datetime(period_end) - pd.DateOffset(years=y)
         cut_y     = pd.to_datetime(cutoff) - pd.DateOffset(years=y)
-        # OTB a ese corte en LY-y
-        _, tot_cut_y = compute_kpis(
-            df_all=df,
-            cutoff=cut_y,
-            period_start=p_start_y,
-            period_end=p_end_y,
-            inventory_override=None,
-            filter_props=props if props else None,
-        )
-        # Final LY-y (corte = fin de periodo)
-        _, tot_final_y = compute_kpis(
-            df_all=df,
-            cutoff=p_end_y,  # para cierre LY, usamos corte = fin del periodo LY
-            period_start=p_start_y,
-            period_end=p_end_y,
-            inventory_override=None,
-            filter_props=props if props else None,
-        )
+
+        _, tot_cut_y = compute_kpis(df_all=df, cutoff=cut_y, period_start=p_start_y, period_end=p_end_y, inventory_override=None, filter_props=props if props else None)
+        _, tot_final_y = compute_kpis(df_all=df, cutoff=p_end_y, period_start=p_start_y, period_end=p_end_y, inventory_override=None, filter_props=props if props else None)
+
         pick_y = float(tot_final_y.get("noches_ocupadas", 0.0) - tot_cut_y.get("noches_ocupadas", 0.0))
         pickups.append(max(pick_y, 0.0))
-        # ADR tail aproximado: usamos ADR LY final como referencia
         adr_tails.append(float(tot_final_y.get("adr", 0.0)))
 
     def p50(arr):
@@ -278,84 +334,17 @@ def pace_forecast_month(
         "revenue_final_p50": revenue_final_p50,
     }
 
-def _kai_cdm_pro_analysis(
-    tot_now: dict,
-    tot_ly_cut: dict,
-    tot_ly_final: dict,
-    pace: dict,
-    price_ref_p50: float = None
-) -> str:
-    """
-    Semáforo y análisis (robusto, acepta alias de claves y no falla si faltan datos).
-    """
-    # Leer pace con alias de claves
-    n_otb = float(_pace_get(pace, ["nights_otb", "otb_nights", "otb", "noches_otb"], 0.0))
-    n_p50 = float(_pace_get(pace, ["nights_p50", "forecast_nights_p50", "p50_nights"], 0.0))
-    pick_typ50 = float(_pace_get(pace, ["pickup_typ_p50", "p50_pickup_typ", "pickup_typical_p50"], 0.0))
-    pick_need = float(_pace_get(pace, ["pickup_needed_p50", "p50_pickup_needed", "pickup_need_p50"], 0.0))
-    adr_tail_p50 = float(_pace_get(pace, ["adr_tail_p50", "p50_adr_tail", "adr_typ_tail_p50"], 0.0))
-    rev_final_p50 = float(_pace_get(pace, ["revenue_final_p50", "rev_final_p50", "p50_revenue_final"], 0.0))
-
-    # Estado pace
-    pace_state = "—"
-    expected_otb_typ = max(n_p50 - pick_typ50, 0.0)
-    if expected_otb_typ > 0 and n_otb > 0:
-        ratio = n_otb / expected_otb_typ
-        if ratio >= 1.10:
-            pace_state = "🟢 Adelantado"
-        elif ratio <= 0.90:
-            pace_state = "🔴 Retrasado"
-        else:
-            pace_state = "🟠 En línea"
-
-    # Mensaje
-    msg = ""
-    if pace_state == "🟢 Adelantado":
-        msg += "### 🟢 Adelantado\n"
-        msg += "Buen ritmo de reservas respecto a años anteriores. Mantén la estrategia y monitoriza el pickup restante.\n"
-        if pick_need > pick_typ50 * 1.2:
-            msg += "- Aún queda pickup elevado. Refuerza acciones de venta para asegurar el cierre.\n"
-    elif pace_state == "🟠 En línea":
-        msg += "### 🟠 En línea\n"
-        msg += "Ritmo de reservas en línea con años anteriores. Revisa pickup y ADR por si necesitas ajustes.\n"
-        if adr_tail_p50 < float(tot_ly_cut.get("adr", 0.0)) * 0.95:
-            msg += "- ADR previsto por debajo de LY. Considera revisar precios.\n"
-    elif pace_state == "🔴 Retrasado":
-        msg += "### 🔴 Retrasado\n"
-        msg += "Ritmo retrasado. Considera acciones urgentes: promos, campañas o ajustes de precios.\n"
-        if pick_need > pick_typ50:
-            msg += "- Pickup pendiente elevado. Refuerza captación y canales.\n"
-        if adr_tail_p50 < float(tot_ly_cut.get("adr", 0.0)) * 0.95:
-            msg += "- ADR previsto por debajo de LY. Considera bajar precios/ofertas.\n"
-    else:
-        msg += "No hay suficiente información para evaluar el ritmo de reservas.\n"
-
-    # Resumen visual y KPIs
-    msg += f"\n**Estado actual:** {pace_state}\n"
-    msg += f"- Pickup pendiente objetivo: **{pick_need:,.0f} noches**\n"
-    msg += f"- ADR previsto (P50): **{adr_tail_p50:.2f} €**\n"
-    msg += f"- Forecast ingresos (P50): **{rev_final_p50:.2f} €**\n"
-    msg += "\n**KPIs actuales:**\n"
-    msg += f"- Ocupación actual: **{float(tot_now.get('ocupacion_pct', 0.0)):.2f}%**\n"
-    msg += f"- ADR actual: **{float(tot_now.get('adr', 0.0)):.2f} €**\n"
-    msg += f"- Ingresos actuales: **{float(tot_now.get('ingresos', 0.0)):.2f} €**\n"
-    return msg
-
-def _safe(v, default=0.0):
-    try:
-        x = float(v)
-        return x if math.isfinite(x) else default
-    except Exception:
-        return default
-
+# =========================
+# Explicación ejecutiva
+# =========================
 def _pct_delta(cur: float, ref: float) -> float:
-    cur, ref = _safe(cur), _safe(ref)
+    cur, ref = _safe_float(cur), _safe_float(ref)
     if ref == 0:
         return 0.0
     return (cur - ref) / ref * 100.0
 
 def _pp_delta(cur_pct: float, ref_pct: float) -> float:
-    return _safe(cur_pct) - _safe(ref_pct)
+    return _safe_float(cur_pct) - _safe_float(ref_pct)
 
 def pro_exec_summary(
     tot_now: Dict[str, float],
@@ -363,50 +352,34 @@ def pro_exec_summary(
     tot_ly_final: Dict[str, float],
     pace: Dict[str, Any],
 ) -> Dict[str, str]:
-    """
-    Devuelve {'headline': ..., 'detail': ...} con un análisis ejecutivo y plan de acción.
-    - tot_now / tot_ly_*: dicts de compute_kpis
-    - pace: dict de pace_forecast_month (usa alias si faltan claves)
-    """
-    # Lecturas básicas
-    occ_now = _safe(tot_now.get("ocupacion_pct", 0))
-    adr_now = _safe(tot_now.get("adr", 0))
-    rev_now = _safe(tot_now.get("ingresos", 0))
+    occ_now = _safe_float(tot_now.get("ocupacion_pct", 0))
+    adr_now = _safe_float(tot_now.get("adr", 0))
+    rev_now = _safe_float(tot_now.get("ingresos", 0))
+    occ_ly = _safe_float(tot_ly_cut.get("ocupacion_pct", 0))
+    adr_ly = _safe_float(tot_ly_cut.get("adr", 0))
+    rev_ly = _safe_float(tot_ly_cut.get("ingresos", 0))
+    rev_ly_final = _safe_float(tot_ly_final.get("ingresos", 0))
 
-    occ_ly = _safe(tot_ly_cut.get("ocupacion_pct", 0))
-    adr_ly = _safe(tot_ly_cut.get("adr", 0))
-    rev_ly = _safe(tot_ly_cut.get("ingresos", 0))
-
-    rev_ly_final = _safe(tot_ly_final.get("ingresos", 0))
-
-    # RevPAR aproximado
     revpar_now = adr_now * occ_now / 100.0
     revpar_ly = adr_ly * occ_ly / 100.0
 
-    # Deltas
     d_occ_pp = _pp_delta(occ_now, occ_ly)
     d_adr_pct = _pct_delta(adr_now, adr_ly)
     d_revpar_pct = _pct_delta(revpar_now, revpar_ly)
     d_revenue_pct = _pct_delta(rev_now, rev_ly)
 
-    # Pace (alias seguros)
     def g(d, keys, default=0.0):
         if not isinstance(d, dict): return default
         for k in keys:
-            if k in d and d[k] is not None: return _safe(d[k], default)
+            if k in d and d[k] is not None: return _safe_float(d[k], default)
         return default
 
     rev_final_p50 = g(pace, ["revenue_final_p50", "rev_final_p50", "p50_revenue_final"], rev_now)
-    pick_typ50 = g(pace, ["pickup_typ_p50", "p50_pickup_typ", "pickup_typical_p50"], 0.0)
-    adr_tail_p50 = g(pace, ["adr_tail_p50", "p50_adr_tail", "adr_typ_tail_p50"], adr_now)
-
-    # Gap de cierre vs LY final usando forecast P50
     gap_rev = rev_ly_final - rev_final_p50
-    cobertura_pct = _pct_delta(rev_final_p50, rev_ly_final) + 100 if rev_ly_final > 0 else 0.0
+    cobertura_pct = (rev_final_p50 / rev_ly_final * 100.0) if rev_ly_final > 0 else 0.0
     gap_txt = f"Faltan {gap_rev:,.0f} €" if gap_rev > 0 else f"Superas LY final en {abs(gap_rev):,.0f} €"
     gap_txt = gap_txt.replace(",", ".")
 
-    # Veredicto en función de d_occ y d_adr
     if d_adr_pct < -3 and d_occ_pp > 2:
         verdict = "Estamos comprando volumen barato"
     elif d_adr_pct > 3 and d_occ_pp < -2:
@@ -418,58 +391,93 @@ def pro_exec_summary(
     else:
         verdict = "Rendimiento mixto"
 
-    # Atribución simple del RevPAR
-    atrib_occ_pp = d_occ_pp
-    atrib_adr_pp = d_adr_pct  # mostramos como p.p. de precio relativo, se explica en texto
+    actions = []
+    if d_adr_pct < -3: actions += ["Revisar y retirar descuentos de baja conversión.", "Micro-rebajas en días valle."]
+    if d_occ_pp < 0:  actions += ["Boost de demanda: visibilidad OTAs y campañas directas."]
+    if d_adr_pct > 3 and d_occ_pp < 0: actions += ["Mantener precios en picos, test A/B en días flojos."]
+    if not actions:
+        actions = ["Monitorizar pickup semanal.", "Ajustar presupuesto a canales de mejor conversión."]
 
-    # Viabilidad de cierre (heurística usando pickup y ADR tail)
-    if gap_rev <= 0:
-        viab = "Gap cubierto con el forecast P50."
-    else:
-        est_cob = pick_typ50 * adr_tail_p50
-        ratio = est_cob / gap_rev if gap_rev > 0 else 1.0
-        if ratio >= 1.0:
-            viab = "Con P50 (pickup × ADR tail) se cubriría el gap."
-        elif ratio >= 0.7:
-            viab = "Cobertura estimada ≈ alta (≥70%). Requiere ejecutar bien el pickup."
-        else:
-            viab = "Cobertura estimada insuficiente. Hay que activar demanda y/o ajustar precios."
-
-    # Plan de acción
-    acciones = []
-    if d_adr_pct < -3:
-        acciones.append("Revisar y retirar descuentos de baja conversión.")
-        acciones.append("Micro-rebajas quirúrgicas en días valle (LT corto).")
-    if d_occ_pp < 0:
-        acciones.append("Boost de demanda: visibilidad OTAs, campañas directas, partners.")
-    if d_adr_pct > 3 and d_occ_pp < 0:
-        acciones.append("Mantener precios en picos, test A/B de precio en días flojos.")
-    if not acciones:
-        acciones = [
-            "Monitorizar pickup semanal y mantener pricing en fines de semana/eventos.",
-            "Reasignar presupuesto a canales con mejor conversión."
-        ]
-
-    # Build headline + detail
-    headline = f"🌸 Explicación ejecutiva (narrada)\n\n" \
-               f"• Veredicto general: {verdict}\n\n" \
-               f"• Evolución vs LY (a este corte) → Ocupación {d_occ_pp:+.1f} p.p., ADR {d_adr_pct:+.1f}%, RevPAR {d_revpar_pct:+.1f}%, Ingresos {d_revenue_pct:+.1f}%.\n" \
-               f"• Viabilidad de cierre del gap → {gap_txt} · Cobertura estimada P50 ≈ {cobertura_pct:.0f}%."
-
-    detail = (
-        "### 👉 Ver análisis detallado\n"
-        f"- Ocupación: {'🟢' if d_occ_pp>=0 else '🔴'} {d_occ_pp:+.1f} p.p.\n"
-        f"- ADR: {'🟢' if d_adr_pct>=0 else '🔴'} {d_adr_pct:+.1f}%\n"
-        f"- RevPAR: {'🟢' if d_revpar_pct>=0 else '🔴'} {d_revpar_pct:+.1f}%\n"
-        f"- Ingresos: {'🟢' if d_revenue_pct>=0 else '🔴'} {d_revenue_pct:+.1f}%\n\n"
-        "#### Qué explica el resultado (atribución RevPAR)\n"
-        f"- Ocupación: {atrib_occ_pp:+.1f} p.p.\n"
-        f"- ADR: {atrib_adr_pp:+.1f}% (precio medio)\n\n"
-        "#### Viabilidad de cierre del gap\n"
-        f"- " + viab + "\n"
-        f"- " + gap_txt + f" · Cobertura estimada ≈ {cobertura_pct:.0f}%.\n\n"
-        "#### Plan de acción (siguiente quincena)\n"
-        + "".join([f"- {a}\n" for a in acciones])
+    headline = (
+        "🌸 Explicación ejecutiva (narrada)\n\n"
+        f"• Veredicto general: {verdict}\n\n"
+        f"• Evolución vs LY → Ocupación {d_occ_pp:+.1f} p.p., ADR {d_adr_pct:+.1f}%, "
+        f"RevPAR {d_revpar_pct:+.1f}%, Ingresos {d_revenue_pct:+.1f}%.\n"
+        f"• Viabilidad → {gap_txt} · Cobertura P50 ≈ {cobertura_pct:.0f}%."
     )
-
+    detail = (
+        "### 👉 Detalle\n"
+        f"- Ocupación: {d_occ_pp:+.1f} p.p.\n"
+        f"- ADR: {d_adr_pct:+.1f}%\n"
+        f"- RevPAR: {d_revpar_pct:+.1f}%\n"
+        f"- Ingresos: {d_revenue_pct:+.1f}%\n\n"
+        "#### Plan de acción (próx. 15 días)\n"
+        + "".join([f"- {a}\n" for a in actions])
+    )
     return {"headline": headline, "detail": detail}
+
+def _kai_cdm_pro_analysis(
+    tot_now: Dict[str, float],
+    tot_ly_cut: Dict[str, float],
+    tot_ly_final: Dict[str, float],
+    pace: Dict[str, Any],
+    price_ref_p50: float | None = None,
+) -> str:
+    """Bloque técnico de semáforos (Markdown) para Cuadro de mando PRO."""
+    def g(d: Dict[str, Any], k: str, default=0.0) -> float:
+        try:
+            v = float(d.get(k, default))
+            return v if math.isfinite(v) else default
+        except Exception:
+            return default
+
+    occ_now = g(tot_now, "ocupacion_pct")
+    adr_now = g(tot_now, "adr")
+    rev_now = g(tot_now, "ingresos")
+
+    occ_ly = g(tot_ly_cut, "ocupacion_pct")
+    adr_ly = g(tot_ly_cut, "adr")
+    rev_ly = g(tot_ly_cut, "ingresos")
+
+    rev_ly_final = g(tot_ly_final, "ingresos")
+
+    # Deltas
+    d_occ_pp = occ_now - occ_ly
+    d_adr_pct = (adr_now - adr_ly) / adr_ly * 100.0 if adr_ly > 0 else 0.0
+    d_rev_pct = (rev_now - rev_ly) / rev_ly * 100.0 if rev_ly > 0 else 0.0
+
+    # Forecast P50 si está disponible
+    rev_final_p50 = 0.0
+    if isinstance(pace, dict):
+        for k in ["revenue_final_p50", "rev_final_p50", "p50_revenue_final"]:
+            if k in pace and pace[k] is not None:
+                try:
+                    rev_final_p50 = float(pace[k])
+                    break
+                except Exception:
+                    pass
+
+    gap_rev = rev_ly_final - rev_final_p50
+    gap_txt = ("🟥 Gap vs LY final: faltan " + f"{gap_rev:,.0f} €".replace(",", ".")
+               ) if gap_rev > 0 else ("🟩 Gap cubierto: +" + f"{abs(gap_rev):,.0f} €".replace(",", "."))
+
+    def sig(v: float) -> str:
+        return f"{v:+.1f}" if abs(v) < 1000 else f"{v:+,.0f}".replace(",", ".")
+
+    block = (
+        "### 🚦 Semáforos técnicos\n"
+        f"- Ocupación vs LY: {'🟩' if d_occ_pp >= 0 else '🟥'} {d_occ_pp:+.1f} p.p.\n"
+        f"- ADR vs LY: {'🟩' if d_adr_pct >= 0 else '🟥'} {d_adr_pct:+.1f}%\n"
+        f"- Ingresos vs LY: {'🟩' if d_rev_pct >= 0 else '🟥'} {d_rev_pct:+.1f}%\n"
+        f"- {gap_txt}\n"
+    )
+    # Pistas de actuación rápidas
+    hints = []
+    if d_adr_pct < -3 and d_occ_pp > 1:
+        hints.append("Sube precios de forma gradual en días pico; evita descuentos agresivos.")
+    if d_occ_pp < -1:
+        hints.append("Activa demanda: mejora visibilidad OTA y lanza campañas directas a corto plazo.")
+    if not hints:
+        hints.append("Mantén pricing en picos y revisa días valle con microajustes.")
+    block += "\n".join([f"  • {h}" for h in hints])
+    return block

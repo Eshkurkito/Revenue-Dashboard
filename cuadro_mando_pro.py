@@ -1,97 +1,265 @@
-import streamlit as st
+from pathlib import Path
+import json
 import pandas as pd
 import numpy as np
+import streamlit as st
 import altair as alt
 from datetime import date
+
 from utils import (
     compute_kpis, period_inputs, group_selector, help_block,
     pace_series, pace_forecast_month, save_group_csv, load_groups,
     _kai_cdm_pro_analysis,
 )
 
-def render_cuadro_mando_pro(raw):
-    if raw is None:
+def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+    norm = {c: str(c).lower() for c in df.columns}
+    def find(*cands):
+        for col, n in norm.items():
+            for c in cands:
+                if n == c or c in n:
+                    return col
+        return None
+    mapping = {}
+    col_aloj = find("alojamiento", "propiedad", "property", "listing", "unidad", "apartamento", "room", "unit")
+    if col_aloj: mapping[col_aloj] = "Alojamiento"
+    col_fa = find("fecha alta", "fecha de alta", "booking date", "fecha reserva", "creado", "created", "booked")
+    if col_fa: mapping[col_fa] = "Fecha alta"
+    col_fe = find("fecha entrada", "check in", "entrada", "arrival")
+    if col_fe: mapping[col_fe] = "Fecha entrada"
+    col_fs = find("fecha salida", "check out", "salida", "departure")
+    if col_fs: mapping[col_fs] = "Fecha salida"
+    col_rev = find("alquiler con iva (€)", "alquiler con iva", "ingresos", "revenue", "importe", "total", "precio total")
+    if col_rev: mapping[col_rev] = "Alquiler con IVA (€)"
+    return df.rename(columns=mapping) if mapping else df
+
+def _load_saved_groups(props_all: list[str]) -> dict[str, list[str]]:
+    mod_dir = Path(__file__).resolve().parent
+    candidates = [
+        mod_dir / "grupos_guardados.csv",
+        mod_dir / "assets" / "grupos_guardados.csv",
+        Path.cwd() / "grupos_guardados.csv",
+        Path.cwd() / "assets" / "grupos_guardados.csv",
+    ]
+    path = next((p for p in candidates if p.exists()), None)
+    if not path:
+        return {}
+
+    for enc in ("utf-8", "utf-8-sig", "cp1252", "latin-1"):
+        try:
+            dfg = pd.read_csv(path, encoding=enc)
+            break
+        except Exception:
+            dfg = None
+    if dfg is None or dfg.empty:
+        return {}
+
+    dfg.columns = [str(c).strip().lower() for c in dfg.columns]
+    if not {"grupo", "alojamiento"}.issubset(dfg.columns):
+        return {}
+
+    dfg = dfg.dropna(subset=["grupo", "alojamiento"]).astype(str)
+    dfg["grupo"] = dfg["grupo"].str.strip()
+    dfg["alojamiento"] = dfg["alojamiento"].str.strip()
+
+    props_map = {str(p).strip().upper(): str(p) for p in props_all}
+    def map_prop(p: str) -> str | None:
+        return props_map.get(str(p).strip().upper())
+
+    groups: dict[str, list[str]] = {}
+    for g, sub in dfg.groupby("grupo"):
+        mapped = [mp for p in sub["alojamiento"].tolist() if (mp := map_prop(p))]
+        if mapped:
+            groups[g] = sorted(dict.fromkeys(mapped))
+    return groups
+
+def _weighted_quantile(values: np.ndarray, weights: np.ndarray, qs=(0.1, 0.5, 0.9)) -> dict:
+    if values.size == 0 or np.nansum(weights) <= 0:
+        return {"P10": 0.0, "Mediana": 0.0, "P90": 0.0}
+    m = ~np.isnan(values)
+    v = values[m]
+    w = weights[m]
+    if v.size == 0 or np.nansum(w) <= 0:
+        return {"P10": 0.0, "Mediana": 0.0, "P90": 0.0}
+    order = np.argsort(v)
+    v = v[order]
+    w = w[order]
+    cw = np.cumsum(w)
+    cw = cw / cw[-1]
+    res = {}
+    for q, name in zip(qs, ["P10", "Mediana", "P90"]):
+        idx = np.searchsorted(cw, q, side="left")
+        idx = min(idx, v.size - 1)
+        res[name] = float(v[idx])
+    return res
+
+def _compute_adr_bands_period_prorate(df: pd.DataFrame, period_start, period_end, cutoff) -> pd.Series:
+    """
+    Bandas ADR (P10/Mediana/P90) para TODO el periodo usando noches prorrateadas:
+    - Solo reservas con Fecha alta <= cutoff.
+    - Se prorratea el ingreso por noche y se cuentan solo las noches que caen dentro del periodo.
+    """
+    if df is None or df.empty:
+        return pd.Series({"P10": 0.0, "Mediana": 0.0, "P90": 0.0})
+
+    start_dt = pd.to_datetime(period_start)
+    end_dt = pd.to_datetime(period_end)
+    cut_dt = pd.to_datetime(cutoff)
+    end_inclusive = end_dt + pd.Timedelta(days=1)  # para incluir la noche del último día
+
+    cols_needed = {"Fecha alta", "Fecha entrada", "Fecha salida", "Alquiler con IVA (€)"}
+    if not cols_needed.issubset(set(df.columns)):
+        return pd.Series({"P10": 0.0, "Mediana": 0.0, "P90": 0.0})
+
+    dfx = (
+        df[(df["Fecha alta"] <= cut_dt)]
+        .dropna(subset=["Fecha entrada", "Fecha salida", "Alquiler con IVA (€)"])
+        .copy()
+    )
+    if dfx.empty:
+        return pd.Series({"P10": 0.0, "Mediana": 0.0, "P90": 0.0})
+
+    # Normaliza a días completos
+    s_all = dfx["Fecha entrada"].dt.normalize()
+    e_all = dfx["Fecha salida"].dt.normalize()
+
+    los_total = (e_all - s_all).dt.days.clip(lower=1)
+    nightly_rate = (dfx["Alquiler con IVA (€)"] / los_total).astype(float)
+
+    # Tramo de noches dentro del periodo
+    seg_start = np.maximum(s_all.values.astype("datetime64[D]"), start_dt.normalize().to_datetime64())
+    seg_end = np.minimum(e_all.values.astype("datetime64[D]"), end_inclusive.normalize().to_datetime64())
+    nights_in = (seg_end - seg_start).astype("timedelta64[D]").astype(int)
+
+    mask = nights_in > 0
+    if not np.any(mask):
+        return pd.Series({"P10": 0.0, "Mediana": 0.0, "P90": 0.0})
+
+    values = nightly_rate.values[mask]
+    weights = nights_in[mask].astype(float)
+
+    q = _weighted_quantile(values, weights, qs=(0.1, 0.5, 0.9))
+    return pd.Series(q)
+
+def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
+    # --- validación ---
+    if not isinstance(raw, pd.DataFrame) or raw.empty:
+        st.info("No hay datos cargados. Sube un Excel/CSV en la barra lateral para usar PRO.")
         st.stop()
 
+    df = raw.copy()
+    if "Alojamiento" not in df.columns:
+        st.warning("No se encuentra la columna ‘Alojamiento’.")
+        st.stop()
+
+    df["Alojamiento"] = df["Alojamiento"].astype(str)
+    props_all = sorted(df["Alojamiento"].dropna().unique())
+
     with st.sidebar:
-        st.header("Parámetros – PRO")
-        pro_cut = st.date_input("Fecha de corte", value=date.today(), key="pro_cut")
-        pro_start, pro_end = period_inputs(
-            "Inicio del periodo", "Fin del periodo",
-            date(date.today().year, date.today().month, 1),
-            date.today(),
-            "pro_period"
-        )
-        inv_pro = st.number_input("Inventario actual (opcional)", min_value=0, value=0, step=1, key="pro_inv")
-        inv_pro_ly = st.number_input("Inventario LY (opcional)", min_value=0, value=0, step=1, key="pro_inv_ly")
-        ref_years_pro = st.slider("Años de referencia Pace", min_value=1, max_value=3, value=2, key="pro_ref_years")
+        st.subheader("Parámetros · PRO")
 
-        st.header("Gestión de grupos")
-        groups = load_groups()
-        group_names = ["Ninguno"] + sorted(list(groups.keys()))
-        selected_group = st.selectbox("Grupo guardado", group_names)
+        c1, c2 = st.columns(2)
+        pro_start = c1.date_input("Inicio periodo", value=date.today().replace(day=1), key="pro_start")
+        pro_end   = c2.date_input("Fin periodo", value=date.today(), key="pro_end")
+        pro_cut   = st.date_input("Fecha de corte", value=date.today(), key="pro_cut")
 
-        if selected_group and selected_group != "Ninguno":
-            props_pro = groups[selected_group]
-            if st.button(f"Eliminar grupo '{selected_group}'"):
-                df_groups = pd.read_csv("grupos_guardados.csv")
-                df_groups = df_groups[df_groups["Grupo"] != selected_group]
-                df_groups.to_csv("grupos_guardados.csv", index=False)
-                st.success(f"Grupo '{selected_group}' eliminado.")
-                st.experimental_rerun()
-        else:
-            props_pro = group_selector(
-                "Alojamientos (opcional)",
-                sorted([str(x) for x in raw["Alojamiento"].dropna().unique()]),
-                key_prefix="pro_props",
-                default=[]
+        # --- Grupos guardados (siempre visible) ---
+        groups = _load_saved_groups(props_all)
+        group_names = ["(Sin grupo)"] + sorted(groups.keys())
+
+        # Estado inicial y saneo si el grupo guardado ya no existe
+        if "pro_group" not in st.session_state:
+            st.session_state.pro_group = "(Sin grupo)"
+        if "pro_props" not in st.session_state:
+            st.session_state.pro_props = []
+        if st.session_state.pro_group not in group_names:
+            st.session_state.pro_group = "(Sin grupo)"
+            st.session_state.pro_props = []
+
+        # Al cambiar de grupo, actualiza los alojamientos seleccionados
+        def _on_group_change():
+            g = st.session_state.get("pro_group")
+            st.session_state["pro_props"] = (
+                groups.get(g, []) if g and g != "(Sin grupo)" else []
             )
+            # No llames a st.rerun() aquí; Streamlit ya re‑ejecuta automáticamente
 
-        group_name = st.text_input("Nombre del grupo para guardar")
-        if st.button("Guardar grupo de pisos") and group_name and props_pro:
-            save_group_csv(group_name, props_pro)
-            st.success(f"Grupo '{group_name}' guardado.")
+        st.selectbox("Grupo guardado", group_names, key="pro_group", on_change=_on_group_change)
 
-    st.subheader("📊 Cuadro de mando (PRO)")
+        # Multiselect toma su valor de session_state["pro_props"]
+        props_pro = st.multiselect("Alojamientos", options=props_all, key="pro_props")
 
-    # KPIs actuales y LY
+        c3, c4 = st.columns(2)
+        inv_pro    = c3.number_input("Inventario actual", min_value=0, value=0, step=1, key="inv_pro")
+        inv_pro_ly = c4.number_input("Inventario LY",     min_value=0, value=0, step=1, key="inv_pro_ly")
+        ref_years_pro = st.selectbox("Años de referencia (Pace)", options=[1, 2, 3], index=0, key="ref_years_pro")
+
+    # --- Filtro por alojamientos seleccionados ---
+    selected_props = st.session_state.get("pro_props") or []
+    if selected_props:
+        df = df[df["Alojamiento"].isin(selected_props)]
+
+    # ========= KPIs (usa las variables definidas arriba) =========
     by_prop_now, tot_now = compute_kpis(
-        raw,
+        df,
         pd.to_datetime(pro_cut),
         pd.to_datetime(pro_start),
         pd.to_datetime(pro_end),
         int(inv_pro) if inv_pro > 0 else None,
-        props_pro if props_pro else None,
+        props_pro,
     )
     _, tot_ly_cut = compute_kpis(
-        raw,
+        df,
         pd.to_datetime(pro_cut) - pd.DateOffset(years=1),
         pd.to_datetime(pro_start) - pd.DateOffset(years=1),
         pd.to_datetime(pro_end) - pd.DateOffset(years=1),
         int(inv_pro_ly) if inv_pro_ly > 0 else None,
-        props_pro if props_pro else None,
+        props_pro,
     )
     cutoff_ly_final = pd.to_datetime(pro_end) - pd.DateOffset(years=1)
     _, tot_ly_final = compute_kpis(
-        raw,
+        df,
         cutoff_ly_final,
         pd.to_datetime(pro_start) - pd.DateOffset(years=1),
         pd.to_datetime(pro_end) - pd.DateOffset(years=1),
         int(inv_pro_ly) if inv_pro_ly > 0 else None,
-        props_pro if props_pro else None,
+        props_pro,
+    )
+
+    # NUEVO: Ingresos LY-2 (a este corte) y LY-2 final
+    _, tot_ly2_cut_ing = compute_kpis(
+        df,
+        pd.to_datetime(pro_cut) - pd.DateOffset(years=2),
+        pd.to_datetime(pro_start) - pd.DateOffset(years=2),
+        pd.to_datetime(pro_end) - pd.DateOffset(years=2),
+        int(inv_pro_ly) if inv_pro_ly > 0 else None,
+        props_pro,
+    )
+    cutoff_ly2_final = pd.to_datetime(pro_end) - pd.DateOffset(years=2)
+    _, tot_ly2_final_ing = compute_kpis(
+        df,
+        cutoff_ly2_final,
+        pd.to_datetime(pro_start) - pd.DateOffset(years=2),
+        pd.to_datetime(pro_end) - pd.DateOffset(years=2),
+        int(inv_pro_ly) if inv_pro_ly > 0 else None,
+        props_pro,
     )
 
     # ====== Ingresos ======
     st.subheader("💶 Ingresos (periodo seleccionado)")
-    g1, g2, g3 = st.columns(3)
+    g1, g2, g3, g4, g5 = st.columns(5)
     g1.metric("Ingresos actuales (€)", f"{tot_now['ingresos']:.2f}")
     g2.metric("Ingresos LY a este corte (€)", f"{tot_ly_cut['ingresos']:.2f}")
     g3.metric("Ingresos LY final (€)", f"{tot_ly_final['ingresos']:.2f}")
+    g4.metric("Ingresos LY-2 a este corte (€)", f"{tot_ly2_cut_ing['ingresos']:.2f}")
+    g5.metric("Ingresos LY-2 final (€)", f"{tot_ly2_final_ing['ingresos']:.2f}")
 
     # ====== ADR ======
     st.subheader("🏷️ ADR (a fecha de corte)")
     _, tot_ly2_cut = compute_kpis(
-        raw,
+        df,
         pd.to_datetime(pro_cut) - pd.DateOffset(years=2),
         pd.to_datetime(pro_start) - pd.DateOffset(years=2),
         pd.to_datetime(pro_end) - pd.DateOffset(years=2),
@@ -103,34 +271,33 @@ def render_cuadro_mando_pro(raw):
     a2.metric("ADR LY (€)", f"{tot_ly_cut['adr']:.2f}")
     a3.metric("ADR LY-2 (€)", f"{tot_ly2_cut['adr']:.2f}")
 
-    # Bandas ADR (P10, P50, P90)
-    start_dt = pd.to_datetime(pro_start); end_dt = pd.to_datetime(pro_end)
-    dfb = raw[(raw["Fecha alta"] <= pd.to_datetime(pro_cut))].dropna(
-        subset=["Fecha entrada", "Fecha salida", "Alquiler con IVA (€)"]
-    ).copy()
-    if props_pro:
-        dfb = dfb[dfb["Alojamiento"].isin(props_pro)]
-    mask_b = ~((dfb["Fecha salida"] <= start_dt) | (dfb["Fecha entrada"] >= (end_dt + pd.Timedelta(days=1))))
-    dfb = dfb[mask_b]
-    if not dfb.empty:
-        dfb["los"] = (dfb["Fecha salida"].dt.normalize() - dfb["Fecha entrada"].dt.normalize()).dt.days.clip(lower=1)
-        dfb["adr_reserva"] = dfb["Alquiler con IVA (€)"] / dfb["los"]
-        dfb["Mes"] = dfb["Fecha entrada"].dt.to_period("M").astype(str)
-        def _pct_cols(x):
-            arr = x.dropna().values
-            if arr.size == 0:
-                return pd.Series({"P10": 0.0, "Mediana": 0.0, "P90": 0.0})
-            return pd.Series({"P10": np.percentile(arr,10), "Mediana": np.percentile(arr,50), "P90": np.percentile(arr,90)})
-        bands = dfb.groupby("Mes")["adr_reserva"].apply(_pct_cols).reset_index()
-        bands_wide = bands.pivot(index="Mes", columns="level_1", values="adr_reserva").sort_index()
-        st.dataframe(bands_wide[["P10","Mediana","P90"]], use_container_width=True)
-        st.download_button(
-            "📥 Descargar bandas ADR (CSV)",
-            data=bands_wide[["P10","Mediana","P90"]].reset_index().to_csv(index=False).encode("utf-8-sig"),
-            file_name="adr_bands_cdmpro.csv", mime="text/csv"
-        )
-    else:
-        st.info("Sin datos suficientes para bandas ADR en el periodo.")
+    # === Bandas ADR (NOCHES PRORRATEADAS) — 3 filas x 3 columnas ===
+    bands_act = _compute_adr_bands_period_prorate(df, pro_start, pro_end, pro_cut)
+    bands_ly1 = _compute_adr_bands_period_prorate(
+        df,
+        pd.to_datetime(pro_start) - pd.DateOffset(years=1),
+        pd.to_datetime(pro_end) - pd.DateOffset(years=1),
+        pd.to_datetime(pro_cut) - pd.DateOffset(years=1),
+    )
+    bands_ly2 = _compute_adr_bands_period_prorate(
+        df,
+        pd.to_datetime(pro_start) - pd.DateOffset(years=2),
+        pd.to_datetime(pro_end) - pd.DateOffset(years=2),
+        pd.to_datetime(pro_cut) - pd.DateOffset(years=2),
+    )
+
+    adr_bandas_tbl = pd.DataFrame(
+        [bands_act.round(2), bands_ly1.round(2), bands_ly2.round(2)],
+        index=["Act", "LY-1", "LY-2"],
+    )[["P10", "Mediana", "P90"]]
+
+    st.dataframe(adr_bandas_tbl, use_container_width=True)
+    st.download_button(
+        "📥 Descargar bandas ADR (CSV)",
+        data=adr_bandas_tbl.reset_index(names=["Periodo"]).to_csv(index=False).encode("utf-8-sig"),
+        file_name="adr_bandas_prorrateadas_act_ly1_ly2.csv",
+        mime="text/csv",
+    )
 
     # ====== Ocupación ======
     st.subheader("🏨 Ocupación (periodo seleccionado)")
@@ -144,7 +311,7 @@ def render_cuadro_mando_pro(raw):
     st.subheader("🏁 Ritmo de reservas (Pace)")
     try:
         pace_res = pace_forecast_month(
-            df=raw,
+            df=df,
             cutoff=pd.to_datetime(pro_cut),
             period_start=pd.to_datetime(pro_start),
             period_end=pd.to_datetime(pro_end),
@@ -176,7 +343,7 @@ def render_cuadro_mando_pro(raw):
     p_start_ly = pd.to_datetime(pro_start) - pd.DateOffset(years=1)
     p_end_ly   = pd.to_datetime(pro_end) - pd.DateOffset(years=1)
     base_cur = pace_series(
-        df=raw,
+        df=df,
         period_start=pd.to_datetime(pro_start),
         period_end=pd.to_datetime(pro_end),
         d_max=int(dmax_y),
@@ -184,7 +351,7 @@ def render_cuadro_mando_pro(raw):
         inv_override=int(inv_pro) if inv_pro > 0 else None,
     )
     base_ly = pace_series(
-        df=raw,
+        df=df,
         period_start=p_start_ly,
         period_end=p_end_ly,
         d_max=int(dmax_y),
@@ -236,7 +403,7 @@ def render_cuadro_mando_pro(raw):
                 rows = []
                 for c in pd.date_range(cstart, cend, freq="D"):
                     _, tot_now_e = compute_kpis(
-                        df_all=raw,
+                        df_all=df,
                         cutoff=c,
                         period_start=pd.to_datetime(pro_start),
                         period_end=pd.to_datetime(pro_end),
@@ -244,7 +411,7 @@ def render_cuadro_mando_pro(raw):
                         filter_props=props_pro if props_pro else None,
                     )
                     _, tot_ly_e = compute_kpis(
-                        df_all=raw,
+                        df_all=df,
                         cutoff=c - pd.DateOffset(years=1),
                         period_start=pd.to_datetime(pro_start) - pd.DateOffset(years=1),
                         period_end=pd.to_datetime(pro_end) - pd.DateOffset(years=1),
