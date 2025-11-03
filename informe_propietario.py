@@ -5,6 +5,8 @@ import altair as alt
 from datetime import date, timedelta
 import io, base64, shutil, os, subprocess
 from pathlib import Path
+import matplotlib
+matplotlib.use("Agg")  # backend headless para Streamlit Cloud
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
