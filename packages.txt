@@ -1,3 +1,4 @@
 wkhtmltopdf
 fontconfig
-ttf-dejavu
+fonts-dejavu-core
+fonts-liberation
