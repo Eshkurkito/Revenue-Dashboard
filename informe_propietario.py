@@ -5,296 +5,295 @@ import altair as alt
 from datetime import date, timedelta
 
 TITLE = "Informe de propietario"
+BUILD = "v1.5"
 
-# Intentar reutilizar compute_kpis si existe
-try:
-    from utils import compute_kpis
-except Exception:
-    compute_kpis = None
-
+# ----------------- Utilidades -----------------
 def _std_cols(df: pd.DataFrame) -> pd.DataFrame:
-    # Renombres suaves por si vienen otras etiquetas
     norm = {c: str(c).strip().lower() for c in df.columns}
-    m = {}
-    def pick(*alts):
-        for k, v in norm.items():
-            for a in alts:
-                if v == a or a in v:
-                    return k
+    def find(*keys):
+        for col, n in norm.items():
+            for k in keys:
+                if n == k or k in n:
+                    return col
         return None
-    a = pick("alojamiento","propiedad","unidad","listing","apartamento")
-    fi = pick("fecha entrada","check in","entrada")
-    fo = pick("fecha salida","check out","salida")
-    rev = pick("alquiler con iva", "ingresos", "revenue", "importe", "total")
-    inv = pick("inventario", "noches inventario", "inventory")
+    m = {}
+    a   = find("alojamiento","propiedad","listing","unidad","apartamento","room","unit")
+    fi  = find("fecha entrada","check in","entrada","arrival")
+    fo  = find("fecha salida","check out","salida","departure")
+    rev = find("alquiler con iva","ingresos","revenue","importe","total","neto","importe total")
+    adr = find("adr","avg daily","average daily rate")
     if a:   m[a] = "Alojamiento"
     if fi:  m[fi] = "Fecha entrada"
     if fo:  m[fo] = "Fecha salida"
     if rev: m[rev] = "Alquiler con IVA (€)"
-    if inv: m[inv] = "Inventario (noches)"
+    if adr: m[adr] = "ADR (opcional)"
     return df.rename(columns=m) if m else df
 
-def _ensure_dt(s):
-    s = pd.to_datetime(s, errors="coerce", dayfirst=True)
-    # fallback excel serial
-    if s.isna().mean() > 0.8:
+def _to_dt(s: pd.Series) -> pd.Series:
+    s1 = pd.to_datetime(s, errors="coerce", dayfirst=True, infer_datetime_format=True)
+    if s1.isna().mean() > 0.8:
         s2 = pd.to_datetime(pd.to_numeric(s, errors="coerce"), unit="d", origin="1899-12-30", errors="coerce")
-        if s2.notna().sum() > s.notna().sum():
-            s = s2
-    return s.dt.normalize()
+        if s2.notna().sum() > s1.notna().sum():
+            s1 = s2
+    return s1.dt.normalize()
 
-def _simple_kpis(df: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp, inventory_nights: float | None):
-    # Requiere: Fecha entrada, Fecha salida, Alquiler con IVA (€)
-    dfx = df.dropna(subset=["Fecha entrada","Fecha salida"]).copy()
-    dfx["Fecha entrada"] = _ensure_dt(dfx["Fecha entrada"])
-    dfx["Fecha salida"]  = _ensure_dt(dfx["Fecha salida"])
-    dfx["Alquiler con IVA (€)"] = pd.to_numeric(dfx["Alquiler con IVA (€)"], errors="coerce").fillna(0.0)
+def _period_label(s: date, e: date) -> str:
+    return f"{pd.to_datetime(s).date()} – {pd.to_datetime(e).date()}"
 
-    # Longitud reserva
-    los_total = (dfx["Fecha salida"] - dfx["Fecha entrada"]).dt.days.clip(lower=1)
-    rate = dfx["Alquiler con IVA (€)"].values / los_total.values
-
-    # Intersección de noches con el periodo [start, end] (incluye la noche de end)
-    si = np.maximum(dfx["Fecha entrada"].values.astype("datetime64[D]"), start.to_datetime64())
-    eo = np.minimum(dfx["Fecha salida"].values.astype("datetime64[D]"), (end + pd.Timedelta(days=1)).to_datetime64())
-    nights = (eo - si).astype("timedelta64[D]").astype(int)
-    mask = nights > 0
-
-    noches_vendidas = int(nights[mask].sum())
-    ingresos = float(np.sum(rate[mask] * nights[mask]))
-    adr = ingresos / noches_vendidas if noches_vendidas > 0 else 0.0
-
-    if inventory_nights is None:
-        # Si viene inventario en el DF, úsalo (suma única)
-        inv = None
-        if "Inventario (noches)" in dfx.columns:
-            inv = pd.to_numeric(dfx["Inventario (noches)"], errors="coerce").dropna()
-            inv = float(inv.iloc[0]) if not inv.empty else None
-        inventory_nights = inv
-
-    if inventory_nights is None or inventory_nights <= 0:
-        ocup = None
-        revpar = None
+# ----------------- Cálculos base -----------------
+def _preprocess(df: pd.DataFrame) -> pd.DataFrame:
+    d = _std_cols(df.copy())
+    need = ["Fecha entrada","Fecha salida"]
+    missing = [c for c in need if c not in d.columns]
+    if missing:
+        raise KeyError(f"Faltan columnas: {', '.join(missing)}")
+    d["Fecha entrada"] = _to_dt(d["Fecha entrada"])
+    d["Fecha salida"]  = _to_dt(d["Fecha salida"])
+    if "Alquiler con IVA (€)" in d.columns:
+        d["Alquiler con IVA (€)"] = pd.to_numeric(d["Alquiler con IVA (€)"], errors="coerce").fillna(0.0)
     else:
-        ocup = noches_vendidas / float(inventory_nights)
-        revpar = ingresos / float(inventory_nights)
+        d["Alquiler con IVA (€)"] = 0.0
+    return d
 
-    return {
-        "noches": noches_vendidas,
-        "ingresos": ingresos,
-        "adr": adr,
-        "ocupacion_pct": (ocup or 0.0) * 100.0 if ocup is not None else None,
-        "revpar": revpar,
-    }
+def _overlap_nights_rows(d: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
+    """
+    Expande reservas a noches individuales dentro del periodo [start, end] (incluye la noche de 'end').
+    Esto corrige 'Noches vendidas = 0' y nos da series diarias robustas para ingresos/ADR.
+    """
+    if d.empty:
+        return pd.DataFrame(columns=["Fecha","Noches","Ingresos"])
+    # Filtra reservas que intersectan
+    s = start.normalize()
+    e = end.normalize()
+    # Intersección de rangos
+    d = d.dropna(subset=["Fecha entrada","Fecha salida"]).copy()
+    d["los"] = (d["Fecha salida"] - d["Fecha entrada"]).dt.days.clip(lower=1)
+    d["rate"] = np.where(d["los"] > 0, d["Alquiler con IVA (€)"] / d["los"], 0.0)
+
+    # Calcula segmento intersectado con [s, e+1)
+    seg_s = np.maximum(d["Fecha entrada"].values.astype("datetime64[D]"), s.to_datetime64())
+    seg_e = np.minimum(d["Fecha salida"].values.astype("datetime64[D]"), (e + pd.Timedelta(days=1)).to_datetime64())
+    n = (seg_e - seg_s).astype("timedelta64[D]").astype(int)
+    valid = n > 0
+    if not np.any(valid):
+        return pd.DataFrame(columns=["Fecha","Noches","Ingresos"])
+
+    # Expansión por reserva
+    idx = np.where(valid)[0]
+    rows = []
+    for i in idx:
+        start_i = pd.Timestamp(seg_s[i])
+        nights_i = int(n[i])
+        # rango nightly: [start_i, start_i + nights_i)
+        days = pd.date_range(start_i, periods=nights_i, freq="D")
+        rows.append(pd.DataFrame({
+            "Fecha": days,
+            "Noches": 1,
+            "Ingresos": d["rate"].iloc[i]
+        }))
+    daily = pd.concat(rows, ignore_index=True)
+    daily = daily.groupby("Fecha", as_index=False).agg({"Noches":"sum","Ingresos":"sum"})
+    return daily
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def _compute_periods(df: pd.DataFrame, start: date, end: date, props: list[str], inv_override: float | None):
-    dfx = df.copy()
-    if props and "Alojamiento" in dfx.columns:
-        dfx = dfx[dfx["Alojamiento"].astype(str).isin(props)].copy()
-
+def _compute_series(df: pd.DataFrame, start: date, end: date, props: list[str] | None):
+    d = _preprocess(df)
+    if props and "Alojamiento" in d.columns:
+        d = d[d["Alojamiento"].astype(str).isin(props)].copy()
     s = pd.to_datetime(start)
     e = pd.to_datetime(end)
 
-    if compute_kpis:
-        # Usa compute_kpis del proyecto si existe
-        _, tot = compute_kpis(
-            df_all=_std_cols(dfx),
-            cutoff=e,  # no relevante para estático
-            period_start=s,
-            period_end=e,
-            inventory_override=int(inv_override) if inv_override and inv_override > 0 else None,
-            filter_props=None  # ya filtrado
-        )
-        act = {
-            "noches": int(tot.get("noches", 0)),
-            "ingresos": float(tot.get("ingresos", 0.0)),
-            "adr": float(tot.get("adr", 0.0)),
-            "ocupacion_pct": float(tot.get("ocupacion_pct", 0.0)) if tot.get("ocupacion_pct") is not None else None,
-            "revpar": float(tot.get("revpar", 0.0)) if tot.get("revpar") is not None else None,
-        }
-    else:
-        act = _simple_kpis(_std_cols(dfx), s, e, inv_override)
+    act = _overlap_nights_rows(d, s, e)
+    # Reindex rango completo para rellenar huecos
+    rng = pd.date_range(s, e, freq="D")
+    act = act.set_index("Fecha").reindex(rng, fill_value=0).rename_axis("Fecha").reset_index()
+    act["ADR"] = np.where(act["Noches"] > 0, act["Ingresos"] / act["Noches"], 0.0)
 
-    # LY (mismo rango hace 1 año)
     s_ly = s - pd.DateOffset(years=1)
     e_ly = e - pd.DateOffset(years=1)
-    ly = _simple_kpis(_std_cols(dfx), s_ly, e_ly, inv_override)
-
+    ly = _overlap_nights_rows(d, s_ly, e_ly)
+    rng_ly = pd.date_range(s_ly, e_ly, freq="D")
+    ly = ly.set_index("Fecha").reindex(rng_ly, fill_value=0).rename_axis("Fecha").reset_index()
+    ly["ADR"] = np.where(ly["Noches"] > 0, ly["Ingresos"] / ly["Noches"], 0.0)
     return act, ly
 
-def _delta(a, b):
-    if a is None or b is None:
-        return None
-    return a - b
+def _agg_kpis(daily: pd.DataFrame) -> dict:
+    nights = int(daily["Noches"].sum())
+    ingresos = float(daily["Ingresos"].sum())
+    adr = ingresos / nights if nights > 0 else 0.0
+    return {"noches": nights, "ingresos": ingresos, "adr": adr}
 
-def _pct(a, b):
-    if a is None or b is None or b == 0:
-        return None
-    return (a / b - 1.0) * 100.0
-
-def _monthly_series(df: pd.DataFrame, start: date, end: date, props: list[str]):
-    dfx = _std_cols(df.copy())
-    if props and "Alojamiento" in dfx.columns:
-        dfx = dfx[dfx["Alojamiento"].astype(str).isin(props)].copy()
-    dfx = dfx.dropna(subset=["Fecha entrada","Fecha salida","Alquiler con IVA (€)"])
-    dfx["Fecha entrada"] = _ensure_dt(dfx["Fecha entrada"])
-    dfx["Fecha salida"]  = _ensure_dt(dfx["Fecha salida"])
-    dfx["Alquiler con IVA (€)"] = pd.to_numeric(dfx["Alquiler con IVA (€)"], errors="coerce").fillna(0.0)
-
-    s = pd.to_datetime(start)
-    e = pd.to_datetime(end)
-    months = pd.period_range(s.to_period("M"), e.to_period("M"), freq="M")
-
-    los_total = (dfx["Fecha salida"] - dfx["Fecha entrada"]).dt.days.clip(lower=1)
-    rate = (dfx["Alquiler con IVA (€)"] / los_total).values
-    si = np.maximum(dfx["Fecha entrada"].values.astype("datetime64[D]"), s.to_datetime64())
-    eo = np.minimum(dfx["Fecha salida"].values.astype("datetime64[D]"), (e + pd.Timedelta(days=1)).to_datetime64())
-
-    rows = []
-    for m in months:
-        ms = pd.Timestamp(m.start_time).to_datetime64()
-        me = (pd.Timestamp(m.end_time) + pd.Timedelta(days=1)).to_datetime64()
-        seg_s = np.maximum(si, ms)
-        seg_e = np.minimum(eo, me)
-        nights = (seg_e - seg_s).astype("timedelta64[D]").astype(int)
-        mask = nights > 0
-        if np.any(mask):
-            ingresos = float(np.sum(rate[mask] * nights[mask]))
-            rows.append({"Mes": str(m), "Ingresos": ingresos})
-        else:
-            rows.append({"Mes": str(m), "Ingresos": 0.0})
-    act = pd.DataFrame(rows)
-
-    # LY desplazado 1 año
-    act_idx = pd.PeriodIndex(act["Mes"], freq="M")
-    ly_idx = act_idx - 12
-    s_ly, e_ly = (pd.to_datetime(start) - pd.DateOffset(years=1)), (pd.to_datetime(end) - pd.DateOffset(years=1))
-    ly_rows = []
-    for m in ly_idx:
-        ms = pd.Timestamp(m.start_time).date()
-        me = pd.Timestamp(m.end_time).date()
-        ly_rows.append({"Mes": str(m + 12), "Ingresos": float(
-            _monthly_series_sum(dfx, ms, me)
-        )})
-    ly = pd.DataFrame(ly_rows)
-    # Asegura alineación
-    ser = act.merge(ly, on="Mes", how="left", suffixes=("", "_LY"))
-    return ser.fillna(0.0)
-
-def _monthly_series_sum(dfx, ms, me):
-    s = pd.to_datetime(ms)
-    e = pd.to_datetime(me)
-    los_total = (dfx["Fecha salida"] - dfx["Fecha entrada"]).dt.days.clip(lower=1)
-    rate = (dfx["Alquiler con IVA (€)"] / los_total).values
-    si = np.maximum(dfx["Fecha entrada"].values.astype("datetime64[D]"), s.to_datetime64())
-    eo = np.minimum(dfx["Fecha salida"].values.astype("datetime64[D]"), (e + pd.Timedelta(days=1)).to_datetime64())
-    nights = (eo - si).astype("timedelta64[D]").astype(int)
-    mask = nights > 0
-    return np.sum(rate[mask] * nights[mask])
-
+# ----------------- Render -----------------
 def render_informe_propietario(raw: pd.DataFrame | None = None):
     st.header(TITLE)
+    st.caption(f"Build {BUILD}")
 
     if raw is None:
         raw = st.session_state.get("df_active") or st.session_state.get("raw")
     if not isinstance(raw, pd.DataFrame) or raw.empty:
-        st.info("Sube un archivo en la barra lateral para continuar.")
+        st.info("Sube un archivo en la barra lateral.")
         return
+
     df = _std_cols(raw)
 
-    # Sidebar: parámetros
+    # Sidebar
     with st.sidebar:
         st.subheader("Parámetros · Informe")
         props = []
-        prop_name = ""
         if "Alojamiento" in df.columns:
             all_props = sorted(df["Alojamiento"].astype(str).dropna().unique().tolist())
             props = st.multiselect("Alojamientos", all_props, default=[], key="inf_props")
-            if len(props) == 1:
-                prop_name = props[0]
-        apto = st.text_input("Nombre de apartamento (portada)", value=prop_name, key="inf_apto")
+
+        apto = st.text_input("Nombre del apartamento (portada)", value=(props[0] if len(props)==1 else ""), key="inf_apto")
         owner = st.text_input("Nombre del propietario", value="", key="inf_owner")
 
         today = date.today()
-        start = st.date_input("Inicio periodo", value=today.replace(day=1), key="inf_start")
-        end   = st.date_input("Fin periodo", value=today, key="inf_end")
-        inv_override = st.number_input("Inventario (noches) opcional", min_value=0, step=1, value=0, help="Si lo dejas en 0, se calcula sin ocupación/RevPAR.")
-        comments = st.text_area("Comentarios del Revenue Manager", height=120, key="inf_comments", placeholder="Puntos clave, acciones y próximos pasos…")
+        start = st.date_input("Inicio del periodo", value=today.replace(day=1), key="inf_start")
+        end   = st.date_input("Fin del periodo", value=today, key="inf_end")
+        gran = st.radio("Granularidad ADR", ["Día","Semana"], horizontal=True, key="inf_gran")
         run = st.button("Generar informe", type="primary", use_container_width=True, key="inf_run")
 
     if not run:
         st.info("Elige parámetros y pulsa Generar informe.")
         return
     if start > end:
-        st.error("La fecha de inicio no puede ser posterior al fin.")
+        st.error("La fecha de inicio no puede ser posterior a la de fin.")
         return
 
-    inv_val = int(inv_override) if inv_override and inv_override > 0 else None
+    # Series ACT/LY
+    act, ly = _compute_series(df, start, end, props)
 
     # KPIs
-    act, ly = _compute_periods(df, start, end, props, inv_val)
+    k_act = _agg_kpis(act)
+    k_ly  = _agg_kpis(ly)
 
     # Portada
     st.markdown(f"### {apto or '—'}")
     st.markdown(f"Propietario: {owner or '—'}")
-    st.markdown(f"Periodo: {pd.to_datetime(start).date()} – {pd.to_datetime(end).date()}")
+    st.markdown(f"Periodo ACT: {_period_label(start, end)}  |  Periodo LY: {_period_label(pd.to_datetime(start)-pd.DateOffset(years=1), pd.to_datetime(end)-pd.DateOffset(years=1))}")
 
-    # Tarjetas KPI
-    def fmt_money(x): return f"€{x:,.0f}".replace(",", ".")
-    def fmt_pct(x):   return f"{x:.1f}%" if x is not None else "—"
-    def fmt_num(x):   return f"{x:,.0f}".replace(",", ".")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Ingresos", fmt_money(act["ingresos"]), f"{_pct(act['ingresos'], ly['ingresos']):.1f}% vs LY" if ly["ingresos"] else None)
-    c2.metric("ADR", fmt_money(act["adr"]), f"{_pct(act['adr'], ly['adr']):.1f}% vs LY" if ly["adr"] else None)
-    c3.metric("Noches vendidas", fmt_num(act["noches"]), f"{_delta(act['noches'], ly['noches']):+,.0f}".replace(",", ".") if ly["noches"] is not None else None)
-    c4.metric("Ocupación", fmt_pct(act["ocupacion_pct"]), f"{_delta(act['ocupacion_pct'], ly['ocupacion_pct']):+.1f} pp" if act["ocupacion_pct"] is not None and ly["ocupacion_pct"] is not None else None)
+    # Tarjetas KPI con LY explícito
+    def money(x): return f"€{x:,.0f}".replace(",", ".")
+    def num(x):   return f"{x:,.0f}".replace(",", ".")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("Ingresos (ACT)", money(k_act["ingresos"]))
+        st.caption(f"LY: {money(k_ly['ingresos'])}")
+    with c2:
+        st.metric("ADR (ACT)", money(k_act["adr"]))
+        st.caption(f"LY: {money(k_ly['adr'])}")
+    with c3:
+        st.metric("Noches vendidas (ACT)", num(k_act["noches"]))
+        st.caption(f"LY: {num(k_ly['noches'])}")
 
-    # Serie mensual Ingresos (Act vs LY)
-    ser = _monthly_series(df, start, end, props)
-    ser_long = ser.melt(id_vars=["Mes"], value_vars=["Ingresos","Ingresos_LY"], var_name="Serie", value_name="Valor")
-    ser_long["Serie"] = ser_long["Serie"].replace({"Ingresos":"Act", "Ingresos_LY":"LY"})
-    chart = (
-        alt.Chart(ser_long)
-        .mark_bar()
+    # Gráfico de ingresos diarios (ACT vs LY)
+    act_i = act.assign(Serie="Act")
+    ly_i  = ly.assign(Serie="LY")
+    # Alinear LY a las fechas de ACT para comparar visualmente (sumar 1 año)
+    ly_i_plot = ly_i.copy()
+    ly_i_plot["Fecha"] = ly_i_plot["Fecha"] + pd.DateOffset(years=1)
+    plot_ing = pd.concat([act_i, ly_i_plot], ignore_index=True)
+
+    chart_ing = (
+        alt.Chart(plot_ing)
+        .mark_area(opacity=0.35)
         .encode(
-            x=alt.X("Mes:N", title="Mes"),
-            y=alt.Y("Valor:Q", title="Ingresos"),
-            color=alt.Color("Serie:N", title="Serie"),
-            tooltip=[alt.Tooltip("Mes:N"), alt.Tooltip("Serie:N"), alt.Tooltip("Valor:Q", format=",.0f")]
+            x=alt.X("Fecha:T", title="Fecha"),
+            y=alt.Y("Ingresos:Q", title="Ingresos por día"),
+            color=alt.Color("Serie:N", scale=alt.Scale(range=["#2e485f","#c77b2b"])),
+            tooltip=[
+                alt.Tooltip("Serie:N"),
+                alt.Tooltip("Fecha:T"),
+                alt.Tooltip("Ingresos:Q", format=",.0f")
+            ],
         )
-        .properties(height=280)
+        .properties(height=260)
+    ) + (
+        alt.Chart(plot_ing)
+        .mark_line()
+        .encode(x="Fecha:T", y="Ingresos:Q", color="Serie:N")
     )
-    st.altair_chart(chart, use_container_width=True)
+    st.subheader("Ingresos por día (Act vs LY alineado)")
+    st.altair_chart(chart_ing, use_container_width=True)
+
+    # ADR por día o por semana
+    if gran == "Día":
+        adr_act = act[["Fecha","ADR"]].assign(Serie="Act")
+        adr_ly  = ly[["Fecha","ADR"]].assign(Serie="LY")
+        adr_ly["Fecha"] = adr_ly["Fecha"] + pd.DateOffset(years=1)
+    else:
+        # Semana natural, lunes-domingo
+        w_act = act.assign(Semana=act["Fecha"].dt.to_period("W-MON").dt.start_time)
+        adr_act = (w_act.groupby("Semana", as_index=False).agg({"Ingresos":"sum","Noches":"sum"})
+                        .assign(ADR=lambda x: np.where(x["Noches"]>0, x["Ingresos"]/x["Noches"], 0.0))
+                        .rename(columns={"Semana":"Fecha"}))[["Fecha","ADR"]].assign(Serie="Act")
+
+        w_ly = ly.assign(Semana=ly["Fecha"].dt.to_period("W-MON").dt.start_time)
+        adr_ly = (w_ly.groupby("Semana", as_index=False).agg({"Ingresos":"sum","Noches":"sum"})
+                        .assign(ADR=lambda x: np.where(x["Noches"]>0, x["Ingresos"]/x["Noches"], 0.0))
+                        .rename(columns={"Semana":"Fecha"}))[["Fecha","ADR"]].assign(Serie="LY")
+        adr_ly["Fecha"] = adr_ly["Fecha"] + pd.DateOffset(years=1)
+
+    adr_plot = pd.concat([adr_act, adr_ly], ignore_index=True)
+
+    st.subheader(f"ADR por {gran.lower()} (Act vs LY alineado)")
+    chart_adr = (
+        alt.Chart(adr_plot)
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("Fecha:T", title="Fecha"),
+            y=alt.Y("ADR:Q", title="ADR"),
+            color=alt.Color("Serie:N", scale=alt.Scale(range=["#2e485f","#c77b2b"])),
+            tooltip=[
+                alt.Tooltip("Serie:N"),
+                alt.Tooltip("Fecha:T"),
+                alt.Tooltip("ADR:Q", format=",.0f"),
+            ],
+        )
+        .properties(height=260)
+        .interactive()
+    )
+    st.altair_chart(chart_adr, use_container_width=True)
+
+    # Tabla resumen ACT vs LY
+    st.subheader("Resumen ACT vs LY")
+    summary = pd.DataFrame([
+        {"Serie":"Act","Periodo":_period_label(start,end),
+         "Ingresos":k_act["ingresos"],"ADR":k_act["adr"],"Noches":k_act["noches"]},
+        {"Serie":"LY","Periodo":_period_label(pd.to_datetime(start)-pd.DateOffset(years=1),
+                                              pd.to_datetime(end)-pd.DateOffset(years=1)),
+         "Ingresos":k_ly["ingresos"],"ADR":k_ly["adr"],"Noches":k_ly["noches"]},
+    ])
+    st.dataframe(summary.style.format({"Ingresos":"{:,.0f}","ADR":"{:,.0f}","Noches":"{:,.0f}"}), use_container_width=True)
 
     # Comentarios
     st.subheader("Comentarios del Revenue Manager")
+    comments = st.text_area("Comentarios", key="inf_comments", height=140, placeholder="Puntos clave, acciones, próximos pasos…")
     st.write(comments or "—")
 
-    # Exportar a PDF (dos vías)
+    # Exportar a PDF
     st.divider()
     st.markdown("#### Exportar")
-    # Opción 1: imprimir/guardar en PDF desde el navegador (más compatible)
     import streamlit.components.v1 as components
-    printable = f"""
-    <style>@media print {{ .stApp header, .stApp footer {{ display:none; }} }}</style>
-    <button onclick="window.print()" style="padding:10px 16px;border-radius:8px;border:1px solid #ccc;background:#2e485f;color:#fff;cursor:pointer;">
-      Imprimir / Guardar PDF
-    </button>
-    """
-    components.html(printable, height=60)
-    # Opción 2: pdfkit si está disponible en el servidor
+    components.html(
+        """
+        <style>@media print { .stApp header, .stApp footer { display:none; } }</style>
+        <button onclick="window.print()" style="padding:10px 16px;border-radius:8px;border:1px solid #ccc;background:#2e485f;color:#fff;cursor:pointer;">
+          Imprimir / Guardar PDF
+        </button>
+        """,
+        height=60
+    )
     try:
-        import pdfkit  # requiere wkhtmltopdf instalado en el sistema
+        import pdfkit  # requiere wkhtmltopdf instalado
         html = f"""
         <h2>{TITLE}</h2>
         <p><b>Apartamento:</b> {apto or '—'} &nbsp; | &nbsp; <b>Propietario:</b> {owner or '—'}</p>
-        <p><b>Periodo:</b> {pd.to_datetime(start).date()} – {pd.to_datetime(end).date()}</p>
+        <p><b>Periodo ACT:</b> {_period_label(start,end)} &nbsp; | &nbsp; <b>Periodo LY:</b> {_period_label(pd.to_datetime(start)-pd.DateOffset(years=1), pd.to_datetime(end)-pd.DateOffset(years=1))}</p>
         <ul>
-          <li>Ingresos: {fmt_money(act['ingresos'])} (LY: {fmt_money(ly['ingresos'])})</li>
-          <li>ADR: {fmt_money(act['adr'])} (LY: {fmt_money(ly['adr'])})</li>
-          <li>Noches vendidas: {fmt_num(act['noches'])} (LY: {fmt_num(ly['noches'])})</li>
-          <li>Ocupación: {fmt_pct(act['ocupacion_pct'])} (LY: {fmt_pct(ly['ocupacion_pct'])})</li>
+          <li>Ingresos ACT: €{k_act['ingresos']:,.0f} — LY: €{k_ly['ingresos']:,.0f}</li>
+          <li>ADR ACT: €{k_act['adr']:,.0f} — LY: €{k_ly['adr']:,.0f}</li>
+          <li>Noches ACT: {k_act['noches']:,.0f} — LY: {k_ly['noches']:,.0f}</li>
         </ul>
         <h3>Comentarios</h3>
         <p>{(comments or '—').replace('\n','<br>')}</p>
@@ -302,4 +301,4 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
         pdf_bytes = pdfkit.from_string(html, False)
         st.download_button("Descargar PDF (experimental)", data=pdf_bytes, file_name="informe_propietario.pdf", mime="application/pdf")
     except Exception:
-        st.caption("Para descarga directa en PDF se necesita wkhtmltopdf en el servidor. Se habilitó el botón de Imprimir/Guardar PDF del navegador.")
+        st.caption("Si instalas wkhtmltopdf en el servidor, se habilitará la descarga PDF directa. De momento usa Imprimir/Guardar PDF del navegador.")
