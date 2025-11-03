@@ -127,3 +127,14 @@ def render_landing():
         st.session_state.view = "reservas_por_dia"; st.rerun()
     elif clicks.get("informe_propietario"):
         st.session_state.view = "informe_propietario"; st.rerun()
+
+def get_logo_path() -> str | None:
+    """
+    Devuelve la ruta al logo si existe (assets/logo.png); si no, None.
+    Sirve para no romper el import en streamlit_app.py.
+    """
+    try:
+        p = Path(__file__).resolve().parent / "assets" / "logo.png"
+        return str(p) if p.exists() else None
+    except Exception:
+        return None

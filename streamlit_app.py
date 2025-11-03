@@ -4,7 +4,7 @@ st.set_page_config(page_title="Revenue Dashboard", layout="wide", initial_sideba
 from pathlib import Path
 import pandas as pd
 from auth import require_login, logout_button
-from landing_ui import render_landing, get_logo_path
+from landing_ui import render_landing
 
 # --- helpers ---
 def _get_raw():
