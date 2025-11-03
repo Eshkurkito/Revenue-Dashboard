@@ -153,7 +153,8 @@ with st.sidebar:
 
 # --- Router ---
 VALID_VIEWS = {
-    "landing","consulta","pro","whatif","evolucion","resumen","kpis_por_meses","reservas_por_dia","informe_propietario"
+    "landing","consulta","pro","whatif","evolucion","resumen",
+    "kpis_por_meses","reservas_por_dia","informe_propietario"   # ← añadido
 }
 if st.session_state.get("view") not in VALID_VIEWS:
     st.session_state.view = "landing"
@@ -181,7 +182,7 @@ elif st.session_state.view == "kpis_por_meses":
 elif st.session_state.view == "reservas_por_dia":
     from reservas_por_dia import render_reservas_por_dia
     _safe_call(render_reservas_por_dia)
-elif st.session_state.view == "informe_propietario":
+elif st.session_state.view == "informe_propietario":  # ← nuevo
     from informe_propietario import render_informe_propietario
     _safe_call(render_informe_propietario)
 
@@ -231,7 +232,7 @@ def render_landing():
         st.session_state.view = "pro"; _rerun()
     elif clicks.get("whatif"):
         st.session_state.view = "whatif"; _rerun()
-    elif clicks.get("informe_propietario"):  # ← nuevo
+    elif clicks.get("informe_propietario"):             # ← nuevo
         st.session_state.view = "informe_propietario"; _rerun()
 
     # --- Información adicional ---
