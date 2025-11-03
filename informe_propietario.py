@@ -3,6 +3,10 @@ import pandas as pd
 import numpy as np
 import altair as alt
 from datetime import date, timedelta
+import io, base64, shutil, os
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from jinja2 import Environment, FileSystemLoader
 
 TITLE = "Informe de propietario"
 BUILD = "v1.5"
@@ -273,41 +277,145 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
 
     # Exportar a PDF
     st.divider()
-    st.markdown("#### Exportar")
-    import streamlit.components.v1 as components
-    components.html(
-        """
-        <script>
-        function printReport(){
-          try { window.parent.focus(); window.parent.print(); } 
-          catch(e) { window.top.print(); }
-        }
-        </script>
-        <style>
-          @media print { 
-            .stApp header, .stApp footer, [data-testid="stSidebar"]{ display:none !important; }
-            .stApp { padding: 0 !important; }
-            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          }
-        </style>
-        <button onclick="printReport()" 
-                style="padding:10px 16px;border-radius:8px;border:1px solid #ccc;background:#2e485f;color:#fff;cursor:pointer;">
-          Imprimir / Guardar PDF
-        </button>
-        """,
-        height=70
-    )
-    st.caption("Si no se abre, pulsa Ctrl+P (Cmd+P en Mac).")
+    st.markdown("#### Exportar a PDF (plantilla)")
 
+    if st.button("Generar PDF", type="primary", use_container_width=True, key="inf_pdf"):
+        try:
+            chart_ing_b64 = _plot_ingresos_png(act, ly)
+            chart_adr_b64 = _plot_adr_png(act, ly, gran)
+            ctx = {
+                "apto": apto, "owner": owner,
+                "period_act": _period_label(start, end),
+                "period_ly": _period_label(pd.to_datetime(start)-pd.DateOffset(years=1), pd.to_datetime(end)-pd.DateOffset(years=1)),
+                "act": {"ingresos": _fmt_money(k_act["ingresos"]), "adr": _fmt_money(k_act["adr"]), "noches": f"{k_act['noches']:,}".replace(",",".")},
+                "ly":  {"ingresos": _fmt_money(k_ly["ingresos"]),  "adr": _fmt_money(k_ly["adr"]),  "noches": f"{k_ly['noches']:,}".replace(",",".")},
+                "chart_ingresos": chart_ing_b64,
+                "chart_adr": chart_adr_b64,
+                "gran_label": gran.lower(),
+                "comments": st.session_state.get("inf_comments") or "",
+                "logo_b64": _logo_b64(),
+            }
+            pdf_bytes = _render_pdf_from_template(ctx)
+            if pdf_bytes:
+                st.download_button(
+                    "Descargar PDF",
+                    data=pdf_bytes,
+                    file_name=f"Informe_{apto or 'propietario'}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
+            else:
+                st.error("No se encontró wkhtmltopdf en el sistema. Instálalo y vuelve a intentar.")
+        except Exception as e:
+            st.error("No se pudo generar el PDF.")
+            with st.expander("Detalle del error"):
+                st.exception(e)
+
+def _fmt_money(x: float) -> str:
+    return f"{x:,.0f}".replace(",", ".")
+
+def _logo_b64() -> str | None:
+    # Busca el logo en ./assets (florit.flats-logo.png prioritario)
+    from pathlib import Path
+    base = Path(__file__).resolve().parent / "assets"
+    for name in ["florit.flats-logo.png","florit.flats_logo.png","logo.png","logo.jpg","logo.jpeg","logo.svg"]:
+        p = base / name
+        if p.exists():
+            try:
+                with open(p, "rb") as f:
+                    return base64.b64encode(f.read()).decode("utf-8")
+            except Exception:
+                return None
+    return None
+
+def _png_from_plt(fig) -> str:
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=180, bbox_inches="tight")
+    plt.close(fig)
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
+
+def _plot_ingresos_png(act: pd.DataFrame, ly: pd.DataFrame) -> str:
+    ly_plot = ly.copy()
+    ly_plot["Fecha"] = ly_plot["Fecha"] + pd.DateOffset(years=1)
+    fig, ax = plt.subplots(figsize=(9, 3))
+    ax.plot(act["Fecha"], act["Ingresos"], color="#2e485f", label="Act")
+    ax.plot(ly_plot["Fecha"], ly_plot["Ingresos"], color="#c77b2b", label="LY")
+    ax.fill_between(act["Fecha"], 0, act["Ingresos"], color="#2e485f", alpha=0.15)
+    ax.fill_between(ly_plot["Fecha"], 0, ly_plot["Ingresos"], color="#c77b2b", alpha=0.10)
+    ax.set_ylabel("€")
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax.xaxis.get_major_locator()))
+    ax.grid(True, alpha=0.25)
+    ax.legend()
+    fig.tight_layout()
+    return _png_from_plt(fig)
+
+def _plot_adr_png(act: pd.DataFrame, ly: pd.DataFrame, gran: str) -> str:
+    if gran == "Semana":
+        w_act = act.assign(Sem=act["Fecha"].dt.to_period("W-MON").dt.start_time)
+        actp = (w_act.groupby("Sem", as_index=False).agg({"Ingresos":"sum","Noches":"sum"})
+                .assign(ADR=lambda x: np.where(x["Noches"]>0, x["Ingresos"]/x["Noches"],0.0))
+                .rename(columns={"Sem":"Fecha"}))
+        w_ly = ly.assign(Sem=ly["Fecha"].dt.to_period("W-MON").dt.start_time)
+        lyp = (w_ly.groupby("Sem", as_index=False).agg({"Ingresos":"sum","Noches":"sum"})
+               .assign(ADR=lambda x: np.where(x["Noches"]>0, x["Ingresos"]/x["Noches"],0.0))
+               .rename(columns={"Sem":"Fecha"}))
+    else:
+        actp, lyp = act.copy(), ly.copy()
+
+    lyp = lyp.copy()
+    lyp["Fecha"] = lyp["Fecha"] + pd.DateOffset(years=1)
+
+    fig, ax = plt.subplots(figsize=(9, 3))
+    ax.plot(actp["Fecha"], actp["ADR"], marker="o", ms=3, color="#2e485f", label="Act")
+    ax.plot(lyp["Fecha"], lyp["ADR"], marker="o", ms=3, color="#c77b2b", label="LY")
+    ax.set_ylabel("€")
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax.xaxis.get_major_locator()))
+    ax.grid(True, alpha=0.25)
+    ax.legend()
+    fig.tight_layout()
+    return _png_from_plt(fig)
+
+def _pdfkit_config():
+    """Busca wkhtmltopdf en env var, secrets, rutas típicas de Windows y PATH."""
+    cand = [
+        os.environ.get("WKHTMLTOPDF_PATH"),
+    ]
     try:
-        import pdfkit, os, shutil
-        wk = shutil.which("wkhtmltopdf") or r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
-        cfg = pdfkit.configuration(wkhtmltopdf=wk) if wk and os.path.exists(wk) else None
-        pdf_bytes = pdfkit.from_string(html, False, configuration=cfg) if cfg else None
-        if pdf_bytes:
-            st.download_button("Descargar PDF (experimental)", data=pdf_bytes,
-                               file_name="informe_propietario.pdf", mime="application/pdf")
-        else:
-            st.caption("wkhtmltopdf no encontrado. Usa el botón Imprimir/Guardar PDF.")
+        cand.append(st.secrets.get("wkhtmltopdf_path"))
     except Exception:
-        st.caption("Si instalas wkhtmltopdf en el servidor, se habilitará la descarga PDF directa. De momento usa Imprimir/Guardar PDF del navegador.")
+        pass
+    cand += [
+        r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe",
+        r"C:\Program Files (x86)\wkhtmltopdf\bin\wkhtmltopdf.exe",
+        shutil.which("wkhtmltopdf"),
+    ]
+    path = next((p for p in cand if p and os.path.exists(p)), None)
+    if not path:
+        return None
+    import pdfkit
+    return pdfkit.configuration(wkhtmltopdf=path)
+
+def _render_pdf_from_template(context: dict) -> bytes | None:
+    # Plantilla
+    tpl_dir = os.path.join(os.path.dirname(__file__), "templates")
+    env = Environment(loader=FileSystemLoader(tpl_dir), autoescape=True)
+    html = env.get_template("informe_propietario.html").render(**context)
+
+    # wkhtmltopdf
+    import pdfkit
+    cfg = _pdfkit_config()
+    if not cfg:
+        return None
+    options = {
+        "enable-local-file-access": None,
+        "page-size": "A4",
+        "margin-top": "10mm",
+        "margin-bottom": "10mm",
+        "margin-left": "10mm",
+        "margin-right": "10mm",
+        "encoding": "UTF-8",
+        "quiet": "",
+    }
+    return pdfkit.from_string(html, False, configuration=cfg, options=options)
