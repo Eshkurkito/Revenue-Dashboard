@@ -6,7 +6,7 @@ from datetime import date, timedelta
 import io, base64, shutil, os, subprocess
 from pathlib import Path
 import matplotlib
-matplotlib.use("Agg")  # backend headless para Streamlit Cloud
+matplotlib.use("Agg")  # backend headless para Cloud
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
@@ -41,14 +41,11 @@ def _wkhtmltopdf_version(path: str | None):
         return None
 
 def _pdfkit_config():
-    """
-    Busca wkhtmltopdf en Cloud (Linux) y local (Windows).
-    """
+    # Cloud: /usr/bin/wkhtmltopdf; Local: Windows rutas típicas o PATH
     candidates = [
         os.environ.get("WKHTMLTOPDF_PATH"),
         (st.secrets.get("wkhtmltopdf_path") if hasattr(st, "secrets") else None),
-        "/usr/bin/wkhtmltopdf",          # ← Streamlit Cloud
-        "/usr/local/bin/wkhtmltopdf",
+        "/usr/bin/wkhtmltopdf", "/usr/local/bin/wkhtmltopdf",            # Linux (Cloud)
         r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe",
         r"C:\Program Files (x86)\wkhtmltopdf\bin\wkhtmltopdf.exe",
         shutil.which("wkhtmltopdf"),
