@@ -8,7 +8,7 @@
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin:0; padding:24px; color:#111827; }
   .card { border:1px solid #e5e7eb; border-radius:14px; padding:18px 20px; margin-bottom:16px; }
   .title { font-size:22px; font-weight:700; color:var(--brand); margin:0 0 10px 0; }
-  .muted { color:var(--muted); }
+  .muted { color:#6b7280; }
   .kpis { display:flex; gap:16px; flex-wrap:wrap; }
   .kpi { flex:1 1 200px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:12px; padding:12px 14px; }
   .kpi h4 { margin:0 0 6px 0; font-size:14px; color:#374151; }
@@ -42,8 +42,8 @@
 
   <div class="grid2">
     <div class="card">
-      <h3 class="title" style="font-size:18px;">Ingresos por día (ACT vs LY)</h3>
-      <img class="chart" src="data:image/png;base64,{{ chart_ingresos }}" alt="Ingresos por día">
+      <h3 class="title" style="font-size:18px;">Ritmo de ocupación (ocupación acumulada)</h3>
+      <img class="chart" src="data:image/png;base64,{{ chart_pace }}" alt="Ocupación acumulada">
     </div>
     <div class="card">
       <h3 class="title" style="font-size:18px;">ADR por {{ gran_label }} (ACT vs LY)</h3>

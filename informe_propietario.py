@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
 TITLE = "Informe de propietario"
-BUILD = "v1.6-diag"
+BUILD = "v1.7-pace"   # ← versión
 
 # --- diagnóstico wkhtmltopdf ---
 def _wkhtmltopdf_candidates():
@@ -172,6 +172,101 @@ def _agg_kpis(daily: pd.DataFrame) -> dict:
     adr = ingresos / nights if nights > 0 else 0.0
     return {"noches": nights, "ingresos": ingresos, "adr": adr}
 
+# ==== NUEVO: ritmo de ocupación (ocupación acumulada del periodo) ====
+def _pace_dataframe(act: pd.DataFrame, ly: pd.DataFrame, start: date, end: date, inv_units: int) -> pd.DataFrame:
+    """
+    Devuelve un DataFrame con la ocupación acumulada (%) por fecha para ACT y LY
+    alineando LY al año de ACT. inv_units es el nº de alojamientos considerados.
+    """
+    s = pd.to_datetime(start)
+    e = pd.to_datetime(end)
+    total_days = (e - s).days + 1
+    total_cap = max(1, int(inv_units)) * total_days  # noches disponibles en el periodo
+
+    p_act = act[["Fecha", "Noches"]].copy()
+    p_act["CumNoches"] = p_act["Noches"].cumsum()
+    p_act["PacePct"] = (p_act["CumNoches"] / total_cap) * 100.0
+    p_act["Serie"] = "Act"
+
+    p_ly = ly[["Fecha", "Noches"]].copy()
+    p_ly["CumNoches"] = p_ly["Noches"].cumsum()
+    p_ly["PacePct"] = (p_ly["CumNoches"] / total_cap) * 100.0
+    p_ly["Fecha"] = p_ly["Fecha"] + pd.DateOffset(years=1)  # alinear con ACT
+    p_ly["Serie"] = "LY"
+
+    return pd.concat(
+        [p_act[["Fecha", "PacePct", "Serie"]], p_ly[["Fecha", "PacePct", "Serie"]]],
+        ignore_index=True
+    )
+
+# ====== NUEVO: helpers faltantes ======
+def _fmt_money(x: float) -> str:
+    return f"{x:,.0f}".replace(",", ".")
+
+def _png_from_plt(fig) -> str:
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=180, bbox_inches="tight")
+    plt.close(fig)
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
+
+def _logo_b64() -> str | None:
+    base = Path(__file__).resolve().parent / "assets"
+    candidates = [
+        "florit.flats-logo.png",       # nombre que tienes
+        "florit.flats_logo.png",
+        "florit-flats-logo.png",
+        "logo.png", "logo.jpg", "logo.jpeg", "logo.svg",
+    ]
+    for name in candidates:
+        p = base / name
+        if p.exists():
+            try:
+                with open(p, "rb") as f:
+                    return base64.b64encode(f.read()).decode("utf-8")
+            except Exception:
+                return None
+    # fallback: cualquier archivo que contenga 'logo'
+    if base.exists():
+        for p in base.iterdir():
+            if p.is_file() and "logo" in p.name.lower():
+                try:
+                    with open(p, "rb") as f:
+                        return base64.b64encode(f.read()).decode("utf-8")
+                except Exception:
+                    return None
+    return None
+
+def _plot_adr_png(act: pd.DataFrame, ly: pd.DataFrame, gran: str) -> str:
+    # Prepara series ADR por día o semana
+    if gran == "Semana":
+        w_act = act.assign(Sem=act["Fecha"].dt.to_period("W-MON").dt.start_time)
+        actp = (w_act.groupby("Sem", as_index=False)
+                .agg({"Ingresos":"sum","Noches":"sum"})
+                .assign(ADR=lambda x: np.where(x["Noches"]>0, x["Ingresos"]/x["Noches"], 0.0))
+                .rename(columns={"Sem":"Fecha"}))
+        w_ly = ly.assign(Sem=ly["Fecha"].dt.to_period("W-MON").dt.start_time)
+        lyp = (w_ly.groupby("Sem", as_index=False)
+               .agg({"Ingresos":"sum","Noches":"sum"})
+               .assign(ADR=lambda x: np.where(x["Noches"]>0, x["Ingresos"]/x["Noches"], 0.0))
+               .rename(columns={"Sem":"Fecha"}))
+    else:
+        actp, lyp = act.copy(), ly.copy()
+
+    lyp = lyp.copy()
+    lyp["Fecha"] = lyp["Fecha"] + pd.DateOffset(years=1)
+
+    fig, ax = plt.subplots(figsize=(9, 3))
+    ax.plot(actp["Fecha"], actp["ADR"], marker="o", ms=3, color="#2e485f", label="Act")
+    ax.plot(lyp["Fecha"], lyp["ADR"], marker="o", ms=3, color="#c77b2b", label="LY")
+    ax.set_ylabel("€")
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax.xaxis.get_major_locator()))
+    ax.grid(True, alpha=0.25)
+    ax.legend()
+    fig.tight_layout()
+    return _png_from_plt(fig)
+# ====== FIN helpers ======
+
 # ----------------- Render -----------------
 def render_informe_propietario(raw: pd.DataFrame | None = None):
     st.header(TITLE)
@@ -249,6 +344,9 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
     props = cfg["props"]; apto = cfg["apto"]; owner = cfg["owner"]
     start = cfg["start"]; end = cfg["end"]; gran = cfg["gran"]
 
+    # Capacidad diaria (nº de unidades seleccionadas). Si no hay selección, 1.
+    inv_units = max(1, len(props) if props else (df["Alojamiento"].nunique() if "Alojamiento" in df.columns else 1))
+
     # Botón para volver a editar
     st.button("Editar parámetros", key="inf_edit_params",
               on_click=lambda: st.session_state.update(inf_ready=False))
@@ -279,37 +377,23 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
         st.metric("Noches vendidas (ACT)", num(k_act["noches"]))
         st.caption(f"LY: {num(k_ly['noches'])}")
 
-    # Gráfico de ingresos diarios (ACT vs LY)
-    act_i = act.assign(Serie="Act")
-    ly_i  = ly.assign(Serie="LY")
-    # Alinear LY a las fechas de ACT para comparar visualmente (sumar 1 año)
-    ly_i_plot = ly_i.copy()
-    ly_i_plot["Fecha"] = ly_i_plot["Fecha"] + pd.DateOffset(years=1)
-    plot_ing = pd.concat([act_i, ly_i_plot], ignore_index=True)
-
-    chart_ing = (
-        alt.Chart(plot_ing)
-        .mark_area(opacity=0.35)
+    # === Reemplazo: quitar “Ingresos por día” y mostrar “Ritmo de ocupación” ===
+    pace_df = _pace_dataframe(act, ly, start, end, inv_units)
+    st.subheader("Ritmo de ocupación del periodo (ocupación acumulada)")
+    chart_pace = (
+        alt.Chart(pace_df)
+        .mark_line(point=False)
         .encode(
             x=alt.X("Fecha:T", title="Fecha"),
-            y=alt.Y("Ingresos:Q", title="Ingresos por día"),
-            color=alt.Color("Serie:N", scale=alt.Scale(range=["#2e485f","#c77b2b"])),
-            tooltip=[
-                alt.Tooltip("Serie:N"),
-                alt.Tooltip("Fecha:T"),
-                alt.Tooltip("Ingresos:Q", format=",.0f")
-            ],
+            y=alt.Y("PacePct:Q", title="Ocupación acumulada (%)", scale=alt.Scale(domain=[0, 100])),
+            color=alt.Color("Serie:N", scale=alt.Scale(range=["#2e485f", "#c77b2b"])),
+            tooltip=[alt.Tooltip("Serie:N"), alt.Tooltip("Fecha:T"), alt.Tooltip("PacePct:Q", format=",.1f")]
         )
         .properties(height=260)
-    ) + (
-        alt.Chart(plot_ing)
-        .mark_line()
-        .encode(x="Fecha:T", y="Ingresos:Q", color="Serie:N")
     )
-    st.subheader("Ingresos por día (Act vs LY alineado)")
-    st.altair_chart(chart_ing, use_container_width=True)
+    st.altair_chart(chart_pace, use_container_width=True)
 
-    # ADR por día o por semana
+    # ADR por día o por semana (se mantiene)
     if gran == "Día":
         adr_act = act[["Fecha","ADR"]].assign(Serie="Act")
         adr_ly  = ly[["Fecha","ADR"]].assign(Serie="LY")
@@ -373,7 +457,8 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
     wk_path = _wkhtmltopdf_detect()
     wk_ver = _wkhtmltopdf_version(wk_path)
     tpl_path = Path(__file__).resolve().parent / "templates" / "informe_propietario.html"
-    logo_guess = Path(__file__).resolve().parent / "assets" / "florit-flats-logo.png"
+    # Corrige el nombre del logo del diagnóstico
+    logo_guess = Path(__file__).resolve().parent / "assets" / "florit.flats-logo.png"
     st.caption(f"Build: {BUILD} · wkhtmltopdf: {'OK' if cfg else 'NO'} · Ruta: {wk_path or '—'} · Versión: {wk_ver or '—'}")
     st.caption(f"Plantilla: {'OK' if tpl_path.exists() else 'NO'} ({tpl_path}) · Logo: {'OK' if logo_guess.exists() else 'NO'} ({logo_guess})")
 
@@ -385,7 +470,8 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
             st.error(f"No existe la plantilla: {tpl_path}")
         else:
             try:
-                chart_ing_b64 = _plot_ingresos_png(act, ly)
+                # Sustituir la antigua imagen de ingresos por el gráfico de ritmo (pace)
+                chart_pace_b64 = _plot_pace_png(act, ly, start, end, inv_units)
                 chart_adr_b64 = _plot_adr_png(act, ly, gran)
                 ctx = {
                     "apto": apto, "owner": owner,
@@ -393,7 +479,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                     "period_ly": _period_label(pd.to_datetime(start)-pd.DateOffset(years=1), pd.to_datetime(end)-pd.DateOffset(years=1)),
                     "act": {"ingresos": _fmt_money(k_act['ingresos']), "adr": _fmt_money(k_act['adr']), "noches": f"{k_act['noches']:,}".replace(",",".")},
                     "ly":  {"ingresos": _fmt_money(k_ly['ingresos']),  "adr": _fmt_money(k_ly['adr']),  "noches": f"{k_ly['noches']:,}".replace(",",".")},
-                    "chart_ingresos": chart_ing_b64,
+                    "chart_pace": chart_pace_b64,         # ← nuevo
                     "chart_adr": chart_adr_b64,
                     "gran_label": gran.lower(),
                     "comments": st.session_state.get("inf_comments") or "",
@@ -404,7 +490,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                 tpl_dir = Path(__file__).resolve().parent / "templates"
                 env = Environment(loader=FileSystemLoader(str(tpl_dir)), autoescape=True)
                 html = env.get_template("informe_propietario.html").render(**ctx)
-
+                # pdfkit
                 import pdfkit
                 options = {
                     "enable-local-file-access": None,
@@ -423,82 +509,29 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                 with st.expander("Detalle"):
                     st.exception(e)
 
-    # Info para despliegue en la nube
-    if os.environ.get("STREAMLIT_RUNTIME") == "cloud" or "mount/src" in str(Path.cwd()):
-        st.info("Si estás viendo la app en Streamlit Cloud, wkhtmltopdf puede no estar disponible. En la nube usa el botón Imprimir/Guardar PDF o despliega localmente con wkhtmltopdf instalado.")
+# === NUEVO: gráfico PNG del ritmo de ocupación para el PDF ===
+def _plot_pace_png(act: pd.DataFrame, ly: pd.DataFrame, start: date, end: date, inv_units: int) -> str:
+    s = pd.to_datetime(start); e = pd.to_datetime(end)
+    total_days = (e - s).days + 1
+    total_cap = max(1, inv_units) * total_days
 
-def _fmt_money(x: float) -> str:
-    return f"{x:,.0f}".replace(",", ".")
+    a = act[["Fecha","Noches"]].copy()
+    a["CumNoches"] = a["Noches"].cumsum()
+    a["PacePct"] = (a["CumNoches"] / total_cap) * 100.0
 
-def _logo_b64() -> str | None:
-    # Busca el logo en ./assets (florit.flats-logo.png prioritario)
-    from pathlib import Path
-    base = Path(__file__).resolve().parent / "assets"
-    for name in ["florit-flats-logo.png","florit-flats_logo.png","logo.png","logo.jpg","logo.jpeg","logo.svg"]:
-        p = base / name
-        if p.exists():
-            try:
-                with open(p, "rb") as f:
-                    return base64.b64encode(f.read()).decode("utf-8")
-            except Exception:
-                return None
-    return None
+    l = ly[["Fecha","Noches"]].copy()
+    l["CumNoches"] = l["Noches"].cumsum()
+    l["PacePct"] = (l["CumNoches"] / total_cap) * 100.0
+    l["Fecha"] = l["Fecha"] + pd.DateOffset(years=1)
 
-def _png_from_plt(fig) -> str:
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=180, bbox_inches="tight")
-    plt.close(fig)
-    return base64.b64encode(buf.getvalue()).decode("utf-8")
-
-def _plot_ingresos_png(act: pd.DataFrame, ly: pd.DataFrame) -> str:
-    ly_plot = ly.copy()
-    ly_plot["Fecha"] = ly_plot["Fecha"] + pd.DateOffset(years=1)
     fig, ax = plt.subplots(figsize=(9, 3))
-    ax.plot(act["Fecha"], act["Ingresos"], color="#2e485f", label="Act")
-    ax.plot(ly_plot["Fecha"], ly_plot["Ingresos"], color="#c77b2b", label="LY")
-    ax.fill_between(act["Fecha"], 0, act["Ingresos"], color="#2e485f", alpha=0.15)
-    ax.fill_between(ly_plot["Fecha"], 0, ly_plot["Ingresos"], color="#c77b2b", alpha=0.10)
-    ax.set_ylabel("€")
+    ax.plot(a["Fecha"], a["PacePct"], color="#2e485f", label="Act")
+    ax.plot(l["Fecha"], l["PacePct"], color="#c77b2b", label="LY")
+    ax.set_ylabel("%")
+    ax.set_ylim(0, 100)
     ax.xaxis.set_major_locator(mdates.AutoDateLocator())
     ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax.xaxis.get_major_locator()))
     ax.grid(True, alpha=0.25)
     ax.legend()
     fig.tight_layout()
     return _png_from_plt(fig)
-
-def _plot_adr_png(act: pd.DataFrame, ly: pd.DataFrame, gran: str) -> str:
-    if gran == "Semana":
-        w_act = act.assign(Sem=act["Fecha"].dt.to_period("W-MON").dt.start_time)
-        actp = (w_act.groupby("Sem", as_index=False).agg({"Ingresos":"sum","Noches":"sum"})
-                .assign(ADR=lambda x: np.where(x["Noches"]>0, x["Ingresos"]/x["Noches"],0.0))
-                .rename(columns={"Sem":"Fecha"}))
-        w_ly = ly.assign(Sem=ly["Fecha"].dt.to_period("W-MON").dt.start_time)
-        lyp = (w_ly.groupby("Sem", as_index=False).agg({"Ingresos":"sum","Noches":"sum"})
-               .assign(ADR=lambda x: np.where(x["Noches"]>0, x["Ingresos"]/x["Noches"],0.0))
-               .rename(columns={"Sem":"Fecha"}))
-    else:
-        actp, lyp = act.copy(), ly.copy()
-
-    lyp = lyp.copy()
-    lyp["Fecha"] = lyp["Fecha"] + pd.DateOffset(years=1)
-
-    fig, ax = plt.subplots(figsize=(9, 3))
-    ax.plot(actp["Fecha"], actp["ADR"], marker="o", ms=3, color="#2e485f", label="Act")
-    ax.plot(lyp["Fecha"], lyp["ADR"], marker="o", ms=3, color="#c77b2b", label="LY")
-    ax.set_ylabel("€")
-    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-    ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax.xaxis.get_major_locator()))
-    ax.grid(True, alpha=0.25)
-    ax.legend()
-    fig.tight_layout()
-    return _png_from_plt(fig)
-
-import subprocess, pathlib
-wk_path = next((p for p in ["/usr/bin/wkhtmltopdf", shutil.which("wkhtmltopdf")] if p), None)
-wk_ver = None
-try:
-    if wk_path:
-        wk_ver = subprocess.check_output([wk_path, "--version"], text=True).strip()
-except Exception:
-    wk_ver = None
-st.caption(f"wkhtmltopdf: {'OK' if wk_path else 'NO'} · Ruta: {wk_path or '—'} · Versión: {wk_ver or '—'}")
