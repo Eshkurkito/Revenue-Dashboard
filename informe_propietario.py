@@ -373,7 +373,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
     wk_path = _wkhtmltopdf_detect()
     wk_ver = _wkhtmltopdf_version(wk_path)
     tpl_path = Path(__file__).resolve().parent / "templates" / "informe_propietario.html"
-    logo_guess = Path(__file__).resolve().parent / "assets" / "florit.flats-logo.png"
+    logo_guess = Path(__file__).resolve().parent / "assets" / "florit-flats-logo.png"
     st.caption(f"Build: {BUILD} · wkhtmltopdf: {'OK' if cfg else 'NO'} · Ruta: {wk_path or '—'} · Versión: {wk_ver or '—'}")
     st.caption(f"Plantilla: {'OK' if tpl_path.exists() else 'NO'} ({tpl_path}) · Logo: {'OK' if logo_guess.exists() else 'NO'} ({logo_guess})")
 
@@ -434,7 +434,7 @@ def _logo_b64() -> str | None:
     # Busca el logo en ./assets (florit.flats-logo.png prioritario)
     from pathlib import Path
     base = Path(__file__).resolve().parent / "assets"
-    for name in ["florit.flats-logo.png","florit.flats_logo.png","logo.png","logo.jpg","logo.jpeg","logo.svg"]:
+    for name in ["florit-flats-logo.png","florit-flats_logo.png","logo.png","logo.jpg","logo.jpeg","logo.svg"]:
         p = base / name
         if p.exists():
             try:
