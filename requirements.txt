@@ -13,3 +13,5 @@ streamlit-lottie
 requests
 streamlit-authenticator
 bcrypt
+pdfkit
+wkhtmltopdf
