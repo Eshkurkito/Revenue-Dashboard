@@ -277,13 +277,28 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
     import streamlit.components.v1 as components
     components.html(
         """
-        <style>@media print { .stApp header, .stApp footer { display:none; } }</style>
-        <button onclick="window.print()" style="padding:10px 16px;border-radius:8px;border:1px solid #ccc;background:#2e485f;color:#fff;cursor:pointer;">
+        <script>
+        function printReport(){
+          try { window.parent.focus(); window.parent.print(); } 
+          catch(e) { window.top.print(); }
+        }
+        </script>
+        <style>
+          @media print { 
+            .stApp header, .stApp footer, [data-testid="stSidebar"]{ display:none !important; }
+            .stApp { padding: 0 !important; }
+            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          }
+        </style>
+        <button onclick="printReport()" 
+                style="padding:10px 16px;border-radius:8px;border:1px solid #ccc;background:#2e485f;color:#fff;cursor:pointer;">
           Imprimir / Guardar PDF
         </button>
         """,
-        height=60
+        height=70
     )
+    st.caption("Si no se abre, pulsa Ctrl+P (Cmd+P en Mac).")
+
     try:
         import pdfkit, os, shutil
         wk = shutil.which("wkhtmltopdf") or r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
