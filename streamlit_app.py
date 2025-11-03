@@ -152,6 +152,7 @@ with st.sidebar:
             clear_data()
 
 # --- Router ---
+# Añade la vista a la lista de válidas
 VALID_VIEWS = {
     "landing","consulta","pro","whatif","evolucion","resumen",
     "kpis_por_meses","reservas_por_dia","informe_propietario"   # ← añadido
