@@ -56,71 +56,19 @@ def _inject_css():
         """
         <style>
         :root{ --brand:#2e485f; --brand-600:#264052; --brand-50:#f3f6f9; }
-        .hero {
-            padding: 18px 26px;
-            border-radius: 14px;
-            background: linear-gradient(135deg, #ffffff 0%, #f6f8fb 100%);
-            color: #1f2937;
-            border: 1px solid rgba(0,0,0,0.04);
-            box-shadow: 0 8px 24px rgba(0,0,0,0.06);
-        }
-        .tile {
-            padding: 16px;
-            border-radius: 14px;
-            background: #ffffff;
-            border: 1px solid rgba(0,0,0,0.06);
-            transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
-        }
-        .tile:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 24px rgba(0,0,0,0.12);
-            border-color: var(--brand);
-        }
-        .btn-primary {
-            background: var(--brand);
-            color: #fff;
-            padding: 8px 14px;
-            border-radius: 10px;
-            border: 1px solid var(--brand-600);
-        }
-        .btn-primary:hover { background: var(--brand-600); }
+        .hero { padding:18px 26px; border-radius:14px; background:linear-gradient(135deg,#fff 0%,#f6f8fb 100%); color:#1f2937; border:1px solid rgba(0,0,0,0.04); box-shadow:0 8px 24px rgba(0,0,0,0.06); }
+        .tile { padding:16px; border-radius:14px; background:#fff; border:1px solid rgba(0,0,0,0.06); transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease; display:flex; flex-direction:column; height:100%; }
+        .tile:hover { transform:translateY(-2px); box-shadow:0 8px 24px rgba(0,0,0,0.12); border-color:var(--brand); }
+        .btn-primary { background:var(--brand); color:#fff; padding:8px 14px; border-radius:10px; border:1px solid var(--brand-600); }
+        .btn-primary:hover { background:var(--brand-600); }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-def _tile_media(title: str, key: str):
-    # Sin animaciones: no renderizar nada (el placeholder era lo que parecía un botón)
-    if not (USE_ANIMATIONS and st_lottie):
-        return
-    anim = _load_lottie(LOTTIE.get(key))
-    if isinstance(anim, dict):
-        st_lottie(anim, height=140, key=f"lot_{key}")
-
-# Helper de rerun compatible
-def _rerun():
-    try:
-        st.rerun()
-    except Exception:
-        try:
-            st.experimental_rerun()
-        except Exception:
-            pass
-
-def get_logo_path() -> str | None:
-    base = Path(__file__).resolve().parent
-    candidates = [
-        base / "assets" / "florit-flats-logo.png",
-        base / "assets" / "images" / "florit-flats-logo.png",
-        Path.cwd() / "assets" / "florit-flats-logo.png",
-        Path.cwd() / "assets" / "images" / "florit-flats-logo.png",
-    ]
-    for p in candidates:
-        if p.exists():
-            return str(p)
-    return None
-
-LOGO_PATH = get_logo_path() or "assets/florit-flats-logo.png"
+def _chunks(lst, n):
+    for i in range(0, len(lst), n):
+        yield lst[i:i+n]
 
 def render_landing():
     _inject_css()
@@ -144,34 +92,38 @@ def render_landing():
         ("Resumen comparativo", "resumen", "Comparativa por alojamiento: ADR, ocupación e ingresos."),
         ("KPIs por meses", "kpis_por_meses", "Resumen mensual: Noches, ADR, RevPAR e Ingresos."),
         ("Reservas por día", "reservas_por_dia", "Reservas recibidas por fecha de alta con comparación LY y LY-2."),
-        ("Informe de propietario", "informe_propietario", "KPIs, comparación LY, gráfica y comentarios; exportable a PDF."),  # ← nuevo
+        ("Informe de propietario", "informe_propietario", "KPIs, comparación LY, gráfica y comentarios; exportable a PDF."),
     ]
-    cols = st.columns(len(tiles), gap="large")
-    clicks = {}
 
-    for col, (title, key, desc) in zip(cols, tiles):
-        with col:
-            with st.container(border=True):
-                if USE_ANIMATIONS:
-                    _tile_media(title, key)
-                st.markdown(f"**{title}**")
-                st.caption(desc)
-                clicks[key] = st.button("Entrar", key=f"btn_{key}", use_container_width=True)
+    clicks = {}
+    for row in _chunks(tiles, 4):  # ← máx. 4 por fila
+        cols = st.columns(4, gap="large")
+        for i in range(4):
+            with cols[i]:
+                if i >= len(row):
+                    st.empty()
+                    continue
+                title, key, desc = row[i]
+                with st.container():
+                    st.markdown(f"<div class='tile'><div style='min-height:120px'><b>{title}</b><br><span style='color:#556'>{desc}</span></div></div>", unsafe_allow_html=True)
+                    if st.button("Entrar", key=f"go_{key}", use_container_width=True):
+                        clicks[key] = True
+        st.write("")  # separación entre filas
 
     # Navegación
     if clicks.get("consulta"):
-        st.session_state.view = "consulta"; _rerun()
+        st.session_state.view = "consulta"; st.rerun()
     elif clicks.get("pro"):
-        st.session_state.view = "pro"; _rerun()
+        st.session_state.view = "pro"; st.rerun()
     elif clicks.get("whatif"):
-        st.session_state.view = "whatif"; _rerun()
+        st.session_state.view = "whatif"; st.rerun()
     elif clicks.get("evolucion"):
-        st.session_state.view = "evolucion"; _rerun()
+        st.session_state.view = "evolucion"; st.rerun()
     elif clicks.get("resumen"):
-        st.session_state.view = "resumen"; _rerun()
+        st.session_state.view = "resumen"; st.rerun()
     elif clicks.get("kpis_por_meses"):
-        st.session_state.view = "kpis_por_meses"; _rerun()
-    elif clicks.get("reservas_por_dia"):  # ← nuevo
-        st.session_state.view = "reservas_por_dia"; _rerun()
-    elif clicks.get("informe_propietario"):  # ← nuevo
-        st.session_state.view = "informe_propietario"; _rerun()
+        st.session_state.view = "kpis_por_meses"; st.rerun()
+    elif clicks.get("reservas_por_dia"):
+        st.session_state.view = "reservas_por_dia"; st.rerun()
+    elif clicks.get("informe_propietario"):
+        st.session_state.view = "informe_propietario"; st.rerun()
