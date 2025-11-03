@@ -3,13 +3,50 @@ import pandas as pd
 import numpy as np
 import altair as alt
 from datetime import date, timedelta
-import io, base64, shutil, os
+import io, base64, shutil, os, subprocess
+from pathlib import Path
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from jinja2 import Environment, FileSystemLoader
 
 TITLE = "Informe de propietario"
-BUILD = "v1.5"
+BUILD = "v1.6-diag"
+
+# --- diagnóstico wkhtmltopdf ---
+def _wkhtmltopdf_candidates():
+    return [
+        os.environ.get("WKHTMLTOPDF_PATH"),
+        getattr(st.secrets, "wkhtmltopdf_path", None) if hasattr(st, "secrets") else None,
+        r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe",
+        r"C:\Program Files (x86)\wkhtmltopdf\bin\wkhtmltopdf.exe",
+        shutil.which("wkhtmltopdf"),
+        "/usr/bin/wkhtmltopdf",
+        "/usr/local/bin/wkhtmltopdf",
+    ]
+
+def _wkhtmltopdf_detect():
+    for p in _wkhtmltopdf_candidates():
+        if p and os.path.exists(p):
+            return p
+    return None
+
+def _wkhtmltopdf_version(path: str | None):
+    if not path:
+        return None
+    try:
+        out = subprocess.check_output([path, "--version"], stderr=subprocess.STDOUT, text=True, timeout=5)
+        return out.strip()
+    except Exception:
+        return None
+
+def _pdfkit_config():
+    path = _wkhtmltopdf_detect()
+    if not path:
+        return None
+    try:
+        import pdfkit
+        return pdfkit.configuration(wkhtmltopdf=path)
+    except Exception:
+        return None
 
 # ----------------- Utilidades -----------------
 def _std_cols(df: pd.DataFrame) -> pd.DataFrame:
@@ -137,32 +174,76 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
     if not isinstance(raw, pd.DataFrame) or raw.empty:
         st.info("Sube un archivo en la barra lateral.")
         return
-
     df = _std_cols(raw)
 
-    # Sidebar
+    # --- Estado persistente ---
+    if "inf_ready" not in st.session_state:
+        st.session_state.inf_ready = False
+    if "inf_cfg" not in st.session_state:
+        st.session_state.inf_cfg = {}
+
+    # --- Sidebar: formulario de parámetros (persistente) ---
     with st.sidebar:
         st.subheader("Parámetros · Informe")
-        props = []
-        if "Alojamiento" in df.columns:
-            all_props = sorted(df["Alojamiento"].astype(str).dropna().unique().tolist())
-            props = st.multiselect("Alojamientos", all_props, default=[], key="inf_props")
+        with st.form("inf_form", clear_on_submit=False):
+            props = []
+            if "Alojamiento" in df.columns:
+                all_props = sorted(df["Alojamiento"].astype(str).dropna().unique().tolist())
+                # Valores por defecto desde el último informe si existen
+                prev = st.session_state.inf_cfg.get("props", [])
+                props = st.multiselect("Alojamientos", all_props, default=prev, key="inf_props_form")
 
-        apto = st.text_input("Nombre del apartamento (portada)", value=(props[0] if len(props)==1 else ""), key="inf_apto")
-        owner = st.text_input("Nombre del propietario", value="", key="inf_owner")
+            apto_default = st.session_state.inf_cfg.get("apto", (props[0] if len(props)==1 else ""))
+            owner_default = st.session_state.inf_cfg.get("owner", "")
+            apto = st.text_input("Nombre del apartamento (portada)", value=apto_default, key="inf_apto_form")
+            owner = st.text_input("Nombre del propietario", value=owner_default, key="inf_owner_form")
 
-        today = date.today()
-        start = st.date_input("Inicio del periodo", value=today.replace(day=1), key="inf_start")
-        end   = st.date_input("Fin del periodo", value=today, key="inf_end")
-        gran = st.radio("Granularidad ADR", ["Día","Semana"], horizontal=True, key="inf_gran")
-        run = st.button("Generar informe", type="primary", use_container_width=True, key="inf_run")
+            today = date.today()
+            start_default = st.session_state.inf_cfg.get("start", today.replace(day=1))
+            end_default   = st.session_state.inf_cfg.get("end", today)
+            start = st.date_input("Inicio del periodo", value=start_default, key="inf_start_form")
+            end   = st.date_input("Fin del periodo", value=end_default, key="inf_end_form")
 
-    if not run:
+            gran = st.radio("Granularidad ADR", ["Día","Semana"],
+                            horizontal=True,
+                            index=(0 if st.session_state.inf_cfg.get("gran","Día")=="Día" else 1),
+                            key="inf_gran_form")
+
+            submitted = st.form_submit_button("Generar informe", use_container_width=True)
+
+        # Botón utilitario para refrescar caché
+        if st.button("Forzar recarga", use_container_width=True, key="inf_force_reload"):
+            st.cache_data.clear(); st.rerun()
+
+    # Si se envía el formulario, guarda y fija estado
+    if submitted:
+        if start > end:
+            st.error("La fecha de inicio no puede ser posterior a la de fin.")
+            return
+        st.session_state.inf_cfg = {
+            "props": st.session_state.get("inf_props_form", []),
+            "apto": st.session_state.get("inf_apto_form", ""),
+            "owner": st.session_state.get("inf_owner_form", ""),
+            "start": pd.to_datetime(start).date(),
+            "end": pd.to_datetime(end).date(),
+            "gran": st.session_state.get("inf_gran_form", "Día"),
+        }
+        st.session_state.inf_ready = True
+        st.rerun()
+
+    # Si aún no se ha generado, muestra guía y sal
+    if not st.session_state.inf_ready:
         st.info("Elige parámetros y pulsa Generar informe.")
         return
-    if start > end:
-        st.error("La fecha de inicio no puede ser posterior a la de fin.")
-        return
+
+    # --- Usa parámetros fijados para renderizar el informe ---
+    cfg = st.session_state.inf_cfg
+    props = cfg["props"]; apto = cfg["apto"]; owner = cfg["owner"]
+    start = cfg["start"]; end = cfg["end"]; gran = cfg["gran"]
+
+    # Botón para volver a editar
+    st.button("Editar parámetros", key="inf_edit_params",
+              on_click=lambda: st.session_state.update(inf_ready=False))
 
     # Series ACT/LY
     act, ly = _compute_series(df, start, end, props)
@@ -275,41 +356,68 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
     comments = st.text_area("Comentarios", key="inf_comments", height=140, placeholder="Puntos clave, acciones, próximos pasos…")
     st.write(comments or "—")
 
-    # Exportar a PDF
+    # ================= Exportar a PDF (plantilla) =================
     st.divider()
-    st.markdown("#### Exportar a PDF (plantilla)")
+    st.markdown("#### Exportar a PDF (plantilla HTML + wkhtmltopdf)")
 
+    # Diagnóstico rápido visible
+    cfg = _pdfkit_config()
+    wk_path = _wkhtmltopdf_detect()
+    wk_ver = _wkhtmltopdf_version(wk_path)
+    tpl_path = Path(__file__).resolve().parent / "templates" / "informe_propietario.html"
+    logo_guess = Path(__file__).resolve().parent / "assets" / "florit.flats-logo.png"
+    st.caption(f"Build: {BUILD} · wkhtmltopdf: {'OK' if cfg else 'NO'} · Ruta: {wk_path or '—'} · Versión: {wk_ver or '—'}")
+    st.caption(f"Plantilla: {'OK' if tpl_path.exists() else 'NO'} ({tpl_path}) · Logo: {'OK' if logo_guess.exists() else 'NO'} ({logo_guess})")
+
+    # Botón generar PDF
     if st.button("Generar PDF", type="primary", use_container_width=True, key="inf_pdf"):
-        try:
-            chart_ing_b64 = _plot_ingresos_png(act, ly)
-            chart_adr_b64 = _plot_adr_png(act, ly, gran)
-            ctx = {
-                "apto": apto, "owner": owner,
-                "period_act": _period_label(start, end),
-                "period_ly": _period_label(pd.to_datetime(start)-pd.DateOffset(years=1), pd.to_datetime(end)-pd.DateOffset(years=1)),
-                "act": {"ingresos": _fmt_money(k_act["ingresos"]), "adr": _fmt_money(k_act["adr"]), "noches": f"{k_act['noches']:,}".replace(",",".")},
-                "ly":  {"ingresos": _fmt_money(k_ly["ingresos"]),  "adr": _fmt_money(k_ly["adr"]),  "noches": f"{k_ly['noches']:,}".replace(",",".")},
-                "chart_ingresos": chart_ing_b64,
-                "chart_adr": chart_adr_b64,
-                "gran_label": gran.lower(),
-                "comments": st.session_state.get("inf_comments") or "",
-                "logo_b64": _logo_b64(),
-            }
-            pdf_bytes = _render_pdf_from_template(ctx)
-            if pdf_bytes:
-                st.download_button(
-                    "Descargar PDF",
-                    data=pdf_bytes,
-                    file_name=f"Informe_{apto or 'propietario'}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                )
-            else:
-                st.error("No se encontró wkhtmltopdf en el sistema. Instálalo y vuelve a intentar.")
-        except Exception as e:
-            st.error("No se pudo generar el PDF.")
-            with st.expander("Detalle del error"):
-                st.exception(e)
+        if cfg is None:
+            st.error("wkhtmltopdf no encontrado. Define WKHTMLTOPDF_PATH o añade su ruta al PATH.")
+        elif not tpl_path.exists():
+            st.error(f"No existe la plantilla: {tpl_path}")
+        else:
+            try:
+                chart_ing_b64 = _plot_ingresos_png(act, ly)
+                chart_adr_b64 = _plot_adr_png(act, ly, gran)
+                ctx = {
+                    "apto": apto, "owner": owner,
+                    "period_act": _period_label(start, end),
+                    "period_ly": _period_label(pd.to_datetime(start)-pd.DateOffset(years=1), pd.to_datetime(end)-pd.DateOffset(years=1)),
+                    "act": {"ingresos": _fmt_money(k_act['ingresos']), "adr": _fmt_money(k_act['adr']), "noches": f"{k_act['noches']:,}".replace(",",".")},
+                    "ly":  {"ingresos": _fmt_money(k_ly['ingresos']),  "adr": _fmt_money(k_ly['adr']),  "noches": f"{k_ly['noches']:,}".replace(",",".")},
+                    "chart_ingresos": chart_ing_b64,
+                    "chart_adr": chart_adr_b64,
+                    "gran_label": gran.lower(),
+                    "comments": st.session_state.get("inf_comments") or "",
+                    "logo_b64": _logo_b64(),
+                }
+                # render
+                from jinja2 import Environment, FileSystemLoader
+                tpl_dir = Path(__file__).resolve().parent / "templates"
+                env = Environment(loader=FileSystemLoader(str(tpl_dir)), autoescape=True)
+                html = env.get_template("informe_propietario.html").render(**ctx)
+
+                import pdfkit
+                options = {
+                    "enable-local-file-access": None,
+                    "page-size": "A4",
+                    "margin-top": "10mm",
+                    "margin-bottom": "10mm",
+                    "margin-left": "10mm",
+                    "margin-right": "10mm",
+                    "encoding": "UTF-8",
+                    "quiet": "",
+                }
+                pdf_bytes = pdfkit.from_string(html, False, configuration=cfg, options=options)
+                st.download_button("Descargar PDF", data=pdf_bytes, file_name=f"Informe_{apto or 'propietario'}.pdf", mime="application/pdf", use_container_width=True)
+            except Exception as e:
+                st.error("No se pudo generar el PDF.")
+                with st.expander("Detalle"):
+                    st.exception(e)
+
+    # Info para despliegue en la nube
+    if os.environ.get("STREAMLIT_RUNTIME") == "cloud" or "mount/src" in str(Path.cwd()):
+        st.info("Si estás viendo la app en Streamlit Cloud, wkhtmltopdf puede no estar disponible. En la nube usa el botón Imprimir/Guardar PDF o despliega localmente con wkhtmltopdf instalado.")
 
 def _fmt_money(x: float) -> str:
     return f"{x:,.0f}".replace(",", ".")
@@ -376,46 +484,3 @@ def _plot_adr_png(act: pd.DataFrame, ly: pd.DataFrame, gran: str) -> str:
     ax.legend()
     fig.tight_layout()
     return _png_from_plt(fig)
-
-def _pdfkit_config():
-    """Busca wkhtmltopdf en env var, secrets, rutas típicas de Windows y PATH."""
-    cand = [
-        os.environ.get("WKHTMLTOPDF_PATH"),
-    ]
-    try:
-        cand.append(st.secrets.get("wkhtmltopdf_path"))
-    except Exception:
-        pass
-    cand += [
-        r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe",
-        r"C:\Program Files (x86)\wkhtmltopdf\bin\wkhtmltopdf.exe",
-        shutil.which("wkhtmltopdf"),
-    ]
-    path = next((p for p in cand if p and os.path.exists(p)), None)
-    if not path:
-        return None
-    import pdfkit
-    return pdfkit.configuration(wkhtmltopdf=path)
-
-def _render_pdf_from_template(context: dict) -> bytes | None:
-    # Plantilla
-    tpl_dir = os.path.join(os.path.dirname(__file__), "templates")
-    env = Environment(loader=FileSystemLoader(tpl_dir), autoescape=True)
-    html = env.get_template("informe_propietario.html").render(**context)
-
-    # wkhtmltopdf
-    import pdfkit
-    cfg = _pdfkit_config()
-    if not cfg:
-        return None
-    options = {
-        "enable-local-file-access": None,
-        "page-size": "A4",
-        "margin-top": "10mm",
-        "margin-bottom": "10mm",
-        "margin-left": "10mm",
-        "margin-right": "10mm",
-        "encoding": "UTF-8",
-        "quiet": "",
-    }
-    return pdfkit.from_string(html, False, configuration=cfg, options=options)
