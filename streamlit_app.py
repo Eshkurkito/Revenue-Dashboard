@@ -187,56 +187,7 @@ elif st.session_state.view == "informe_propietario":  # ← nuevo
     from informe_propietario import render_informe_propietario
     _safe_call(render_informe_propietario)
 
+# Reenvía al landing moderno (no sobrescribas la función importada)
 def render_landing():
-    st.title("Bienvenido a la herramienta de análisis de datos")
-    st.write("Esta herramienta te permite analizar y visualizar tus datos de manera interactiva.")
-
-    # --- Sección de carga de datos ---
-    st.header("Carga de datos")
-    st.write("Para comenzar, carga tu archivo de datos en formato Excel o CSV.")
-
-    # Botón para restablecer la vista
-    if st.button("↻ Restablecer vista", key="btn_reset_view", help="Restablece la vista actual"):
-        clear_data()
-
-    # Muestra un mensaje si no hay datos cargados
-    if _get_raw() is None:
-        st.info("No hay datos cargados. Por favor, sube un archivo en la barra lateral.")
-    else:
-        df = _get_raw()
-        st.success(f"Datos cargados: {df.shape[0]:,} filas · {df.shape[1]} columnas")
-
-    # --- Ejemplo de datos ---
-    st.subheader("Ejemplo de datos")
-    raw = _get_raw()
-    if raw is not None and not raw.empty:
-        st.write("Aquí tienes una vista previa de tus datos:")
-        st.dataframe(raw.head(10))
-    else:
-        st.write("No hay datos disponibles para mostrar.")
-
-    # --- Navegación a módulos ---
-    st.header("Análisis y visualización")
-    clicks = {}
-    cols = st.columns(3)
-    with cols[0]:
-        clicks["consulta"] = st.button("Consulta normal", help="Consulta y analiza tus datos.")
-    with cols[1]:
-        clicks["pro"] = st.button("Cuadro de mando PRO", help="Análisis avanzado con gráficos.")
-    with cols[2]:
-        clicks["whatif"] = st.button("Análisis What-If", help="Simula escenarios hipotéticos.")
-
-    # Navegación:
-    if clicks.get("consulta"):
-        st.session_state.view = "consulta"; _rerun()
-    elif clicks.get("pro"):
-        st.session_state.view = "pro"; _rerun()
-    elif clicks.get("whatif"):
-        st.session_state.view = "whatif"; _rerun()
-    elif clicks.get("informe_propietario"):             # ← nuevo
-        st.session_state.view = "informe_propietario"; _rerun()
-
-    # --- Información adicional ---
-    st.subheader("Información adicional")
-    st.write("Utiliza los módulos disponibles para realizar un análisis detallado de tus datos.")
-    st.write("Para más información, consulta la documentación de la herramienta.")
+    from landing_ui import render_landing as _landing
+    _landing()

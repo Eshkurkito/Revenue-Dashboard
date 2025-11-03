@@ -143,7 +143,8 @@ def render_landing():
         ("Evolución (cut-off)", "evolucion", "Comparativa por fecha de corte."),
         ("Resumen comparativo", "resumen", "Comparativa por alojamiento: ADR, ocupación e ingresos."),
         ("KPIs por meses", "kpis_por_meses", "Resumen mensual: Noches, ADR, RevPAR e Ingresos."),
-        ("Reservas por día", "reservas_por_dia", "Reservas recibidas por fecha de alta con comparación LY y LY-2."),  # ← nuevo
+        ("Reservas por día", "reservas_por_dia", "Reservas recibidas por fecha de alta con comparación LY y LY-2."),
+        ("Informe de propietario", "informe_propietario", "KPIs, comparación LY, gráfica y comentarios; exportable a PDF."),  # ← nuevo
     ]
     cols = st.columns(len(tiles), gap="large")
     clicks = {}
@@ -172,3 +173,5 @@ def render_landing():
         st.session_state.view = "kpis_por_meses"; _rerun()
     elif clicks.get("reservas_por_dia"):  # ← nuevo
         st.session_state.view = "reservas_por_dia"; _rerun()
+    elif clicks.get("informe_propietario"):  # ← nuevo
+        st.session_state.view = "informe_propietario"; _rerun()
