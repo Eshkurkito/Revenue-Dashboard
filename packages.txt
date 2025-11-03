@@ -2,3 +2,4 @@ wkhtmltopdf
 fontconfig
 fonts-dejavu-core
 fonts-liberation
+build-essential        # solo si falla la instalación de bcrypt
