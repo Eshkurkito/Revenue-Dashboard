@@ -14,4 +14,8 @@ requests
 streamlit-authenticator
 bcrypt
 pdfkit
-wkhtmltopdf
+jinja2
+matplotlib
+pandas
+altair
+streamlit
