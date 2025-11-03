@@ -130,11 +130,25 @@ def render_landing():
 
 def get_logo_path() -> str | None:
     """
-    Devuelve la ruta al logo si existe (assets/logo.png); si no, None.
-    Sirve para no romper el import en streamlit_app.py.
+    Devuelve la ruta del logo en ./assets.
+    Prioriza 'florit.flats-logo.png' y hace fallback a otros nombres comunes.
     """
-    try:
-        p = Path(__file__).resolve().parent / "assets" / "logo.png"
-        return str(p) if p.exists() else None
-    except Exception:
-        return None
+    base = Path(__file__).resolve().parent / "assets"
+    candidates = [
+        "florit-flats-logo.png",
+        "florit.flats_logo.png",
+        "logo.png",
+        "logo.jpg",
+        "logo.jpeg",
+        "logo.svg",
+    ]
+    for name in candidates:
+        p = base / name
+        if p.exists():
+            return str(p)
+    # Fallback: cualquier archivo que contenga 'logo'
+    if base.exists():
+        for p in base.iterdir():
+            if p.is_file() and "logo" in p.name.lower():
+                return str(p)
+    return None
