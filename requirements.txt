@@ -7,6 +7,6 @@ matplotlib>=3.9.0
 pdfkit>=1.0.0
 bcrypt>=4.2.0          # ← añade esto
 streamlit-lottie>=0.0.5
-openpyxl>=3.1.2
-requests>=2.31.0
-xslsxwriter>=3.1.2
+openpyxl
+requests
+xslsxwriter
