@@ -396,7 +396,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
     # Ritmo de ocupación con línea objetivo
     pace_df = _pace_dataframe(act, ly, start, end, inv_units)
     st.subheader("Ritmo de ocupación del periodo (ocupación acumulada)")
-    rule = alt.Chart(pd.DataFrame({"y": [goal]})).mark_rule(strokeDash=[6,4], color="#8b5cf6")
+
     chart_pace = (
         alt.Chart(pace_df)
         .mark_line()
@@ -408,7 +408,15 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
         )
         .properties(height=260)
     )
-    st.altair_chart(chart_pace + rule, use_container_width=True)             # ← añade línea objetivo
+
+    # Línea objetivo: añade DataFrame y ENCODEA y
+    rule = (
+        alt.Chart(pd.DataFrame({"goal": [goal]}))
+        .mark_rule(color="#8b5cf6", strokeDash=[6, 4])
+        .encode(y="goal:Q")
+    )
+
+    st.altair_chart(alt.layer(chart_pace, rule), use_container_width=True)
     st.caption(f"Objetivo de ocupación: {goal}%")
 
     # ADR por día o por semana (se mantiene)
