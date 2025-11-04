@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
 TITLE = "Informe de propietario"
-BUILD = "v1.8-pro"   # versión
+BUILD = "v1.9-portales"
 
 # --- diagnóstico wkhtmltopdf ---
 def _wkhtmltopdf_candidates():
@@ -311,7 +311,7 @@ def _logo_b64() -> str | None:
 # ----------------- Render -----------------
 def render_informe_propietario(raw: pd.DataFrame | None = None):
     st.header(TITLE)
-    st.caption(f"Build {BUILD}")
+    st.caption(f"Build {BUILD} · fuente: {Path(__file__).name}")
 
     if raw is None:
         raw = st.session_state.get("df_active") or st.session_state.get("raw")
