@@ -348,14 +348,39 @@ def _logo_b64() -> str | None:
 
 # Fechas robustas (strings, datetime y números Excel)
 def _to_dt(s: pd.Series) -> pd.Series:
-    # intenta parsear como fecha (día/mes primero)
+    """
+    Convierte una serie a datetime tolerante:
+    - Strings y datetimes -> to_datetime (dayfirst)
+    - Números en rango Excel (20k–80k) -> días desde 1899-12-30
+    - UNIX epoch en segundos / milisegundos / microsegundos / nanosegundos
+    """
     out = pd.to_datetime(s, errors="coerce", dayfirst=True)
-    # si hay números (serial Excel), conviértelos
+
     nums = pd.to_numeric(s, errors="coerce")
-    mask = nums.notna()
-    if mask.any():
-        base = pd.Timestamp("1899-12-30")  # origen serial Excel
-        out.loc[mask] = base + pd.to_timedelta(nums[mask], unit="D")
+    is_num = nums.notna()
+    if not is_num.any():
+        return out
+
+    # Rangos plausibles
+    excel_mask = is_num & (nums.between(20000, 80000))                 # ~años 1955–2120
+    sec_mask   = is_num & (nums.between(1_000_000_000, 9_999_999_999)) # ~2001–2286 (segundos)
+    ms_mask    = is_num & (nums.between(1_000_000_000_000, 9_999_999_999_999))
+    us_mask    = is_num & (nums.between(1_000_000_000_000_000, 9_999_999_999_999_999))
+    ns_mask    = is_num & (nums.between(1_000_000_000_000_000_000, 9_999_999_999_999_999_999))
+
+    base = pd.Timestamp("1899-12-30")
+
+    if excel_mask.any():
+        out.loc[excel_mask] = base + pd.to_timedelta(nums.loc[excel_mask], unit="D")
+    if sec_mask.any():
+        out.loc[sec_mask] = pd.to_datetime(nums.loc[sec_mask], unit="s", origin="unix", errors="coerce")
+    if ms_mask.any():
+        out.loc[ms_mask] = pd.to_datetime(nums.loc[ms_mask], unit="ms", origin="unix", errors="coerce")
+    if us_mask.any():
+        out.loc[us_mask] = pd.to_datetime(nums.loc[us_mask], unit="us", origin="unix", errors="coerce")
+    if ns_mask.any():
+        out.loc[ns_mask] = pd.to_datetime(nums.loc[ns_mask], unit="ns", origin="unix", errors="coerce")
+
     return out
 
 def _period_label(s: date | pd.Timestamp, e: date | pd.Timestamp) -> str:
