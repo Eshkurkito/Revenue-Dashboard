@@ -278,12 +278,17 @@ def _plot_portales_png(portal_df: pd.DataFrame) -> str:
         ax.axis("off")
         return _png_from_plt(fig)
     df = portal_df.copy().sort_values("Reservas", ascending=True)
-    fig, ax = plt.subplots(figsize=(10, 4.2))    # ← más ancho/alto
-    ax.barh(df["Portal"], df["Reservas"], color="#2e485f")
+    n = len(df)
+    # grosor de barra más fino; aún más fino si solo hay 1-2 portales
+    bar_h = 0.25 if n <= 2 else (0.35 if n <= 6 else 0.55)
+
+    fig, ax = plt.subplots(figsize=(10, 4.2))
+    ax.barh(df["Portal"], df["Reservas"], color="#2e485f", height=bar_h, align="center")
     for i, v in enumerate(df["Reservas"]):
         ax.text(v + max(df["Reservas"])*0.01, i, str(v), va="center", fontsize=9)
     ax.set_xlabel("Reservas")
     ax.grid(axis="x", alpha=0.2)
+    ax.margins(y=0.25)  # añade aire vertical para que no se vea “gorda”
     fig.tight_layout()
     return _png_from_plt(fig)
 
