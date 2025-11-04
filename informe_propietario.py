@@ -73,7 +73,12 @@ def _std_cols(df: pd.DataFrame) -> pd.DataFrame:
     rev = find("alquiler con iva","ingresos","revenue","importe","total","neto","importe total")
     adr = find("adr","avg daily","average daily rate")
     ch  = find("portal","canal","channel","ota","fuente","agencia","source","agente","intermediario")
-    fa  = find("fecha alta","alta","creación","creado","booking date","booked","created")
+    # ← ampliamos sin confundir con “Nº reserva”
+    fa  = (find("fecha alta","fecha de alta","fecha reserva","fecha de reserva",
+                "fecha confirmación","fecha confirmacion",
+                "fecha creación","fecha creacion",
+                "booking date","book date","fecha booking",
+                "creada","creado","booked","created"))
     if a:   m[a] = "Alojamiento"
     if fi:  m[fi] = "Fecha entrada"
     if fo:  m[fo] = "Fecha salida"
@@ -81,9 +86,7 @@ def _std_cols(df: pd.DataFrame) -> pd.DataFrame:
     if adr: m[adr] = "ADR (opcional)"
     if ch:  m[ch] = "Portal"
     if fa:  m[fa] = "Fecha alta"
-
     out = df.rename(columns=m).copy() if m else df.copy()
-
     # Usar la columna E como Portal SOLO si su cabecera es “Agente/Intermediario”
     if "Portal" not in out.columns and out.shape[1] >= 5:
         col_e = out.columns[4]
@@ -472,6 +475,8 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
         st.metric("Estancia media (LOS)", f"{stats['los_avg']:.1f} días" if stats["los_avg"] is not None else "—")
     with c5:
         st.metric("Antelación media", f"{stats['lead_avg']:.0f} días" if stats["lead_avg"] is not None else "—")
+    if "Fecha alta" not in df.columns:
+        st.caption("Antelación media: no se encontró una columna de fecha de reserva (usa “Fecha alta”, “Fecha reserva”, “Fecha confirmación”…).")
 
     # Reservas por portal (más alto si hay muchos portales)
     st.subheader("Reservas por portal en el periodo")
