@@ -496,7 +496,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
             .sort_values("Reservas", ascending=False)
             .reset_index(drop=True)
         )
-        st.dataframe(portal_simple, use_container_width=True)
+        st.dataframe(portal_simple, use_container_width=True, hide_index=True)
 
     # ADR (sube la altura)
     st.subheader(f"ADR por {gran.lower()} (Act vs LY alineado)")
