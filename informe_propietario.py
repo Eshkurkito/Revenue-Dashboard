@@ -322,28 +322,32 @@ def _plot_adr_png(act: pd.DataFrame, ly: pd.DataFrame, gran: str) -> str:
     return _png_from_plt(fig)
 
 def _logo_b64() -> str | None:
-    base = Path(__file__).resolve().parent / "assets"
+    base = Path(__file__).resolve().parent
     candidates = [
-        "florit.flats-logo.png",
-        "florit.flats_logo.png",
-        "logo.png", "logo.jpg", "logo.jpeg", "logo.svg",
+        base / "assets" / "images" / "florit-flats-logo.png",  # ← tu logo
+        base / "assets" / "florit-flats-logo.png",
+        base / "assets" / "florit.flats-logo.png",
+        base / "assets" / "florit.flats_logo.png",
+        base / "assets" / "logo.png",
+        base / "assets" / "logo.jpg",
     ]
-    for name in candidates:
-        p = base / name
+    for p in candidates:
         if p.exists():
             try:
                 with open(p, "rb") as f:
                     return base64.b64encode(f.read()).decode("utf-8")
             except Exception:
                 return None
-    if base.exists():
-        for p in base.iterdir():
-            if p.is_file() and "logo" in p.name.lower():
-                try:
-                    with open(p, "rb") as f:
-                        return base64.b64encode(f.read()).decode("utf-8")
-                except Exception:
-                    return None
+    # fallback: cualquier archivo con 'logo' dentro de assets o assets/images
+    for folder in [base / "assets", base / "assets" / "images"]:
+        if folder.exists():
+            for p in folder.iterdir():
+                if p.is_file() and "logo" in p.name.lower():
+                    try:
+                        with open(p, "rb") as f:
+                            return base64.b64encode(f.read()).decode("utf-8")
+                    except Exception:
+                        return None
     return None
 
 # Fechas robustas (strings, datetime y números Excel)

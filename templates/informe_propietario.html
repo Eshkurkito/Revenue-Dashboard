@@ -4,56 +4,128 @@
 <meta charset="utf-8">
 <title>Informe de propietario · {{ apto or '—' }}</title>
 <style>
-  :root { --brand:#2e485f; --muted:#6b7280; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin:0; padding:24px; color:#111827; }
-  .card { border:1px solid #e5e7eb; border-radius:14px; padding:18px 20px; margin-bottom:16px; }
-  .title { font-size:22px; font-weight:700; color:var(--brand); margin:0 0 10px 0; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+         color:#111827; margin:0; padding:16px 18px; font-size:12px; }
+  h1,h2,h3 { margin: 0 0 8px 0; }
   .muted { color:#6b7280; }
-  .kpis { display:flex; gap:16px; flex-wrap:wrap; }
-  .kpi { flex:1 1 200px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:12px; padding:12px 14px; }
-  .kpi h4 { margin:0 0 6px 0; font-size:14px; color:#374151; }
-  .kpi .v { font-size:22px; font-weight:700; }
-  .kpi .ly { font-size:12px; color:#6b7280; }
-  .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
-  .logo { height:54px; }
-  .header { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
-  .pill { display:inline-block; padding:4px 8px; border-radius:999px; background:#eef2ff; color:#3730a3; font-size:12px; }
-  img.chart { width:100%; border-radius:12px; border:1px solid #e5e7eb; }
-  .comments { white-space:pre-wrap; }
+  .header { width:100%; margin-bottom:12px; border-bottom:1px solid #e5e7eb; padding-bottom:8px; }
+  .header-table { width:100%; border-collapse:collapse; }
+  .header-table td { vertical-align:middle; }
+  .logo { height:48px; }
+  .kpis { width:100%; border-collapse:separate; border-spacing:8px; margin:6px 0 10px 0; }
+  .kpi { border:1px solid #e5e7eb; border-radius:10px; padding:10px 12px; background:#f8fafc; page-break-inside: avoid; }
+  .kpi h4 { margin:0 0 4px 0; font-size:12px; color:#374151; }
+  .kpi .v { font-size:18px; font-weight:700; }
+  .kpi .ly { font-size:11px; color:#6b7280; }
+  .two-col { width:100%; border-collapse:separate; border-spacing:10px; table-layout: fixed; }
+  .card { border:1px solid #e5e7eb; border-radius:10px; padding:10px; page-break-inside: avoid; }
+  .card h3 { font-size:14px; margin:0 0 6px 0; color:#1f2937; }
+  img.chart { width:100%; height:auto; border:1px solid #e5e7eb; border-radius:8px; display:block; }
+  .table { width:100%; border-collapse:collapse; font-size:11.5px; }
+  .table th, .table td { border:1px solid #e5e7eb; padding:6px 8px; }
+  .table th { background:#f3f4f6; text-align:left; }
+  .comments { white-space:pre-wrap; min-height:60px; }
+  .section { margin-top:10px; page-break-inside: avoid; }
 </style>
 </head>
 <body>
+
   <div class="header">
-    <div>
-      <div class="title">Informe de propietario</div>
-      <div class="muted">Apartamento: <b>{{ apto or '—' }}</b> · Propietario: <b>{{ owner or '—' }}</b></div>
-      <div class="muted">Periodo ACT: <span class="pill">{{ period_act }}</span> · Periodo LY: <span class="pill">{{ period_ly }}</span></div>
-    </div>
-    {% if logo_b64 %}
-      <img class="logo" src="data:image/png;base64,{{ logo_b64 }}" alt="Logo">
-    {% endif %}
+    <table class="header-table">
+      <tr>
+        <td>
+          <h2>Informe de propietario</h2>
+          <div class="muted">
+            Apartamento: <b>{{ apto or '—' }}</b> · Propietario: <b>{{ owner or '—' }}</b><br>
+            Periodo ACT: <b>{{ period_act }}</b> · Periodo LY: <b>{{ period_ly }}</b>
+          </div>
+        </td>
+        <td style="text-align:right; width:180px;">
+          {% if logo_b64 %}
+            <img class="logo" src="data:image/png;base64,{{ logo_b64 }}" alt="Logo">
+          {% endif %}
+        </td>
+      </tr>
+    </table>
   </div>
 
-  <div class="kpis">
-    <div class="kpi"><h4>Ingresos (ACT)</h4><div class="v">€{{ act.ingresos }}</div><div class="ly">LY: €{{ ly.ingresos }}</div></div>
-    <div class="kpi"><h4>ADR (ACT)</h4><div class="v">€{{ act.adr }}</div><div class="ly">LY: €{{ ly.adr }}</div></div>
-    <div class="kpi"><h4>Noches vendidas (ACT)</h4><div class="v">{{ act.noches }}</div><div class="ly">LY: {{ ly.noches }}</div></div>
-  </div>
+  <table class="kpis">
+    <tr>
+      <td class="kpi">
+        <h4>Ingresos (ACT)</h4>
+        <div class="v">€{{ act.ingresos }}</div>
+        <div class="ly">LY: €{{ ly.ingresos }}</div>
+      </td>
+      <td class="kpi">
+        <h4>ADR (ACT)</h4>
+        <div class="v">€{{ act.adr }}</div>
+        <div class="ly">LY: €{{ ly.adr }}</div>
+      </td>
+      <td class="kpi">
+        <h4>Noches vendidas (ACT)</h4>
+        <div class="v">{{ act.noches }}</div>
+        <div class="ly">LY: {{ ly.noches }}</div>
+      </td>
+    </tr>
+  </table>
 
-  <div class="grid2">
+  <table class="two-col section">
+    <tr>
+      <td style="width:50%;">
+        <div class="card">
+          <h3>Reservas por portal (periodo)</h3>
+          <img class="chart" src="data:image/png;base64,{{ chart_portales }}" alt="Reservas por portal">
+        </div>
+      </td>
+      <td style="width:50%;">
+        <div class="card">
+          <h3>ADR por {{ gran_label }} (ACT vs LY)</h3>
+          <img class="chart" src="data:image/png;base64,{{ chart_adr }}" alt="ADR">
+        </div>
+      </td>
+    </tr>
+  </table>
+
+  <div class="section">
     <div class="card">
-      <h3 class="title" style="font-size:18px;">Ritmo de ocupación (ocupación acumulada)</h3>
-      <img class="chart" src="data:image/png;base64,{{ chart_pace }}" alt="Ocupación acumulada">
-    </div>
-    <div class="card">
-      <h3 class="title" style="font-size:18px;">Reservas por portal (periodo)</h3>
-      <img class="chart" src="data:image/png;base64,{{ chart_portales }}" alt="Reservas por portal">
+      <h3>Resumen ACT vs LY</h3>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Serie</th>
+            <th>Periodo</th>
+            <th>Ingresos (€)</th>
+            <th>ADR (€)</th>
+            <th>Noches</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>ACT</td>
+            <td>{{ period_act }}</td>
+            <td>€{{ act.ingresos }}</td>
+            <td>€{{ act.adr }}</td>
+            <td>{{ act.noches }}</td>
+          </tr>
+          <tr>
+            <td>LY</td>
+            <td>{{ period_ly }}</td>
+            <td>€{{ ly.ingresos }}</td>
+            <td>€{{ ly.adr }}</td>
+            <td>{{ ly.noches }}</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </div>
 
-  <div class="card">
-    <h3 class="title" style="font-size:18px;">Comentarios del Revenue Manager</h3>
-    <div class="comments">{{ comments or '—' }}</div>
+  <div class="section">
+    <div class="card">
+      <h3>Comentarios del Revenue Manager</h3>
+      <div class="comments">{{ comments or '—' }}</div>
+    </div>
   </div>
+
 </body>
 </html>
