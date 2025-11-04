@@ -9,6 +9,7 @@ import matplotlib
 matplotlib.use("Agg")  # backend headless para Cloud
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import re
 
 TITLE = "Informe de propietario"
 BUILD = "v1.9-portales"
@@ -71,27 +72,53 @@ def _std_cols(df: pd.DataFrame) -> pd.DataFrame:
     fo  = find("fecha salida","check out","salida","departure")
     rev = find("alquiler con iva","ingresos","revenue","importe","total","neto","importe total")
     adr = find("adr","avg daily","average daily rate")
-    ch  = find("portal","canal","channel","ota","fuente","agencia","source")         # ← NUEVO
-    fa  = find("fecha alta","alta","creación","creado","booking date","booked","created")  # ← NUEVO
+    ch  = find("portal","canal","channel","ota","fuente","agencia","source")
+    fa  = find("fecha alta","alta","creación","creado","booking date","booked","created")
     if a:   m[a] = "Alojamiento"
     if fi:  m[fi] = "Fecha entrada"
     if fo:  m[fo] = "Fecha salida"
     if rev: m[rev] = "Alquiler con IVA (€)"
     if adr: m[adr] = "ADR (opcional)"
-    if ch:  m[ch] = "Portal"                                                        # ← NUEVO
-    if fa:  m[fa] = "Fecha alta"                                                    # ← NUEVO
-    return df.rename(columns=m) if m else df
+    if ch:  m[ch] = "Portal"
+    if fa:  m[fa] = "Fecha alta"
 
-def _to_dt(s: pd.Series) -> pd.Series:
-    s1 = pd.to_datetime(s, errors="coerce", dayfirst=True, infer_datetime_format=True)
-    if s1.isna().mean() > 0.8:
-        s2 = pd.to_datetime(pd.to_numeric(s, errors="coerce"), unit="d", origin="1899-12-30", errors="coerce")
-        if s2.notna().sum() > s1.notna().sum():
-            s1 = s2
-    return s1.dt.normalize()
+    out = df.rename(columns=m).copy() if m else df.copy()
 
-def _period_label(s: date, e: date) -> str:
-    return f"{pd.to_datetime(s).date()} – {pd.to_datetime(e).date()}"
+    # Fallback: usa la columna E (índice 4) como Portal si no se detectó por cabecera
+    if "Portal" not in out.columns and out.shape[1] >= 5:
+        col_e = out.columns[4]
+        out = out.rename(columns={col_e: "Portal"})
+    return out
+
+# Normalización del nombre del portal (Booking, Airbnb, Vrbo, Expedia Group, Directo, etc.)
+def _canon_portal(x) -> str:
+    if x is None:
+        return "Otros"
+    s = str(x).strip().lower()
+    s = re.sub(r"[\s_\-\.]+", " ", s)
+    s2 = s.replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").replace("ü","u").replace("ñ","n")
+
+    if "book" in s2 or "bkg" in s2:
+        return "Booking.com"
+    if "air" in s2 and "bnb" in s2:
+        return "Airbnb"
+    if "vrbo" in s2 or "homeaway" in s2:
+        return "Vrbo"
+    if any(k in s2 for k in ["expedia","hotels com","hoteis com","orbitz","travelocity","ebookers","mrjet","wotif","cheaptickets"]):
+        return "Expedia Group"
+    if any(k in s2 for k in ["web", "direct", "directo", "sitio", "pagina"]):
+        return "Directo (web)"
+    if any(k in s2 for k in ["telefono","phone","call"]):
+        return "Teléfono"
+    if "walk" in s2:
+        return "Walk-in"
+    if any(k in s2 for k in ["agency","agencia","touroper","touroperator","wholesaler","mayorista"]):
+        return "Agencia"
+    if "owner" in s2 or "propiet" in s2:
+        return "Propietario"
+    if "manual" in s2 or "otros" in s2 or "other" in s2:
+        return "Otros"
+    return s.strip().title() if s else "Otros"
 
 # ----------------- Cálculos base -----------------
 def _preprocess(df: pd.DataFrame) -> pd.DataFrame:
@@ -214,17 +241,19 @@ def _bookings_by_portal(df_raw: pd.DataFrame, start: date, end: date, props: lis
     d = _preprocess(df_raw)
     if props and "Alojamiento" in d.columns:
         d = d[d["Alojamiento"].astype(str).isin(props)].copy()
-    # Fecha de referencia
-    if "Fecha alta" in d.columns:
-        ref = d["Fecha alta"]
-    else:
-        ref = d["Fecha entrada"]
+    # Fecha de referencia para el periodo
+    ref = d["Fecha alta"] if "Fecha alta" in d.columns else d["Fecha entrada"]
     mask = (ref >= pd.to_datetime(start)) & (ref <= pd.to_datetime(end))
     d = d.loc[mask].copy()
+
+    # Garantiza columna Portal y normaliza nombres
     if "Portal" not in d.columns:
         d["Portal"] = "Sin portal"
+    d["Portal"] = d["Portal"].map(_canon_portal)
+
     g = (d.groupby("Portal", dropna=False)
-           .agg(Reservas=("Portal","size"), Ingresos=("Alquiler con IVA (€)","sum"))
+           .agg(Reservas=("Portal","size"),
+                Ingresos=("Alquiler con IVA (€)","sum"))
            .reset_index()
            .sort_values(["Reservas","Ingresos"], ascending=[False, False]))
     return g
@@ -307,6 +336,23 @@ def _logo_b64() -> str | None:
                 except Exception:
                     return None
     return None
+
+# Fechas robustas (strings, datetime y números Excel)
+def _to_dt(s: pd.Series) -> pd.Series:
+    # intenta parsear como fecha (día/mes primero)
+    out = pd.to_datetime(s, errors="coerce", dayfirst=True)
+    # si hay números (serial Excel), conviértelos
+    nums = pd.to_numeric(s, errors="coerce")
+    mask = nums.notna()
+    if mask.any():
+        base = pd.Timestamp("1899-12-30")  # origen serial Excel
+        out.loc[mask] = base + pd.to_timedelta(nums[mask], unit="D")
+    return out
+
+def _period_label(s: date | pd.Timestamp, e: date | pd.Timestamp) -> str:
+    sd = pd.to_datetime(s).date()
+    ed = pd.to_datetime(e).date()
+    return f"{sd.strftime('%d/%m/%Y')} – {ed.strftime('%d/%m/%Y')}"
 
 # ----------------- Render -----------------
 def render_informe_propietario(raw: pd.DataFrame | None = None):
@@ -536,8 +582,8 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                 chart_adr_b64      = _plot_adr_png(act, ly, gran)
                 ctx = {
                     "apto": apto, "owner": owner,
-                    "period_act": _period_label(start, end),
-                    "period_ly": _period_label(pd.to_datetime(start)-pd.DateOffset(years=1), pd.to_datetime(end)-pd.DateOffset(years=1)),
+                    "period_act": _fmt_money(k_act['ingresos']), #_period_label(start, end),
+                    "period_ly": _fmt_money(k_ly['ingresos']),  #_period_label(pd.to_datetime(start)-pd.DateOffset(years=1), pd.to_datetime(end)-pd.DateOffset(years=1)),
                     "act": {"ingresos": _fmt_money(k_act['ingresos']), "adr": _fmt_money(k_act['adr']), "noches": f"{k_act['noches']:,}".replace(",",".")},
                     "ly":  {"ingresos": _fmt_money(k_ly['ingresos']),  "adr": _fmt_money(k_ly['adr']),  "noches": f"{k_ly['noches']:,}".replace(",",".")},
                     "chart_portales": chart_portales_b64,               # ← NUEVO
