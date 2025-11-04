@@ -72,7 +72,7 @@ def _std_cols(df: pd.DataFrame) -> pd.DataFrame:
     fo  = find("fecha salida","check out","salida","departure")
     rev = find("alquiler con iva","ingresos","revenue","importe","total","neto","importe total")
     adr = find("adr","avg daily","average daily rate")
-    ch  = find("portal","canal","channel","ota","fuente","agencia","source")
+    ch  = find("portal","canal","channel","ota","fuente","agencia","source","agente","intermediario")
     fa  = find("fecha alta","alta","creación","creado","booking date","booked","created")
     if a:   m[a] = "Alojamiento"
     if fi:  m[fi] = "Fecha entrada"
@@ -84,41 +84,48 @@ def _std_cols(df: pd.DataFrame) -> pd.DataFrame:
 
     out = df.rename(columns=m).copy() if m else df.copy()
 
-    # Fallback: usa la columna E (índice 4) como Portal si no se detectó por cabecera
+    # Usar la columna E como Portal SOLO si su cabecera es “Agente/Intermediario”
     if "Portal" not in out.columns and out.shape[1] >= 5:
         col_e = out.columns[4]
-        out = out.rename(columns={col_e: "Portal"})
+        if str(col_e).strip().lower() in {"agente/intermediario","agente - intermediario","agente","intermediario"}:
+            out = out.rename(columns={col_e: "Portal"})
     return out
 
 # Normalización del nombre del portal (Booking, Airbnb, Vrbo, Expedia Group, Directo, etc.)
 def _canon_portal(x) -> str:
     if x is None:
-        return "Otros"
-    s = str(x).strip().lower()
-    s = re.sub(r"[\s_\-\.]+", " ", s)
-    s2 = s.replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").replace("ü","u").replace("ñ","n")
+        return "Directa"
+    s = str(x).strip()
+    if s == "":
+        return "Directa"
+    sl = re.sub(r"[\s_\-\.]+", " ", s.lower())
+    sl = (sl.replace("á","a").replace("é","e").replace("í","i")
+             .replace("ó","o").replace("ú","u").replace("ü","u").replace("ñ","n"))
 
-    if "book" in s2 or "bkg" in s2:
+    # Directa
+    if any(k in sl for k in ["direct", "directo", "directa", "propia", "web", "sitio", "pagina"]):
+        return "Directa"
+    # Principales OTAs
+    if "book" in sl or "bkg" in sl:
         return "Booking.com"
-    if "air" in s2 and "bnb" in s2:
+    if "air" in sl and "bnb" in sl:
         return "Airbnb"
-    if "vrbo" in s2 or "homeaway" in s2:
+    if "vrbo" in sl or "homeaway" in sl:
         return "Vrbo"
-    if any(k in s2 for k in ["expedia","hotels com","hoteis com","orbitz","travelocity","ebookers","mrjet","wotif","cheaptickets"]):
+    if any(k in sl for k in ["expedia","hotels com","hoteis com","orbitz","travelocity","ebookers","mrjet","wotif","cheaptickets"]):
         return "Expedia Group"
-    if any(k in s2 for k in ["web", "direct", "directo", "sitio", "pagina"]):
-        return "Directo (web)"
-    if any(k in s2 for k in ["telefono","phone","call"]):
+    # Otros canales frecuentes
+    if any(k in sl for k in ["telefono","phone","call"]):
         return "Teléfono"
-    if "walk" in s2:
+    if "walk" in sl:
         return "Walk-in"
-    if any(k in s2 for k in ["agency","agencia","touroper","touroperator","wholesaler","mayorista"]):
+    if any(k in sl for k in ["agency","agencia","touroper","touroperator","wholesaler","mayorista","agente","intermediario"]):
         return "Agencia"
-    if "owner" in s2 or "propiet" in s2:
+    if "owner" in sl or "propiet" in sl:
         return "Propietario"
-    if "manual" in s2 or "otros" in s2 or "other" in s2:
+    if any(k in sl for k in ["manual","otros","other"]):
         return "Otros"
-    return s.strip().title() if s else "Otros"
+    return s  # deja el nombre legible original
 
 # ----------------- Cálculos base -----------------
 def _preprocess(df: pd.DataFrame) -> pd.DataFrame:
@@ -241,21 +248,23 @@ def _bookings_by_portal(df_raw: pd.DataFrame, start: date, end: date, props: lis
     d = _preprocess(df_raw)
     if props and "Alojamiento" in d.columns:
         d = d[d["Alojamiento"].astype(str).isin(props)].copy()
-    # Fecha de referencia para el periodo
     ref = d["Fecha alta"] if "Fecha alta" in d.columns else d["Fecha entrada"]
     mask = (ref >= pd.to_datetime(start)) & (ref <= pd.to_datetime(end))
     d = d.loc[mask].copy()
 
-    # Garantiza columna Portal y normaliza nombres
+    # Portal: usar columna “Portal” si existe; si no, marcar Directa
     if "Portal" not in d.columns:
-        d["Portal"] = "Sin portal"
-    d["Portal"] = d["Portal"].map(_canon_portal)
+        d["Portal"] = "Directa"
+    d["Portal"] = d["Portal"].astype(str).fillna("").map(_canon_portal)
+    d.loc[d["Portal"].eq("") | d["Portal"].isna(), "Portal"] = "Directa"
 
     g = (d.groupby("Portal", dropna=False)
            .agg(Reservas=("Portal","size"),
                 Ingresos=("Alquiler con IVA (€)","sum"))
            .reset_index()
            .sort_values(["Reservas","Ingresos"], ascending=[False, False]))
+    g["Reservas"] = g["Reservas"].astype(int)
+    g["Ingresos"] = g["Ingresos"].astype(float)
     return g
 
 # NUEVO: gráfico PNG para PDF (reservas por portal)
@@ -578,15 +587,17 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
             st.error(f"No existe la plantilla: {tpl_path}")
         else:
             try:
-                chart_portales_b64 = _plot_portales_png(portal_df)        # ← NUEVO
+                chart_portales_b64 = _plot_portales_png(portal_df)
                 chart_adr_b64      = _plot_adr_png(act, ly, gran)
                 ctx = {
                     "apto": apto, "owner": owner,
-                    "period_act": _fmt_money(k_act['ingresos']), #_period_label(start, end),
-                    "period_ly": _fmt_money(k_ly['ingresos']),  #_period_label(pd.to_datetime(start)-pd.DateOffset(years=1), pd.to_datetime(end)-pd.DateOffset(years=1)),
+                    # Periodos corregidos
+                    "period_act": _period_label(start, end),
+                    "period_ly": _period_label(pd.to_datetime(start)-pd.DateOffset(years=1),
+                                               pd.to_datetime(end)-pd.DateOffset(years=1)),
                     "act": {"ingresos": _fmt_money(k_act['ingresos']), "adr": _fmt_money(k_act['adr']), "noches": f"{k_act['noches']:,}".replace(",",".")},
                     "ly":  {"ingresos": _fmt_money(k_ly['ingresos']),  "adr": _fmt_money(k_ly['adr']),  "noches": f"{k_ly['noches']:,}".replace(",",".")},
-                    "chart_portales": chart_portales_b64,               # ← NUEVO
+                    "chart_portales": chart_portales_b64,
                     "chart_adr": chart_adr_b64,
                     "gran_label": gran.lower(),
                     "comments": st.session_state.get("inf_comments") or "",
