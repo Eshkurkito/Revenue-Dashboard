@@ -483,31 +483,20 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
     if "Fecha alta" not in df.columns:
         st.caption("Antelación media: no se encontró una columna de fecha de reserva (usa “Fecha alta”, “Fecha reserva”, “Fecha confirmación”…).")
 
-    # Reservas por portal (más alto si hay muchos portales)
+    # Reservas por portal (tabla simple)
     st.subheader("Reservas por portal en el periodo")
     portal_df = _bookings_by_portal(df, start, end, props)
+
     if portal_df.empty:
         st.info("No hay reservas en ese periodo.")
+        portal_simple = pd.DataFrame(columns=["Portal","Reservas"])
     else:
-        chart_portal = (
-            alt.Chart(portal_df)
-              .mark_bar(color="#2e485f")
-              .encode(
-                  y=alt.Y("Portal:N", sort="-x", title="Portal"),
-                  x=alt.X("Reservas:Q", title="Reservas"),
-                  tooltip=[
-                      alt.Tooltip("Portal:N"),
-                      alt.Tooltip("Reservas:Q"),
-                      alt.Tooltip("Ingresos:Q", format=",.0f", title="Ingresos (€)")
-                  ]
-              ).properties(height=max(220, 26*len(portal_df)))  # ← más alto
+        portal_simple = (
+            portal_df[["Portal","Reservas"]]
+            .sort_values("Reservas", ascending=False)
+            .reset_index(drop=True)
         )
-        st.altair_chart(chart_portal, use_container_width=True)
-        st.dataframe(
-            portal_df.assign(Ingresos_fmt=portal_df["Ingresos"].map(_fmt_money))
-                     .rename(columns={"Ingresos_fmt":"Ingresos (€)"}).drop(columns=["Ingresos"]),
-            use_container_width=True
-        )
+        st.dataframe(portal_simple, use_container_width=True)
 
     # ADR (sube la altura)
     st.subheader(f"ADR por {gran.lower()} (Act vs LY alineado)")
@@ -571,7 +560,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
     comments = st.text_area("Comentarios", key="inf_comments", height=140, placeholder="Puntos clave, acciones, próximos pasos…")
     st.write(comments or "—")
 
-    # ================= Exportar a PDF (plantilla) =================
+    # ================= Exportar a PDF =================
     st.divider()
     st.markdown("#### Exportar a PDF (plantilla HTML + wkhtmltopdf)")
 
@@ -593,17 +582,17 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
             st.error(f"No existe la plantilla: {tpl_path}")
         else:
             try:
-                chart_portales_b64 = _plot_portales_png(portal_df)
+                # chart_portales_b64 = _plot_portales_png(portal_df)   # ← eliminado
                 chart_adr_b64      = _plot_adr_png(act, ly, gran)
                 ctx = {
                     "apto": apto, "owner": owner,
-                    # Periodos corregidos
                     "period_act": _period_label(start, end),
                     "period_ly": _period_label(pd.to_datetime(start)-pd.DateOffset(years=1),
                                                pd.to_datetime(end)-pd.DateOffset(years=1)),
                     "act": {"ingresos": _fmt_money(k_act['ingresos']), "adr": _fmt_money(k_act['adr']), "noches": f"{k_act['noches']:,}".replace(",",".")},
                     "ly":  {"ingresos": _fmt_money(k_ly['ingresos']),  "adr": _fmt_money(k_ly['adr']),  "noches": f"{k_ly['noches']:,}".replace(",",".")},
-                    "chart_portales": chart_portales_b64,
+                    # "chart_portales": chart_portales_b64,            # ← eliminado
+                    "portal_rows": portal_simple.to_dict(orient="records"),  # ← NUEVO
                     "chart_adr": chart_adr_b64,
                     "gran_label": gran.lower(),
                     "comments": st.session_state.get("inf_comments") or "",

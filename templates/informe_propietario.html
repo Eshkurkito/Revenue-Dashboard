@@ -79,7 +79,14 @@
 
   <div class="card">
     <h3>Reservas por portal (periodo)</h3>
-    <img class="chart chart-portal" src="data:image/png;base64,{{ chart_portales }}" alt="Reservas por portal">
+    <table class="table">
+      <thead><tr><th>Portal</th><th>Reservas</th></tr></thead>
+      <tbody>
+        {% for r in portal_rows %}
+        <tr><td>{{ r.Portal }}</td><td>{{ r.Reservas }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 
   <div class="card">
