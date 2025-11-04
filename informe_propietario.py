@@ -71,11 +71,15 @@ def _std_cols(df: pd.DataFrame) -> pd.DataFrame:
     fo  = find("fecha salida","check out","salida","departure")
     rev = find("alquiler con iva","ingresos","revenue","importe","total","neto","importe total")
     adr = find("adr","avg daily","average daily rate")
+    ch  = find("portal","canal","channel","ota","fuente","agencia","source")         # ← NUEVO
+    fa  = find("fecha alta","alta","creación","creado","booking date","booked","created")  # ← NUEVO
     if a:   m[a] = "Alojamiento"
     if fi:  m[fi] = "Fecha entrada"
     if fo:  m[fo] = "Fecha salida"
     if rev: m[rev] = "Alquiler con IVA (€)"
     if adr: m[adr] = "ADR (opcional)"
+    if ch:  m[ch] = "Portal"                                                        # ← NUEVO
+    if fa:  m[fa] = "Fecha alta"                                                    # ← NUEVO
     return df.rename(columns=m) if m else df
 
 def _to_dt(s: pd.Series) -> pd.Series:
@@ -98,6 +102,8 @@ def _preprocess(df: pd.DataFrame) -> pd.DataFrame:
         raise KeyError(f"Faltan columnas: {', '.join(missing)}")
     d["Fecha entrada"] = _to_dt(d["Fecha entrada"])
     d["Fecha salida"]  = _to_dt(d["Fecha salida"])
+    if "Fecha alta" in d.columns:                                                  # ← NUEVO
+        d["Fecha alta"] = _to_dt(d["Fecha alta"])
     if "Alquiler con IVA (€)" in d.columns:
         d["Alquiler con IVA (€)"] = pd.to_numeric(d["Alquiler con IVA (€)"], errors="coerce").fillna(0.0)
     else:
@@ -203,41 +209,53 @@ def _pace_dataframe(act: pd.DataFrame, ly: pd.DataFrame, start: date, end: date,
 def _fmt_money(x: float) -> str:
     return f"{x:,.0f}".replace(",", ".")
 
+# NUEVO: reservas por portal en el periodo (por fecha de alta si existe; si no, por check-in)
+def _bookings_by_portal(df_raw: pd.DataFrame, start: date, end: date, props: list[str] | None) -> pd.DataFrame:
+    d = _preprocess(df_raw)
+    if props and "Alojamiento" in d.columns:
+        d = d[d["Alojamiento"].astype(str).isin(props)].copy()
+    # Fecha de referencia
+    if "Fecha alta" in d.columns:
+        ref = d["Fecha alta"]
+    else:
+        ref = d["Fecha entrada"]
+    mask = (ref >= pd.to_datetime(start)) & (ref <= pd.to_datetime(end))
+    d = d.loc[mask].copy()
+    if "Portal" not in d.columns:
+        d["Portal"] = "Sin portal"
+    g = (d.groupby("Portal", dropna=False)
+           .agg(Reservas=("Portal","size"), Ingresos=("Alquiler con IVA (€)","sum"))
+           .reset_index()
+           .sort_values(["Reservas","Ingresos"], ascending=[False, False]))
+    return g
+
+# NUEVO: gráfico PNG para PDF (reservas por portal)
+def _plot_portales_png(portal_df: pd.DataFrame) -> str:
+    if portal_df.empty:
+        fig, ax = plt.subplots(figsize=(6, 3))
+        ax.text(0.5, 0.5, "Sin datos de reservas en el periodo", ha="center", va="center")
+        ax.axis("off")
+        return _png_from_plt(fig)
+    df = portal_df.copy()
+    df = df.sort_values("Reservas", ascending=True)
+    fig, ax = plt.subplots(figsize=(9, 4))
+    ax.barh(df["Portal"], df["Reservas"], color="#2e485f")
+    for i, v in enumerate(df["Reservas"]):
+        ax.text(v + max(df["Reservas"])*0.01, i, str(v), va="center", fontsize=9)
+    ax.set_xlabel("Reservas")
+    ax.grid(axis="x", alpha=0.2)
+    fig.tight_layout()
+    return _png_from_plt(fig)
+
+# ===== Helpers requeridos =====
 def _png_from_plt(fig) -> str:
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=180, bbox_inches="tight")
     plt.close(fig)
     return base64.b64encode(buf.getvalue()).decode("utf-8")
 
-def _logo_b64() -> str | None:
-    base = Path(__file__).resolve().parent / "assets"
-    candidates = [
-        "florit.flats-logo.png",       # nombre que tienes
-        "florit.flats_logo.png",
-        "florit-flats-logo.png",
-        "logo.png", "logo.jpg", "logo.jpeg", "logo.svg",
-    ]
-    for name in candidates:
-        p = base / name
-        if p.exists():
-            try:
-                with open(p, "rb") as f:
-                    return base64.b64encode(f.read()).decode("utf-8")
-            except Exception:
-                return None
-    # fallback: cualquier archivo que contenga 'logo'
-    if base.exists():
-        for p in base.iterdir():
-            if p.is_file() and "logo" in p.name.lower():
-                try:
-                    with open(p, "rb") as f:
-                        return base64.b64encode(f.read()).decode("utf-8")
-                except Exception:
-                    return None
-    return None
-
 def _plot_adr_png(act: pd.DataFrame, ly: pd.DataFrame, gran: str) -> str:
-    # Prepara series ADR por día o semana
+    # ADR por día o semana (para PDF)
     if gran == "Semana":
         w_act = act.assign(Sem=act["Fecha"].dt.to_period("W-MON").dt.start_time)
         actp = (w_act.groupby("Sem", as_index=False)
@@ -251,7 +269,6 @@ def _plot_adr_png(act: pd.DataFrame, ly: pd.DataFrame, gran: str) -> str:
                .rename(columns={"Sem":"Fecha"}))
     else:
         actp, lyp = act.copy(), ly.copy()
-
     lyp = lyp.copy()
     lyp["Fecha"] = lyp["Fecha"] + pd.DateOffset(years=1)
 
@@ -265,7 +282,31 @@ def _plot_adr_png(act: pd.DataFrame, ly: pd.DataFrame, gran: str) -> str:
     ax.legend()
     fig.tight_layout()
     return _png_from_plt(fig)
-# ====== FIN helpers ======
+
+def _logo_b64() -> str | None:
+    base = Path(__file__).resolve().parent / "assets"
+    candidates = [
+        "florit.flats-logo.png",
+        "florit.flats_logo.png",
+        "logo.png", "logo.jpg", "logo.jpeg", "logo.svg",
+    ]
+    for name in candidates:
+        p = base / name
+        if p.exists():
+            try:
+                with open(p, "rb") as f:
+                    return base64.b64encode(f.read()).decode("utf-8")
+            except Exception:
+                return None
+    if base.exists():
+        for p in base.iterdir():
+            if p.is_file() and "logo" in p.name.lower():
+                try:
+                    with open(p, "rb") as f:
+                        return base64.b64encode(f.read()).decode("utf-8")
+                except Exception:
+                    return None
+    return None
 
 # ----------------- Render -----------------
 def render_informe_propietario(raw: pd.DataFrame | None = None):
@@ -311,10 +352,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                             horizontal=True,
                             index=(0 if st.session_state.inf_cfg.get("gran","Día")=="Día" else 1),
                             key="inf_gran_form")
-            goal = st.slider("Objetivo ocupación final (%)", 60, 100,
-                             value=st.session_state.inf_cfg.get("goal", 85),
-                             step=1, key="inf_goal_form")                      # ← NUEVO
-            submitted = st.form_submit_button("Generar informe", use_container_width=True)
+            submitted = st.form_submit_button("Generar informe", use_container_width=True)  # ← quitamos objetivo ocupación
         # Botón utilitario para refrescar caché
         if st.button("Forzar recarga", use_container_width=True, key="inf_force_reload"):
             st.cache_data.clear(); st.rerun()
@@ -331,7 +369,6 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
             "start": pd.to_datetime(start).date(),
             "end": pd.to_datetime(end).date(),
             "gran": st.session_state.get("inf_gran_form", "Día"),
-            "goal": int(st.session_state.get("inf_goal_form", 85)),          # ← NUEVO
         }
         st.session_state.inf_ready = True
         st.rerun()
@@ -345,7 +382,6 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
     cfg = st.session_state.inf_cfg
     props = cfg["props"]; apto = cfg["apto"]; owner = cfg["owner"]
     start = cfg["start"]; end = cfg["end"]; gran = cfg["gran"]
-    goal = int(cfg.get("goal", 85))                                          # ← NUEVO
 
     # Capacidad diaria (nº de unidades seleccionadas). Si no hay selección, 1.
     inv_units = max(1, len(props) if props else (df["Alojamiento"].nunique() if "Alojamiento" in df.columns else 1))
@@ -393,34 +429,31 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                   delta=(f"{d_nch:+.1f}%" if d_nch is not None else "—"))
         st.caption(f"LY: {num(k_ly['noches'])}")
 
-    # Ritmo de ocupación con línea objetivo
-    pace_df = _pace_dataframe(act, ly, start, end, inv_units)
-    st.subheader("Ritmo de ocupación del periodo (ocupación acumulada)")
-
-    base_pace = (
-        alt.Chart(pace_df)
-        .encode(
-            x=alt.X("Fecha:T", title="Fecha"),
-            y=alt.Y("PacePct:Q", title="Ocupación acumulada (%)", scale=alt.Scale(domain=[0, 100])),
-            color=alt.Color("Serie:N", scale=alt.Scale(range=["#2e485f", "#c77b2b"])),
+    # NUEVO: Reservas por portal (periodo)
+    st.subheader("Reservas por portal en el periodo")
+    portal_df = _bookings_by_portal(df, start, end, props)
+    if portal_df.empty:
+        st.info("No hay reservas en ese periodo.")
+    else:
+        chart_portal = (
+            alt.Chart(portal_df)
+              .mark_bar(color="#2e485f")
+              .encode(
+                  y=alt.Y("Portal:N", sort="-x", title="Portal"),
+                  x=alt.X("Reservas:Q", title="Reservas"),
+                  tooltip=[
+                      alt.Tooltip("Portal:N"),
+                      alt.Tooltip("Reservas:Q"),
+                      alt.Tooltip("Ingresos:Q", format=",.0f", title="Ingresos (€)")
+                  ]
+              ).properties(height=max(160, 22*len(portal_df)))
         )
-        .properties(height=260)
-    )
-
-    chart_pace = base_pace.mark_line().encode(
-        tooltip=[alt.Tooltip("Serie:N"), alt.Tooltip("Fecha:T"), alt.Tooltip("PacePct:Q", format=",.1f")]
-    )
-
-    # RULE usando el MISMO dataset y transform_calculate (sin DataFrame aparte)
-    rule = (
-        alt.Chart(pace_df)
-        .transform_calculate(goal=f"{goal}")     # constante numérica
-        .mark_rule(color="#8b5cf6", strokeDash=[6, 4])
-        .encode(y=alt.Y("goal:Q"))
-    )
-
-    st.altair_chart(alt.layer(chart_pace, rule), use_container_width=True)
-    st.caption(f"Objetivo de ocupación: {goal}%")
+        st.altair_chart(chart_portal, use_container_width=True)
+        st.dataframe(
+            portal_df.assign(Ingresos_fmt=portal_df["Ingresos"].map(_fmt_money))
+                     .rename(columns={"Ingresos_fmt":"Ingresos (€)"}).drop(columns=["Ingresos"]),
+            use_container_width=True
+        )
 
     # ADR por día o por semana (se mantiene)
     if gran == "Día":
@@ -499,18 +532,17 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
             st.error(f"No existe la plantilla: {tpl_path}")
         else:
             try:
-                chart_pace_b64 = _plot_pace_png(act, ly, start, end, inv_units, goal=goal)  # ← pasa objetivo
-                chart_adr_b64 = _plot_adr_png(act, ly, gran)
+                chart_portales_b64 = _plot_portales_png(portal_df)        # ← NUEVO
+                chart_adr_b64      = _plot_adr_png(act, ly, gran)
                 ctx = {
                     "apto": apto, "owner": owner,
                     "period_act": _period_label(start, end),
                     "period_ly": _period_label(pd.to_datetime(start)-pd.DateOffset(years=1), pd.to_datetime(end)-pd.DateOffset(years=1)),
                     "act": {"ingresos": _fmt_money(k_act['ingresos']), "adr": _fmt_money(k_act['adr']), "noches": f"{k_act['noches']:,}".replace(",",".")},
                     "ly":  {"ingresos": _fmt_money(k_ly['ingresos']),  "adr": _fmt_money(k_ly['adr']),  "noches": f"{k_ly['noches']:,}".replace(",",".")},
-                    "chart_pace": chart_pace_b64,         # ← nuevo
+                    "chart_portales": chart_portales_b64,               # ← NUEVO
                     "chart_adr": chart_adr_b64,
                     "gran_label": gran.lower(),
-                    "goal": goal,                                             # ← NUEVO
                     "comments": st.session_state.get("inf_comments") or "",
                     "logo_b64": _logo_b64(),
                 }
@@ -544,30 +576,4 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                 with st.expander("Detalle"):
                     st.exception(e)
 
-# === NUEVO: gráfico PNG del ritmo de ocupación para el PDF ===
-def _plot_pace_png(act: pd.DataFrame, ly: pd.DataFrame, start: date, end: date, inv_units: int, goal: int = 85) -> str:
-    s = pd.to_datetime(start); e = pd.to_datetime(end)
-    total_days = (e - s).days + 1
-    total_cap = max(1, inv_units) * total_days
-
-    a = act[["Fecha","Noches"]].copy()
-    a["CumNoches"] = a["Noches"].cumsum()
-    a["PacePct"] = (a["CumNoches"] / total_cap) * 100.0
-
-    l = ly[["Fecha","Noches"]].copy()
-    l["CumNoches"] = l["Noches"].cumsum()
-    l["PacePct"] = (l["CumNoches"] / total_cap) * 100.0
-    l["Fecha"] = l["Fecha"] + pd.DateOffset(years=1)
-
-    fig, ax = plt.subplots(figsize=(9, 3))
-    ax.plot(a["Fecha"], a["PacePct"], color="#2e485f", label="Act")
-    ax.plot(l["Fecha"], l["PacePct"], color="#c77b2b", label="LY")
-    ax.set_ylabel("%")
-    ax.set_ylim(0, 100)
-    ax.axhline(goal, color="#8b5cf6", linestyle="--", linewidth=1.2, label=f"Objetivo {goal}%")   # ← línea objetivo
-    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-    ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax.xaxis.get_major_locator()))
-    ax.grid(True, alpha=0.25)
-    ax.legend()
-    fig.tight_layout()
-    return _png_from_plt(fig)
+# QUITAR: función _plot_pace_png (ya no se usa)
