@@ -397,23 +397,26 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
     pace_df = _pace_dataframe(act, ly, start, end, inv_units)
     st.subheader("Ritmo de ocupación del periodo (ocupación acumulada)")
 
-    chart_pace = (
+    base_pace = (
         alt.Chart(pace_df)
-        .mark_line()
         .encode(
             x=alt.X("Fecha:T", title="Fecha"),
             y=alt.Y("PacePct:Q", title="Ocupación acumulada (%)", scale=alt.Scale(domain=[0, 100])),
             color=alt.Color("Serie:N", scale=alt.Scale(range=["#2e485f", "#c77b2b"])),
-            tooltip=[alt.Tooltip("Serie:N"), alt.Tooltip("Fecha:T"), alt.Tooltip("PacePct:Q", format=",.1f")]
         )
         .properties(height=260)
     )
 
-    # Línea objetivo: añade DataFrame y ENCODEA y
+    chart_pace = base_pace.mark_line().encode(
+        tooltip=[alt.Tooltip("Serie:N"), alt.Tooltip("Fecha:T"), alt.Tooltip("PacePct:Q", format=",.1f")]
+    )
+
+    # RULE usando el MISMO dataset y transform_calculate (sin DataFrame aparte)
     rule = (
-        alt.Chart(pd.DataFrame({"goal": [goal]}))
+        alt.Chart(pace_df)
+        .transform_calculate(goal=f"{goal}")     # constante numérica
         .mark_rule(color="#8b5cf6", strokeDash=[6, 4])
-        .encode(y="goal:Q")
+        .encode(y=alt.Y("goal:Q"))
     )
 
     st.altair_chart(alt.layer(chart_pace, rule), use_container_width=True)
