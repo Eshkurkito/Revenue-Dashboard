@@ -280,7 +280,7 @@ def _plot_portales_png(portal_df: pd.DataFrame) -> str:
     df = portal_df.copy().sort_values("Reservas", ascending=True)
     n = len(df)
     # grosor de barra más fino; aún más fino si solo hay 1-2 portales
-    bar_h = 0.25 if n <= 2 else (0.35 if n <= 6 else 0.55)
+    bar_h = 0.12 if n <= 2 else (0.22 if n <= 6 else 0.45)
 
     fig, ax = plt.subplots(figsize=(10, 4.2))
     ax.barh(df["Portal"], df["Reservas"], color="#2e485f", height=bar_h, align="center")
