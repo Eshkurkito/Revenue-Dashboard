@@ -274,9 +274,8 @@ def _plot_portales_png(portal_df: pd.DataFrame) -> str:
         ax.text(0.5, 0.5, "Sin datos de reservas en el periodo", ha="center", va="center")
         ax.axis("off")
         return _png_from_plt(fig)
-    df = portal_df.copy()
-    df = df.sort_values("Reservas", ascending=True)
-    fig, ax = plt.subplots(figsize=(9, 4))
+    df = portal_df.copy().sort_values("Reservas", ascending=True)
+    fig, ax = plt.subplots(figsize=(10, 4.2))    # ← más ancho/alto
     ax.barh(df["Portal"], df["Reservas"], color="#2e485f")
     for i, v in enumerate(df["Reservas"]):
         ax.text(v + max(df["Reservas"])*0.01, i, str(v), va="center", fontsize=9)
@@ -285,10 +284,9 @@ def _plot_portales_png(portal_df: pd.DataFrame) -> str:
     fig.tight_layout()
     return _png_from_plt(fig)
 
-# ===== Helpers requeridos =====
 def _png_from_plt(fig) -> str:
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=180, bbox_inches="tight")
+    fig.savefig(buf, format="png", dpi=220, bbox_inches="tight")  # ← más resolución
     plt.close(fig)
     return base64.b64encode(buf.getvalue()).decode("utf-8")
 
@@ -310,7 +308,7 @@ def _plot_adr_png(act: pd.DataFrame, ly: pd.DataFrame, gran: str) -> str:
     lyp = lyp.copy()
     lyp["Fecha"] = lyp["Fecha"] + pd.DateOffset(years=1)
 
-    fig, ax = plt.subplots(figsize=(9, 3))
+    fig, ax = plt.subplots(figsize=(10, 4.0))   # ← más grande
     ax.plot(actp["Fecha"], actp["ADR"], marker="o", ms=3, color="#2e485f", label="Act")
     ax.plot(lyp["Fecha"], lyp["ADR"], marker="o", ms=3, color="#c77b2b", label="LY")
     ax.set_ylabel("€")
@@ -321,76 +319,28 @@ def _plot_adr_png(act: pd.DataFrame, ly: pd.DataFrame, gran: str) -> str:
     fig.tight_layout()
     return _png_from_plt(fig)
 
-def _logo_b64() -> str | None:
-    base = Path(__file__).resolve().parent
-    candidates = [
-        base / "assets" / "images" / "florit-flats-logo.png",  # ← tu logo
-        base / "assets" / "florit-flats-logo.png",
-        base / "assets" / "florit.flats-logo.png",
-        base / "assets" / "florit.flats_logo.png",
-        base / "assets" / "logo.png",
-        base / "assets" / "logo.jpg",
-    ]
-    for p in candidates:
-        if p.exists():
-            try:
-                with open(p, "rb") as f:
-                    return base64.b64encode(f.read()).decode("utf-8")
-            except Exception:
-                return None
-    # fallback: cualquier archivo con 'logo' dentro de assets o assets/images
-    for folder in [base / "assets", base / "assets" / "images"]:
-        if folder.exists():
-            for p in folder.iterdir():
-                if p.is_file() and "logo" in p.name.lower():
-                    try:
-                        with open(p, "rb") as f:
-                            return base64.b64encode(f.read()).decode("utf-8")
-                    except Exception:
-                        return None
-    return None
+# === NUEVO: estadísticas de estancia y antelación ===
+def _booking_stats(df_raw: pd.DataFrame, start: date, end: date, props: list[str] | None) -> dict:
+    d = _preprocess(df_raw)
+    if props and "Alojamiento" in d.columns:
+        d = d[d["Alojamiento"].astype(str).isin(props)].copy()
+    # Tomamos reservas con check-in dentro del periodo
+    m = (d["Fecha entrada"] >= pd.to_datetime(start)) & (d["Fecha entrada"] <= pd.to_datetime(end))
+    d = d.loc[m].copy()
+    if d.empty:
+        return {"los_avg": None, "lead_avg": None}
 
-# Fechas robustas (strings, datetime y números Excel)
-def _to_dt(s: pd.Series) -> pd.Series:
-    """
-    Convierte una serie a datetime tolerante:
-    - Strings y datetimes -> to_datetime (dayfirst)
-    - Números en rango Excel (20k–80k) -> días desde 1899-12-30
-    - UNIX epoch en segundos / milisegundos / microsegundos / nanosegundos
-    """
-    out = pd.to_datetime(s, errors="coerce", dayfirst=True)
+    los = (d["Fecha salida"] - d["Fecha entrada"]).dt.days.clip(lower=1)
+    los_avg = float(los.mean()) if len(los) else None
 
-    nums = pd.to_numeric(s, errors="coerce")
-    is_num = nums.notna()
-    if not is_num.any():
-        return out
+    lead_avg = None
+    if "Fecha alta" in d.columns:
+        lead = (d["Fecha entrada"].dt.normalize() - d["Fecha alta"].dt.normalize()).dt.days
+        lead = lead[lead >= 0]  # descarta negativos/NaN
+        if len(lead):
+            lead_avg = float(lead.mean())
 
-    # Rangos plausibles
-    excel_mask = is_num & (nums.between(20000, 80000))                 # ~años 1955–2120
-    sec_mask   = is_num & (nums.between(1_000_000_000, 9_999_999_999)) # ~2001–2286 (segundos)
-    ms_mask    = is_num & (nums.between(1_000_000_000_000, 9_999_999_999_999))
-    us_mask    = is_num & (nums.between(1_000_000_000_000_000, 9_999_999_999_999_999))
-    ns_mask    = is_num & (nums.between(1_000_000_000_000_000_000, 9_999_999_999_999_999_999))
-
-    base = pd.Timestamp("1899-12-30")
-
-    if excel_mask.any():
-        out.loc[excel_mask] = base + pd.to_timedelta(nums.loc[excel_mask], unit="D")
-    if sec_mask.any():
-        out.loc[sec_mask] = pd.to_datetime(nums.loc[sec_mask], unit="s", origin="unix", errors="coerce")
-    if ms_mask.any():
-        out.loc[ms_mask] = pd.to_datetime(nums.loc[ms_mask], unit="ms", origin="unix", errors="coerce")
-    if us_mask.any():
-        out.loc[us_mask] = pd.to_datetime(nums.loc[us_mask], unit="us", origin="unix", errors="coerce")
-    if ns_mask.any():
-        out.loc[ns_mask] = pd.to_datetime(nums.loc[ns_mask], unit="ns", origin="unix", errors="coerce")
-
-    return out
-
-def _period_label(s: date | pd.Timestamp, e: date | pd.Timestamp) -> str:
-    sd = pd.to_datetime(s).date()
-    ed = pd.to_datetime(e).date()
-    return f"{sd.strftime('%d/%m/%Y')} – {ed.strftime('%d/%m/%Y')}"
+    return {"los_avg": los_avg, "lead_avg": lead_avg}
 
 # ----------------- Render -----------------
 def render_informe_propietario(raw: pd.DataFrame | None = None):
@@ -481,6 +431,9 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
     k_act = _agg_kpis(act)
     k_ly  = _agg_kpis(ly)
 
+    # Estadísticas LOS y Antelación
+    stats = _booking_stats(df, start, end, props)
+
     # Deltas YoY (para las métricas)
     def _pct_delta(a: float, b: float) -> float | None:
         try:
@@ -513,7 +466,14 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                   delta=(f"{d_nch:+.1f}%" if d_nch is not None else "—"))
         st.caption(f"LY: {num(k_ly['noches'])}")
 
-    # NUEVO: Reservas por portal (periodo)
+    # Fila extra de métricas (estancia media y antelación)
+    c4, c5 = st.columns(2)
+    with c4:
+        st.metric("Estancia media (LOS)", f"{stats['los_avg']:.1f} días" if stats["los_avg"] is not None else "—")
+    with c5:
+        st.metric("Antelación media", f"{stats['lead_avg']:.0f} días" if stats["lead_avg"] is not None else "—")
+
+    # Reservas por portal (más alto si hay muchos portales)
     st.subheader("Reservas por portal en el periodo")
     portal_df = _bookings_by_portal(df, start, end, props)
     if portal_df.empty:
@@ -530,7 +490,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                       alt.Tooltip("Reservas:Q"),
                       alt.Tooltip("Ingresos:Q", format=",.0f", title="Ingresos (€)")
                   ]
-              ).properties(height=max(160, 22*len(portal_df)))
+              ).properties(height=max(220, 26*len(portal_df)))  # ← más alto
         )
         st.altair_chart(chart_portal, use_container_width=True)
         st.dataframe(
@@ -539,27 +499,38 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
             use_container_width=True
         )
 
-    # ADR por día o por semana (se mantiene)
-    if gran == "Día":
-        adr_act = act[["Fecha","ADR"]].assign(Serie="Act")
-        adr_ly  = ly[["Fecha","ADR"]].assign(Serie="LY")
-        adr_ly["Fecha"] = adr_ly["Fecha"] + pd.DateOffset(years=1)
-    else:
-        # Semana natural, lunes-domingo
-        w_act = act.assign(Semana=act["Fecha"].dt.to_period("W-MON").dt.start_time)
-        adr_act = (w_act.groupby("Semana", as_index=False).agg({"Ingresos":"sum","Noches":"sum"})
-                        .assign(ADR=lambda x: np.where(x["Noches"]>0, x["Ingresos"]/x["Noches"], 0.0))
-                        .rename(columns={"Semana":"Fecha"}))[["Fecha","ADR"]].assign(Serie="Act")
-
-        w_ly = ly.assign(Semana=ly["Fecha"].dt.to_period("W-MON").dt.start_time)
-        adr_ly = (w_ly.groupby("Semana", as_index=False).agg({"Ingresos":"sum","Noches":"sum"})
-                        .assign(ADR=lambda x: np.where(x["Noches"]>0, x["Ingresos"]/x["Noches"], 0.0))
-                        .rename(columns={"Semana":"Fecha"}))[["Fecha","ADR"]].assign(Serie="LY")
-        adr_ly["Fecha"] = adr_ly["Fecha"] + pd.DateOffset(years=1)
-
-    adr_plot = pd.concat([adr_act, adr_ly], ignore_index=True)
-
+    # ADR (sube la altura)
     st.subheader(f"ADR por {gran.lower()} (Act vs LY alineado)")
+
+    # === construir adr_plot (ACT vs LY) ===
+    if gran == "Semana":
+        actp = (act.assign(Sem=act["Fecha"].dt.to_period("W-MON").dt.start_time)
+                  .groupby("Sem", as_index=False)
+                  .agg({"Ingresos":"sum","Noches":"sum"}))
+        actp["ADR"] = np.where(actp["Noches"] > 0, actp["Ingresos"]/actp["Noches"], 0.0)
+        actp = actp.rename(columns={"Sem":"Fecha"})
+
+        lyp = (ly.assign(Sem=ly["Fecha"].dt.to_period("W-MON").dt.start_time)
+                 .groupby("Sem", as_index=False)
+                 .agg({"Ingresos":"sum","Noches":"sum"}))
+        lyp["ADR"] = np.where(lyp["Noches"] > 0, lyp["Ingresos"]/lyp["Noches"], 0.0)
+        lyp = lyp.rename(columns={"Sem":"Fecha"})
+    else:
+        actp = act[["Fecha","ADR"]].copy()
+        lyp  = ly[["Fecha","ADR"]].copy()
+
+    # Alinear LY al año de ACT
+    lyp = lyp.copy()
+    lyp["Fecha"] = lyp["Fecha"] + pd.DateOffset(years=1)
+
+    adr_plot = pd.concat(
+        [
+            actp[["Fecha","ADR"]].assign(Serie="Act"),
+            lyp[["Fecha","ADR"]].assign(Serie="LY"),
+        ],
+        ignore_index=True
+    )
+
     chart_adr = (
         alt.Chart(adr_plot)
         .mark_line(point=True)
@@ -567,13 +538,9 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
             x=alt.X("Fecha:T", title="Fecha"),
             y=alt.Y("ADR:Q", title="ADR"),
             color=alt.Color("Serie:N", scale=alt.Scale(range=["#2e485f","#c77b2b"])),
-            tooltip=[
-                alt.Tooltip("Serie:N"),
-                alt.Tooltip("Fecha:T"),
-                alt.Tooltip("ADR:Q", format=",.0f"),
-            ],
+            tooltip=[alt.Tooltip("Serie:N"), alt.Tooltip("Fecha:T"), alt.Tooltip("ADR:Q", format=",.0f")],
         )
-        .properties(height=260)
+        .properties(height=340)
         .interactive()
     )
     st.altair_chart(chart_adr, use_container_width=True)
@@ -631,6 +598,8 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                     "gran_label": gran.lower(),
                     "comments": st.session_state.get("inf_comments") or "",
                     "logo_b64": _logo_b64(),
+                    "los_avg": f"{stats['los_avg']:.1f}" if stats["los_avg"] is not None else "—",
+                    "lead_avg": f"{stats['lead_avg']:.0f}" if stats["lead_avg"] is not None else "—",
                 }
                 # render
                 from jinja2 import Environment, FileSystemLoader
@@ -648,10 +617,12 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                     "margin-right": "12mm",
                     "encoding": "UTF-8",
                     "quiet": "",
-                    "footer-right": "Generado: " + date.today().isoformat() + "   |   Página [page]/[toPage]",  # ← pie profesional
+                    "disable-smart-shrinking": None,  # ← evita que encoja
+                    "zoom": "1.0",
+                    "footer-right": "Generado: " + date.today().isoformat() + "   |   Página [page]/[toPage]",
                     "footer-font-size": "8",
                     "footer-spacing": "3",
-                    "header-left": "Florit Flats · Informe de propietario",    # ← cabecera simple
+                    "header-left": "Florit Flats · Informe de propietario",
                     "header-font-size": "9",
                     "header-spacing": "3",
                 }
@@ -662,4 +633,65 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                 with st.expander("Detalle"):
                     st.exception(e)
 
-# QUITAR: función _plot_pace_png (ya no se usa)
+# ===== Helpers de fechas y logo =====
+def _to_dt(s: pd.Series) -> pd.Series:
+    # Strings/fechas
+    out = pd.to_datetime(s, errors="coerce", dayfirst=True)
+
+    # Números: Excel y UNIX (s/ms/us/ns)
+    nums = pd.to_numeric(s, errors="coerce")
+    is_num = nums.notna()
+    if not is_num.any():
+        return out
+
+    excel_mask = is_num & nums.between(20000, 80000)  # días Excel ~1955–2120
+    sec_mask   = is_num & nums.between(1_000_000_000, 9_999_999_999)
+    ms_mask    = is_num & nums.between(1_000_000_000_000, 9_999_999_999_999)
+    us_mask    = is_num & nums.between(1_000_000_000_000_000, 9_999_999_999_999_999)
+    ns_mask    = is_num & nums.between(1_000_000_000_000_000_000, 9_999_999_999_999_999_999)
+
+    base = pd.Timestamp("1899-12-30")
+    if excel_mask.any():
+        out.loc[excel_mask] = base + pd.to_timedelta(nums.loc[excel_mask], unit="D")
+    if sec_mask.any():
+        out.loc[sec_mask] = pd.to_datetime(nums.loc[sec_mask], unit="s", origin="unix", errors="coerce")
+    if ms_mask.any():
+        out.loc[ms_mask] = pd.to_datetime(nums.loc[ms_mask], unit="ms", origin="unix", errors="coerce")
+    if us_mask.any():
+        out.loc[us_mask] = pd.to_datetime(nums.loc[us_mask], unit="us", origin="unix", errors="coerce")
+    if ns_mask.any():
+        out.loc[ns_mask] = pd.to_datetime(nums.loc[ns_mask], unit="ns", origin="unix", errors="coerce")
+    return out
+
+def _period_label(s: date | pd.Timestamp, e: date | pd.Timestamp) -> str:
+    sd = pd.to_datetime(s).date()
+    ed = pd.to_datetime(e).date()
+    return f"{sd.strftime('%d/%m/%Y')} – {ed.strftime('%d/%m/%Y')}"
+
+def _logo_b64() -> str | None:
+    base = Path(__file__).resolve().parent
+    candidates = [
+        base / "assets" / "images" / "florit-flats-logo.png",  # tu logo
+        base / "assets" / "florit-flats-logo.png",
+        base / "assets" / "florit.flats-logo.png",
+        base / "assets" / "logo.png",
+        base / "assets" / "logo.jpg",
+    ]
+    for p in candidates:
+        if p.exists():
+            try:
+                with open(p, "rb") as f:
+                    return base64.b64encode(f.read()).decode("utf-8")
+            except Exception:
+                return None
+    # fallback
+    for folder in [base / "assets", base / "assets" / "images"]:
+        if folder.exists():
+            for p in folder.iterdir():
+                if p.is_file() and "logo" in p.name.lower():
+                    try:
+                        with open(p, "rb") as f:
+                            return base64.b64encode(f.read()).decode("utf-8")
+                    except Exception:
+                        return None
+    return None

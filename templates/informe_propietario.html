@@ -13,20 +13,18 @@
   .header-table { width:100%; border-collapse:collapse; }
   .header-table td { vertical-align:middle; }
   .logo { height:48px; }
-  .kpis { width:100%; border-collapse:separate; border-spacing:8px; margin:6px 0 10px 0; }
+  .kpis { width:100%; border-collapse:separate; border-spacing:8px; margin:6px 0 8px 0; }
   .kpi { border:1px solid #e5e7eb; border-radius:10px; padding:10px 12px; background:#f8fafc; page-break-inside: avoid; }
   .kpi h4 { margin:0 0 4px 0; font-size:12px; color:#374151; }
   .kpi .v { font-size:18px; font-weight:700; }
   .kpi .ly { font-size:11px; color:#6b7280; }
-  .two-col { width:100%; border-collapse:separate; border-spacing:10px; table-layout: fixed; }
-  .card { border:1px solid #e5e7eb; border-radius:10px; padding:10px; page-break-inside: avoid; }
+  .card { border:1px solid #e5e7eb; border-radius:10px; padding:10px; page-break-inside: avoid; margin-top:10px; }
   .card h3 { font-size:14px; margin:0 0 6px 0; color:#1f2937; }
   img.chart { width:100%; height:auto; border:1px solid #e5e7eb; border-radius:8px; display:block; }
   .table { width:100%; border-collapse:collapse; font-size:11.5px; }
   .table th, .table td { border:1px solid #e5e7eb; padding:6px 8px; }
   .table th { background:#f3f4f6; text-align:left; }
   .comments { white-space:pre-wrap; min-height:60px; }
-  .section { margin-top:10px; page-break-inside: avoid; }
 </style>
 </head>
 <body>
@@ -70,61 +68,46 @@
     </tr>
   </table>
 
-  <table class="two-col section">
-    <tr>
-      <td style="width:50%;">
-        <div class="card">
-          <h3>Reservas por portal (periodo)</h3>
-          <img class="chart" src="data:image/png;base64,{{ chart_portales }}" alt="Reservas por portal">
-        </div>
-      </td>
-      <td style="width:50%;">
-        <div class="card">
-          <h3>ADR por {{ gran_label }} (ACT vs LY)</h3>
-          <img class="chart" src="data:image/png;base64,{{ chart_adr }}" alt="ADR">
-        </div>
-      </td>
-    </tr>
-  </table>
-
-  <div class="section">
-    <div class="card">
-      <h3>Resumen ACT vs LY</h3>
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Serie</th>
-            <th>Periodo</th>
-            <th>Ingresos (€)</th>
-            <th>ADR (€)</th>
-            <th>Noches</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>ACT</td>
-            <td>{{ period_act }}</td>
-            <td>€{{ act.ingresos }}</td>
-            <td>€{{ act.adr }}</td>
-            <td>{{ act.noches }}</td>
-          </tr>
-          <tr>
-            <td>LY</td>
-            <td>{{ period_ly }}</td>
-            <td>€{{ ly.ingresos }}</td>
-            <td>€{{ ly.adr }}</td>
-            <td>{{ ly.noches }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+  <div class="card">
+    <h3>Indicadores operativos</h3>
+    <table class="table">
+      <thead><tr><th>Estancia media (LOS)</th><th>Antelación media</th></tr></thead>
+      <tbody><tr><td>{{ los_avg }} días</td><td>{{ lead_avg }} días</td></tr></tbody>
+    </table>
   </div>
 
-  <div class="section">
-    <div class="card">
-      <h3>Comentarios del Revenue Manager</h3>
-      <div class="comments">{{ comments or '—' }}</div>
-    </div>
+  <div class="card">
+    <h3>Reservas por portal (periodo)</h3>
+    <img class="chart" src="data:image/png;base64,{{ chart_portales }}" alt="Reservas por portal">
+  </div>
+
+  <div class="card">
+    <h3>ADR por {{ gran_label }} (ACT vs LY)</h3>
+    <img class="chart" src="data:image/png;base64,{{ chart_adr }}" alt="ADR">
+  </div>
+
+  <div class="card">
+    <h3>Resumen ACT vs LY</h3>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Serie</th>
+          <th>Periodo</th>
+          <th>Ingresos (€)</th>
+          <th>ADR (€)</th>
+          <th>Noches</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>ACT</td><td>{{ period_act }}</td><td>€{{ act.ingresos }}</td><td>€{{ act.adr }}</td><td>{{ act.noches }}</td></tr>
+        <tr><td>LY</td><td>{{ period_ly }}</td><td>€{{ ly.ingresos }}</td><td>€{{ ly.adr }}</td><td>{{ ly.noches }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Comentarios del Revenue Manager</h3>
+    <div class="comments">{{ comments or '—' }}</div>
   </div>
 
 </body>
