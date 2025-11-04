@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
 TITLE = "Informe de propietario"
-BUILD = "v1.7-pace"   # ← versión
+BUILD = "v1.8-pro"   # versión
 
 # --- diagnóstico wkhtmltopdf ---
 def _wkhtmltopdf_candidates():
@@ -311,9 +311,10 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                             horizontal=True,
                             index=(0 if st.session_state.inf_cfg.get("gran","Día")=="Día" else 1),
                             key="inf_gran_form")
-
+            goal = st.slider("Objetivo ocupación final (%)", 60, 100,
+                             value=st.session_state.inf_cfg.get("goal", 85),
+                             step=1, key="inf_goal_form")                      # ← NUEVO
             submitted = st.form_submit_button("Generar informe", use_container_width=True)
-
         # Botón utilitario para refrescar caché
         if st.button("Forzar recarga", use_container_width=True, key="inf_force_reload"):
             st.cache_data.clear(); st.rerun()
@@ -330,6 +331,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
             "start": pd.to_datetime(start).date(),
             "end": pd.to_datetime(end).date(),
             "gran": st.session_state.get("inf_gran_form", "Día"),
+            "goal": int(st.session_state.get("inf_goal_form", 85)),          # ← NUEVO
         }
         st.session_state.inf_ready = True
         st.rerun()
@@ -343,6 +345,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
     cfg = st.session_state.inf_cfg
     props = cfg["props"]; apto = cfg["apto"]; owner = cfg["owner"]
     start = cfg["start"]; end = cfg["end"]; gran = cfg["gran"]
+    goal = int(cfg.get("goal", 85))                                          # ← NUEVO
 
     # Capacidad diaria (nº de unidades seleccionadas). Si no hay selección, 1.
     inv_units = max(1, len(props) if props else (df["Alojamiento"].nunique() if "Alojamiento" in df.columns else 1))
@@ -358,6 +361,16 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
     k_act = _agg_kpis(act)
     k_ly  = _agg_kpis(ly)
 
+    # Deltas YoY (para las métricas)
+    def _pct_delta(a: float, b: float) -> float | None:
+        try:
+            return None if b == 0 else (a - b) / b * 100.0
+        except Exception:
+            return None
+    d_ing = _pct_delta(k_act["ingresos"], k_ly["ingresos"])
+    d_adr = _pct_delta(k_act["adr"],      k_ly["adr"])
+    d_nch = _pct_delta(k_act["noches"],   k_ly["noches"])
+
     # Portada
     st.markdown(f"### {apto or '—'}")
     st.markdown(f"Propietario: {owner or '—'}")
@@ -368,21 +381,25 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
     def num(x):   return f"{x:,.0f}".replace(",", ".")
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.metric("Ingresos (ACT)", money(k_act["ingresos"]))
+        st.metric("Ingresos (ACT)", money(k_act["ingresos"]),
+                  delta=(f"{d_ing:+.1f}%" if d_ing is not None else "—"))
         st.caption(f"LY: {money(k_ly['ingresos'])}")
     with c2:
-        st.metric("ADR (ACT)", money(k_act["adr"]))
+        st.metric("ADR (ACT)", money(k_act["adr"]),
+                  delta=(f"{d_adr:+.1f}%" if d_adr is not None else "—"))
         st.caption(f"LY: {money(k_ly['adr'])}")
     with c3:
-        st.metric("Noches vendidas (ACT)", num(k_act["noches"]))
+        st.metric("Noches vendidas (ACT)", num(k_act["noches"]),
+                  delta=(f"{d_nch:+.1f}%" if d_nch is not None else "—"))
         st.caption(f"LY: {num(k_ly['noches'])}")
 
-    # === Reemplazo: quitar “Ingresos por día” y mostrar “Ritmo de ocupación” ===
+    # Ritmo de ocupación con línea objetivo
     pace_df = _pace_dataframe(act, ly, start, end, inv_units)
     st.subheader("Ritmo de ocupación del periodo (ocupación acumulada)")
+    rule = alt.Chart(pd.DataFrame({"y": [goal]})).mark_rule(strokeDash=[6,4], color="#8b5cf6")
     chart_pace = (
         alt.Chart(pace_df)
-        .mark_line(point=False)
+        .mark_line()
         .encode(
             x=alt.X("Fecha:T", title="Fecha"),
             y=alt.Y("PacePct:Q", title="Ocupación acumulada (%)", scale=alt.Scale(domain=[0, 100])),
@@ -391,7 +408,8 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
         )
         .properties(height=260)
     )
-    st.altair_chart(chart_pace, use_container_width=True)
+    st.altair_chart(chart_pace + rule, use_container_width=True)             # ← añade línea objetivo
+    st.caption(f"Objetivo de ocupación: {goal}%")
 
     # ADR por día o por semana (se mantiene)
     if gran == "Día":
@@ -470,8 +488,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
             st.error(f"No existe la plantilla: {tpl_path}")
         else:
             try:
-                # Sustituir la antigua imagen de ingresos por el gráfico de ritmo (pace)
-                chart_pace_b64 = _plot_pace_png(act, ly, start, end, inv_units)
+                chart_pace_b64 = _plot_pace_png(act, ly, start, end, inv_units, goal=goal)  # ← pasa objetivo
                 chart_adr_b64 = _plot_adr_png(act, ly, gran)
                 ctx = {
                     "apto": apto, "owner": owner,
@@ -482,6 +499,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                     "chart_pace": chart_pace_b64,         # ← nuevo
                     "chart_adr": chart_adr_b64,
                     "gran_label": gran.lower(),
+                    "goal": goal,                                             # ← NUEVO
                     "comments": st.session_state.get("inf_comments") or "",
                     "logo_b64": _logo_b64(),
                 }
@@ -495,12 +513,18 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                 options = {
                     "enable-local-file-access": None,
                     "page-size": "A4",
-                    "margin-top": "10mm",
-                    "margin-bottom": "10mm",
-                    "margin-left": "10mm",
-                    "margin-right": "10mm",
+                    "margin-top": "12mm",
+                    "margin-bottom": "12mm",
+                    "margin-left": "12mm",
+                    "margin-right": "12mm",
                     "encoding": "UTF-8",
                     "quiet": "",
+                    "footer-right": "Generado: " + date.today().isoformat() + "   |   Página [page]/[toPage]",  # ← pie profesional
+                    "footer-font-size": "8",
+                    "footer-spacing": "3",
+                    "header-left": "Florit Flats · Informe de propietario",    # ← cabecera simple
+                    "header-font-size": "9",
+                    "header-spacing": "3",
                 }
                 pdf_bytes = pdfkit.from_string(html, False, configuration=cfg, options=options)
                 st.download_button("Descargar PDF", data=pdf_bytes, file_name=f"Informe_{apto or 'propietario'}.pdf", mime="application/pdf", use_container_width=True)
@@ -510,7 +534,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                     st.exception(e)
 
 # === NUEVO: gráfico PNG del ritmo de ocupación para el PDF ===
-def _plot_pace_png(act: pd.DataFrame, ly: pd.DataFrame, start: date, end: date, inv_units: int) -> str:
+def _plot_pace_png(act: pd.DataFrame, ly: pd.DataFrame, start: date, end: date, inv_units: int, goal: int = 85) -> str:
     s = pd.to_datetime(start); e = pd.to_datetime(end)
     total_days = (e - s).days + 1
     total_cap = max(1, inv_units) * total_days
@@ -529,6 +553,7 @@ def _plot_pace_png(act: pd.DataFrame, ly: pd.DataFrame, start: date, end: date, 
     ax.plot(l["Fecha"], l["PacePct"], color="#c77b2b", label="LY")
     ax.set_ylabel("%")
     ax.set_ylim(0, 100)
+    ax.axhline(goal, color="#8b5cf6", linestyle="--", linewidth=1.2, label=f"Objetivo {goal}%")   # ← línea objetivo
     ax.xaxis.set_major_locator(mdates.AutoDateLocator())
     ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax.xaxis.get_major_locator()))
     ax.grid(True, alpha=0.25)
