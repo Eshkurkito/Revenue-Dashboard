@@ -23,7 +23,7 @@ def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
                     return col
         return None
     mapping = {}
-    col_aloj = find("alojamiento", "propiedad", "property", "listing", "unidad", "apartamento", "room", "unit")
+    col_aloj = find("alojamiento", "propiedad", "property", "listing", "unidad", "apartamento", "room", "unit", "nombre alojamiento")
     if col_aloj: mapping[col_aloj] = "Alojamiento"
     col_fa = find("fecha alta", "fecha de alta", "booking date", "fecha reserva", "creado", "created", "booked")
     if col_fa: mapping[col_fa] = "Fecha alta"
@@ -31,7 +31,7 @@ def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
     if col_fe: mapping[col_fe] = "Fecha entrada"
     col_fs = find("fecha salida", "check out", "salida", "departure")
     if col_fs: mapping[col_fs] = "Fecha salida"
-    col_rev = find("alquiler con iva (€)", "alquiler con iva", "ingresos", "revenue", "importe", "total", "precio total")
+    col_rev = find("alquiler con iva (€)", "alquiler con iva", "ingresos", "revenue", "importe", "total", "precio total", "alquiler con tasas")
     if col_rev: mapping[col_rev] = "Alquiler con IVA (€)"
     return df.rename(columns=mapping) if mapping else df
 
