@@ -24,7 +24,7 @@ def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
         return None
     mapping = {}
     col_aloj = find("alojamiento", "propiedad", "property", "listing", "unidad", "apartamento", "room", "unit", "nombre alojamiento")
-    if col_aloj: mapping[col_aloj] = "Nombre alojamiento"
+    if col_aloj: mapping[col_aloj] = "Alojamiento"
     col_fa = find("fecha alta", "fecha de alta", "booking date", "fecha reserva", "creado", "created", "booked")
     if col_fa: mapping[col_fa] = "Fecha alta"
     col_fe = find("fecha entrada", "check in", "entrada", "arrival")
