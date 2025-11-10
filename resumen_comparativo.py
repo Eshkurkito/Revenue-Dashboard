@@ -226,9 +226,30 @@ def render_resumen_comparativo(raw):
     )
     ly_final_df = ly_final_df[["Alojamiento","Ingresos"]].rename(columns={"Ingresos":"Ingresos finales LY (€)"})
 
+    # NUEVO: LY-2 (mismo periodo y cutoff -2 años)
+    ly2_df = _by_prop_with_occ(
+        pd.to_datetime(cutoff_rc) - pd.DateOffset(years=2),
+        pd.to_datetime(start_rc)  - pd.DateOffset(years=2),
+        pd.to_datetime(end_rc)    - pd.DateOffset(years=2),
+        props_sel
+    ).rename(columns={
+        "ADR":"ADR LY-2", "Ocupación %":"Ocupación LY-2 %", "Ingresos":"Ingresos LY-2 (€)"
+    })
+
+    # NUEVO: LY-2 final (resultado): mismo periodo LY-2, corte = fin del periodo LY-2
+    ly2_final_df = _by_prop_with_occ(
+        pd.to_datetime(end_rc)    - pd.DateOffset(years=2),
+        pd.to_datetime(start_rc)  - pd.DateOffset(years=2),
+        pd.to_datetime(end_rc)    - pd.DateOffset(years=2),
+        props_sel
+    )
+    ly2_final_df = ly2_final_df[["Alojamiento","Ingresos"]].rename(columns={"Ingresos":"Ingresos finales LY-2 (€)"})
+
     # Merge total
     resumen = now_df.merge(ly_df, on="Alojamiento", how="outer") \
-                    .merge(ly_final_df, on="Alojamiento", how="left")
+                    .merge(ly2_df[["Alojamiento","Ingresos LY-2 (€)"]], on="Alojamiento", how="left") \
+                    .merge(ly_final_df, on="Alojamiento", how="left") \
+                    .merge(ly2_final_df, on="Alojamiento", how="left")
 
     if resumen.empty:
         st.info(
@@ -242,8 +263,8 @@ def render_resumen_comparativo(raw):
         "Alojamiento",
         "ADR actual","ADR LY",
         "Ocupación actual %","Ocupación LY %",
-        "Ingresos actuales (€)","Ingresos LY (€)",
-        "Ingresos finales LY (€)"
+        "Ingresos actuales (€)","Ingresos LY (€)","Ingresos LY-2 (€)",
+        "Ingresos finales LY (€)","Ingresos finales LY-2 (€)"
     ])
 
     GREEN = "background-color: #d4edda; color: #155724; font-weight: 600;"
@@ -269,7 +290,9 @@ def render_resumen_comparativo(raw):
             "ADR actual": "{:.2f} €", "ADR LY": "{:.2f} €",
             "Ocupación actual %": "{:.2f}%", "Ocupación LY %": "{:.2f}%",
             "Ingresos actuales (€)": "{:.2f} €", "Ingresos LY (€)": "{:.2f} €",
+            "Ingresos LY-2 (€)": "{:.2f} €",
             "Ingresos finales LY (€)": "{:.2f} €",
+            "Ingresos finales LY-2 (€)": "{:.2f} €",
         })
     )
     st.dataframe(styler, use_container_width=True)
