@@ -301,11 +301,13 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
 
     # ====== Ocupación ======
     st.subheader("🏨 Ocupación (periodo seleccionado)")
-    o1, o2, o3 = st.columns(3)
+    o1, o2, o3, o4, o5 = st.columns(5)
     o1.metric("Ocupación actual", f"{tot_now['ocupacion_pct']:.2f}%")
     o2.metric("Ocupación LY (a este corte)", f"{tot_ly_cut['ocupacion_pct']:.2f}%")
     o3.metric("Ocupación LY final", f"{tot_ly_final['ocupacion_pct']:.2f}%")
-    st.caption("Actual y LY: reservas con Fecha alta ≤ corte. LY final: corte = fin del periodo LY.")
+    o4.metric("Ocupación LY-2 (a este corte)", f"{tot_ly2_cut_ing['ocupacion_pct']:.2f}%")
+    o5.metric("Ocupación LY-2 final", f"{tot_ly2_final_ing['ocupacion_pct']:.2f}%")
+    st.caption("Actual, LY y LY-2: reservas con Fecha alta ≤ corte. “LY final” y “LY-2 final”: corte = fin del periodo correspondiente.")
 
     # ====== Ritmo de reservas (Pace) ======
     st.subheader("🏁 Ritmo de reservas (Pace)")
