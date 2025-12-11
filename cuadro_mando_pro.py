@@ -271,6 +271,56 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
     a2.metric("ADR LY (€)", f"{tot_ly_cut['adr']:.2f}")
     a3.metric("ADR LY-2 (€)", f"{tot_ly2_cut['adr']:.2f}")
 
+    # === ADR entre semana vs fin de semana (periodo seleccionado, uplift vie/sáb = 25%) ===
+    u = 0.25  # uplift fines de semana (viernes y sábado)
+    d_adr = df.copy()
+    # Filtrar reservas con estancia dentro del periodo y confirmadas a la fecha de corte
+    d_adr = d_adr[(pd.to_datetime(d_adr["Fecha alta"]) <= pd.to_datetime(pro_cut))]
+    d_adr = d_adr.dropna(subset=["Fecha entrada","Fecha salida","Alquiler con IVA (€)"]).copy()
+
+    if not d_adr.empty:
+        d_adr["Fecha entrada"] = pd.to_datetime(d_adr["Fecha entrada"]).dt.normalize()
+        d_adr["Fecha salida"]  = pd.to_datetime(d_adr["Fecha salida"]).dt.normalize()
+
+        # Recorta a periodo seleccionado (solo noches que caen dentro)
+        start_dt = pd.to_datetime(pro_start).normalize()
+        end_dt_inclusive = pd.to_datetime(pro_end).normalize() + pd.Timedelta(days=1)
+
+        def _ws_counts(row):
+            seg_start = max(row["Fecha entrada"], start_dt)
+            seg_end   = min(row["Fecha salida"], end_dt_inclusive)
+            if seg_end <= seg_start:
+                return pd.Series({"W": 0, "S": 0, "los_in": 0})
+            days = pd.date_range(seg_start, seg_end - pd.Timedelta(days=1), freq="D")
+            dows = days.weekday  # 0=Mon ... 4=Fri, 5=Sat, 6=Sun
+            S = int(np.isin(dows, [4, 5]).sum())               # viernes (4) + sábado (5)
+            W = int(len(days) - S)                              # resto (lun–jue, dom)
+            return pd.Series({"W": W, "S": S, "los_in": len(days)})
+
+        counts = d_adr.apply(_ws_counts, axis=1)
+        d_adr = pd.concat([d_adr.reset_index(drop=True), counts], axis=1)
+        # Rate base entre semana r = T / [W + S*(1+u)] sobre las noches dentro del periodo
+        # Si la reserva no tiene noches en el periodo, se descarta.
+        T = pd.to_numeric(d_adr["Alquiler con IVA (€)"], errors="coerce").fillna(0.0)
+        denom = d_adr["W"].astype(float) + d_adr["S"].astype(float) * (1.0 + u)
+        valid = denom > 0
+        r_week = pd.Series(np.where(valid, T / denom, np.nan), index=d_adr.index)
+        r_weekend = r_week * (1.0 + u)
+
+        # Promedios ponderados por noches en cada grupo
+        W_total = float(d_adr.loc[valid, "W"].sum())
+        S_total = float(d_adr.loc[valid, "S"].sum())
+        adr_week = float(np.nansum(r_week[valid] * d_adr.loc[valid, "W"]) / W_total) if W_total > 0 else np.nan
+        adr_weekend = float(np.nansum(r_weekend[valid] * d_adr.loc[valid, "S"]) / S_total) if S_total > 0 else np.nan
+
+        w1, w2 = st.columns(2)
+        w1.metric("ADR entre semana (€)", f"{adr_week:.2f}" if np.isfinite(adr_week) else "—")
+        w2.metric("ADR fin de semana (€)", f"{adr_weekend:.2f}" if np.isfinite(adr_weekend) else "—")
+    else:
+        w1, w2 = st.columns(2)
+        w1.metric("ADR entre semana (€)", "—")
+        w2.metric("ADR fin de semana (€)", "—")
+
     # === Bandas ADR (NOCHES PRORRATEADAS) — 3 filas x 3 columnas ===
     bands_act = _compute_adr_bands_period_prorate(df, pro_start, pro_end, pro_cut)
     bands_ly1 = _compute_adr_bands_period_prorate(
