@@ -273,72 +273,72 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
 
     # === ADR entre semana vs fin de semana (periodo seleccionado, uplift vie/sáb = 25%) ===
     u = 0.25  # uplift fines de semana (viernes y sábado)
-    d_adr = _standardize_columns(df.copy())  # asegura nombres: Fecha alta/entrada/salida, Alquiler con IVA (€)
+    d_adr = _standardize_columns(df.copy())
+    # Tipos de fecha seguros
     for c in ["Fecha alta", "Fecha entrada", "Fecha salida"]:
         if c in d_adr.columns:
             d_adr[c] = pd.to_datetime(d_adr[c], errors="coerce")
 
-    # Confirmadas a la fecha de corte y con estancias que intersectan el periodo
+    # Filtra reservas confirmadas al corte y que intersectan el periodo
     start_dt = pd.to_datetime(pro_start).normalize()
-    end_dt_inclusive = pd.to_datetime(pro_end).normalize() + pd.Timedelta(days=1)
+    end_dt   = pd.to_datetime(pro_end).normalize()
+    end_inclusive = end_dt + pd.Timedelta(days=1)
 
     d_adr = d_adr.dropna(subset=["Fecha entrada","Fecha salida","Alquiler con IVA (€)"]).copy()
     d_adr = d_adr[d_adr["Fecha alta"] <= pd.to_datetime(pro_cut)]
-    overlap = (d_adr["Fecha entrada"] < end_dt_inclusive) & (d_adr["Fecha salida"] > start_dt)
+
+    overlap = (d_adr["Fecha entrada"] < end_inclusive) & (d_adr["Fecha salida"] > start_dt)
     d_adr = d_adr.loc[overlap].copy()
 
     if not d_adr.empty:
         d_adr["Fecha entrada"] = d_adr["Fecha entrada"].dt.normalize()
         d_adr["Fecha salida"]  = d_adr["Fecha salida"].dt.normalize()
 
-        def _ws_counts(row):
+        # Expande a noches dentro del periodo y calcula tarifa base por reserva
+        rows = []
+        for _, r in d_adr.iterrows():
+            s = r["Fecha entrada"]; e = r["Fecha salida"]
             # Noches totales de la reserva
-            los_total = int((row["Fecha salida"] - row["Fecha entrada"]).days)
+            los_total = int((e - s).days)
             if los_total <= 0:
-                return pd.Series({"W": 0, "S": 0, "los_in": 0, "los_total": 0})
-            # Segmento dentro del periodo
-            seg_start = max(row["Fecha entrada"], start_dt)
-            seg_end   = min(row["Fecha salida"], end_dt_inclusive)
+                continue
+            # Tarifa base entre semana r = T / [W + S*(1+u)] usando noches del segmento
+            seg_start = max(s, start_dt)
+            seg_end   = min(e, end_inclusive)
             if seg_end <= seg_start:
-                return pd.Series({"W": 0, "S": 0, "los_in": 0, "los_total": los_total})
-            days = pd.date_range(seg_start, seg_end - pd.Timedelta(days=1), freq="D")
-            dows = days.weekday  # 0=Mon ... 4=Fri, 5=Sat, 6=Sun
+                continue
+            nights = pd.date_range(seg_start, seg_end - pd.Timedelta(days=1), freq="D")
+            dows = nights.weekday  # 0=Mon ... 4=Fri, 5=Sat, 6=Sun
             S = int(np.isin(dows, [4, 5]).sum())  # viernes y sábado
-            W = int(len(days) - S)                # resto
-            return pd.Series({"W": W, "S": S, "los_in": len(days), "los_total": los_total})
+            W = int(len(nights) - S)
+            T_total = float(pd.to_numeric(r["Alquiler con IVA (€)"], errors="coerce") or 0.0)
+            # Proporción del importe para el segmento dentro del periodo
+            frac = len(nights) / max(los_total, 1)
+            T_in = T_total * frac
+            denom = W + S * (1.0 + u)
+            if denom <= 0:
+                continue
+            r_week = T_in / denom
+            r_weekend = r_week * (1.0 + u)
 
-        counts = d_adr.apply(_ws_counts, axis=1)
-        d_adr = d_adr.reset_index(drop=True).join(counts)
+            # Genera filas diarias con ADR asignado según DOW
+            for d, dow in zip(nights, dows):
+                is_weekend = dow in (4, 5)  # vie/sáb
+                rows.append({"Fecha": d, "grupo": "Finde" if is_weekend else "Semana", "ADR": r_weekend if is_weekend else r_week})
 
-        # Si por cualquier motivo faltan columnas, créalas a 0
-        for col in ("W", "S", "los_in", "los_total"):
-            if col not in d_adr.columns:
-                d_adr[col] = 0
+        daily = pd.DataFrame(rows)
+        if daily.empty:
+            w1, w2 = st.columns(2)
+            w1.metric("ADR entre semana (€)", "—")
+            w2.metric("ADR fin de semana (€)", "—")
+        else:
+            # Promedio ponderado por noches (cada fila = 1 noche)
+            adr_week = float(daily.loc[daily["grupo"]=="Semana", "ADR"].mean()) if (daily["grupo"]=="Semana").any() else np.nan
+            adr_weekend = float(daily.loc[daily["grupo"]=="Finde", "ADR"].mean()) if (daily["grupo"]=="Finde").any() else np.nan
 
-        # Usa el importe proporcional a las noches dentro del periodo
-        T_total = pd.to_numeric(d_adr["Alquiler con IVA (€)"], errors="coerce").fillna(0.0)
-        frac = np.where(d_adr["los_total"] > 0, d_adr["los_in"] / d_adr["los_total"], 0.0)
-        T_in = T_total * frac
-
-        # r base entre semana y r fin de semana
-        denom = d_adr["W"].astype(float) + d_adr["S"].astype(float) * (1.0 + u)
-        valid = denom > 0
-        r_week = pd.Series(np.where(valid, T_in / denom, np.nan), index=d_adr.index)
-        r_weekend = r_week * (1.0 + u)
-
-        # Promedios ponderados
-        W_total = float(d_adr.loc[valid, "W"].sum())
-        S_total = float(d_adr.loc[valid, "S"].sum())
-        adr_week = float(np.nansum(r_week[valid] * d_adr.loc[valid, "W"]) / W_total) if W_total > 0 else np.nan
-        adr_weekend = float(np.nansum(r_weekend[valid] * d_adr.loc[valid, "S"]) / S_total) if S_total > 0 else np.nan
-
-        w1, w2 = st.columns(2)
-        w1.metric("ADR entre semana (€)", f"{adr_week:.2f}" if np.isfinite(adr_week) else "—")
-        w2.metric("ADR fin de semana (€)", f"{adr_weekend:.2f}" if np.isfinite(adr_weekend) else "—")
-
-        # Mensaje aclaratorio si faltan noches W o S en el rango
-        if W_total == 0 or S_total == 0:
-            st.caption("No hay noches de entre semana o de fin de semana dentro del periodo seleccionado con reservas confirmadas al corte.")
+            w1, w2 = st.columns(2)
+            w1.metric("ADR entre semana (€)", f"{adr_week:.2f}" if np.isfinite(adr_week) else "—")
+            w2.metric("ADR fin de semana (€)", f"{adr_weekend:.2f}" if np.isfinite(adr_weekend) else "—")
     else:
         w1, w2 = st.columns(2)
         w1.metric("ADR entre semana (€)", "—")
