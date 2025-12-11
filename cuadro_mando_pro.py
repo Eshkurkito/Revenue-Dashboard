@@ -290,15 +290,37 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
         d_adr["Fecha entrada"] = d_adr["Fecha entrada"].dt.normalize()
         d_adr["Fecha salida"]  = d_adr["Fecha salida"].dt.normalize()
 
-        # Rate base entre semana r = T / [W + S*(1+u)] sobre las noches dentro del periodo
-        # Si la reserva no tiene noches en el periodo, se descarta.
+        # Recorta a periodo (solo noches dentro del rango)
+        start_dt = pd.to_datetime(pro_start).normalize()
+        end_dt_inclusive = pd.to_datetime(pro_end).normalize() + pd.Timedelta(days=1)
+
+        def _ws_counts(row):
+            seg_start = max(row["Fecha entrada"], start_dt)
+            seg_end   = min(row["Fecha salida"], end_dt_inclusive)
+            if pd.isna(seg_start) or pd.isna(seg_end) or seg_end <= seg_start:
+                return pd.Series({"W": 0, "S": 0})
+            days = pd.date_range(seg_start, seg_end - pd.Timedelta(days=1), freq="D")
+            dows = days.weekday  # 0=Mon ... 4=Fri, 5=Sat
+            S = int(np.isin(dows, [4, 5]).sum())
+            W = int(len(days) - S)
+            return pd.Series({"W": W, "S": S})
+
+        counts = d_adr.apply(_ws_counts, axis=1)
+        d_adr = d_adr.reset_index(drop=True).join(counts)
+
+        # Seguridad: si por cualquier motivo faltan columnas, créalas a 0
+        for col in ("W", "S"):
+            if col not in d_adr.columns:
+                d_adr[col] = 0
+
+        # r base entre semana y r fin de semana
         T = pd.to_numeric(d_adr["Alquiler con IVA (€)"], errors="coerce").fillna(0.0)
         denom = d_adr["W"].astype(float) + d_adr["S"].astype(float) * (1.0 + u)
         valid = denom > 0
         r_week = pd.Series(np.where(valid, T / denom, np.nan), index=d_adr.index)
         r_weekend = r_week * (1.0 + u)
 
-        # Promedios ponderados por noches en cada grupo
+        # Promedios ponderados
         W_total = float(d_adr.loc[valid, "W"].sum())
         S_total = float(d_adr.loc[valid, "S"].sum())
         adr_week = float(np.nansum(r_week[valid] * d_adr.loc[valid, "W"]) / W_total) if W_total > 0 else np.nan
