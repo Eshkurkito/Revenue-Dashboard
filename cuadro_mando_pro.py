@@ -149,7 +149,7 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
         st.info("No hay datos cargados. Sube un Excel/CSV en la barra lateral para usar PRO.")
         st.stop()
 
-    df = raw.copy()
+    df = _standardize_columns(raw.copy())  # ← asegura nombres canónicos
     if "Alojamiento" not in df.columns:
         st.warning("No se encuentra la columna ‘Alojamiento’.")
         st.stop()
@@ -274,31 +274,22 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
     # === ADR entre semana vs fin de semana (periodo seleccionado, uplift vie/sáb = 25%) ===
     u = 0.25  # uplift fines de semana (viernes y sábado)
     d_adr = df.copy()
-    # Filtrar reservas con estancia dentro del periodo y confirmadas a la fecha de corte
-    d_adr = d_adr[(pd.to_datetime(d_adr["Fecha alta"]) <= pd.to_datetime(pro_cut))]
-    d_adr = d_adr.dropna(subset=["Fecha entrada","Fecha salida","Alquiler con IVA (€)"]).copy()
+    # Tipos de fecha seguros
+    for c in ["Fecha alta", "Fecha entrada", "Fecha salida"]:
+        if c in d_adr.columns:
+            d_adr[c] = pd.to_datetime(d_adr[c], errors="coerce")
+    # Confirmadas a la fecha de corte
+    d_adr = d_adr[d_adr["Fecha alta"] <= pd.to_datetime(pro_cut)]
+    # Intersección con el periodo seleccionado (solo reservas que aportan noches)
+    start_dt = pd.to_datetime(pro_start).normalize()
+    end_dt_inclusive = pd.to_datetime(pro_end).normalize() + pd.Timedelta(days=1)
+    overlap = (d_adr["Fecha entrada"] < end_dt_inclusive) & (d_adr["Fecha salida"] > start_dt)
+    d_adr = d_adr.loc[overlap].dropna(subset=["Fecha entrada","Fecha salida","Alquiler con IVA (€)"]).copy()
 
     if not d_adr.empty:
-        d_adr["Fecha entrada"] = pd.to_datetime(d_adr["Fecha entrada"]).dt.normalize()
-        d_adr["Fecha salida"]  = pd.to_datetime(d_adr["Fecha salida"]).dt.normalize()
+        d_adr["Fecha entrada"] = d_adr["Fecha entrada"].dt.normalize()
+        d_adr["Fecha salida"]  = d_adr["Fecha salida"].dt.normalize()
 
-        # Recorta a periodo seleccionado (solo noches que caen dentro)
-        start_dt = pd.to_datetime(pro_start).normalize()
-        end_dt_inclusive = pd.to_datetime(pro_end).normalize() + pd.Timedelta(days=1)
-
-        def _ws_counts(row):
-            seg_start = max(row["Fecha entrada"], start_dt)
-            seg_end   = min(row["Fecha salida"], end_dt_inclusive)
-            if seg_end <= seg_start:
-                return pd.Series({"W": 0, "S": 0, "los_in": 0})
-            days = pd.date_range(seg_start, seg_end - pd.Timedelta(days=1), freq="D")
-            dows = days.weekday  # 0=Mon ... 4=Fri, 5=Sat, 6=Sun
-            S = int(np.isin(dows, [4, 5]).sum())               # viernes (4) + sábado (5)
-            W = int(len(days) - S)                              # resto (lun–jue, dom)
-            return pd.Series({"W": W, "S": S, "los_in": len(days)})
-
-        counts = d_adr.apply(_ws_counts, axis=1)
-        d_adr = pd.concat([d_adr.reset_index(drop=True), counts], axis=1)
         # Rate base entre semana r = T / [W + S*(1+u)] sobre las noches dentro del periodo
         # Si la reserva no tiene noches en el periodo, se descarta.
         T = pd.to_numeric(d_adr["Alquiler con IVA (€)"], errors="coerce").fillna(0.0)
