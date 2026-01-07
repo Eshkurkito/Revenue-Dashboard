@@ -152,5 +152,72 @@
   </tbody>
 </table>
 
+  <!-- NUEVO: RevPAR y Top months -->
+  <div class="card" style="display:flex; gap:12px;">
+    <div style="flex:1;">
+      <h3>RevPAR (€/noche disponible)</h3>
+      <table class="table" style="width:100%;">
+        <thead><tr><th>ACT</th><th>LY</th></tr></thead>
+        <tbody><tr><td>{{ revpar.act }}</td><td>{{ revpar.ly }}</td></tr></tbody>
+      </table>
+    </div>
+    <div style="flex:1;">
+      <h3>Top meses (ingresos)</h3>
+      <table class="table">
+        <thead><tr><th>Mes</th><th>Ingresos</th></tr></thead>
+        <tbody>
+          {% for m in top_months %}
+          <tr><td>{{ m.mes }}</td><td>{{ m.ing }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- NUEVO: Ocupación por día de la semana -->
+  <div class="card">
+    <h3>Ocupación media por día de la semana</h3>
+    <table class="table">
+      <thead><tr><th>Día</th><th>Ocupación</th></tr></thead>
+      <tbody>
+        {% for w in weekday_rows %}
+        <tr><td>{{ w.day }}</td><td style="text-align:right">{{ w.pct }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- NUEVO: LOS y Antelación (buckets) -->
+  <div class="card">
+    <h3>Estancia media y antelación (buckets)</h3>
+    <table class="table">
+      <thead><tr><th>Métrica</th><th>Valor</th></tr></thead>
+      <tbody>
+        <tr><td>LOS mediana</td><td>{{ los_median }} días</td></tr>
+        <tr><td>LOS buckets</td>
+          <td>
+            1 noche: {{ los_buckets["1"] }} · 2: {{ los_buckets["2"] }} · 3-6: {{ los_buckets["3-6"] }} · 7+: {{ los_buckets["7+"] }}
+          </td>
+        </tr>
+        <tr><td>Antelación buckets</td>
+          <td>&lt;7d: {{ lead_buckets["<7d"] }} · 7-30d: {{ lead_buckets["7-30d"] }} · &gt;30d: {{ lead_buckets[">30d"] }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- NUEVO: Top portals con share -->
+  <div class="card">
+    <h3>Top portales (ingresos y share)</h3>
+    <table class="table">
+      <thead><tr><th>Portal</th><th>Ingresos</th><th>% share</th></tr></thead>
+      <tbody>
+        {% for p in top_portals %}
+        <tr><td>{{ p.Portal }}</td><td style="text-align:right">{{ p.Ingresos }}</td><td style="text-align:right">{{ p.Share }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
 </body>
 </html>

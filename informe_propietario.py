@@ -273,11 +273,16 @@ def _bookings_by_portal(df_raw: pd.DataFrame, start: date, end: date, props: lis
     mask = (ref >= pd.to_datetime(start)) & (ref <= pd.to_datetime(end))
     d = d.loc[mask].copy()
 
-    # Portal: usar columna “Portal” si existe; si no, marcar Directa
+    # Portal: si falta la columna o hay valores NaN/empty, asignar "FloritFlats"
     if "Portal" not in d.columns:
-        d["Portal"] = "Directa"
-    d["Portal"] = d["Portal"].astype(str).fillna("").map(_canon_portal)
-    d.loc[d["Portal"].eq("") | d["Portal"].isna(), "Portal"] = "Directa"
+        d["Portal"] = "FloritFlats"
+    else:
+        # sustituye NA o cadenas vacías por "FloritFlats" antes de normalizar
+        d["Portal"] = d["Portal"].where(d["Portal"].notna() & d["Portal"].astype(str).str.strip().ne(""), "FloritFlats")
+
+    d["Portal"] = d["Portal"].astype(str).map(_canon_portal)
+    # asegurar que no queden vacíos
+    d.loc[d["Portal"].eq("") | d["Portal"].isna(), "Portal"] = "FloritFlats"
 
     g = (d.groupby("Portal", dropna=False)
            .agg(Reservas=("Portal","size"),
@@ -470,6 +475,70 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
     d_adr = _pct_delta(k_act["adr"],      k_ly["adr"])
     d_nch = _pct_delta(k_act["noches"],   k_ly["noches"])
 
+    # --- NUEVAS ESTADÍSTICAS SIMPLES ---
+    total_days = (pd.to_datetime(end) - pd.to_datetime(start)).days + 1
+    revpar_act = k_act["ingresos"] / (max(1, inv_units) * total_days) if total_days > 0 else 0.0
+    revpar_ly  = k_ly["ingresos"]  / (max(1, inv_units) * total_days) if total_days > 0 else 0.0
+
+    # Top portals con % share (para UI y PDF)
+    portal_df = _bookings_by_portal(df, start, end, props)
+    total_portal_ing = float(portal_df["Ingresos"].sum()) if not portal_df.empty else 0.0
+    if not portal_df.empty and total_portal_ing > 0:
+        portal_df = portal_df.assign(Share=lambda x: x["Ingresos"] / total_portal_ing * 100.0)
+    else:
+        portal_df = portal_df.assign(Share=0.0)
+    top_portals = portal_df.sort_values("Ingresos", ascending=False).head(5).to_dict(orient="records")
+
+    # Ocupación por día de la semana (media sobre los días del periodo)
+    rng = pd.date_range(start=pd.to_datetime(start), end=pd.to_datetime(end), freq="D")
+    days_by_wd = {i: int((rng.weekday == i).sum()) for i in range(7)}
+    weekday_names = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"]
+    wgroup = act.copy()
+    wgroup["wd"] = wgroup["Fecha"].dt.weekday
+    nights_by_wd = wgroup.groupby("wd")["Noches"].sum().to_dict()
+    weekday_rows = []
+    for i, name in enumerate(weekday_names):
+        days_count = days_by_wd.get(i, 0)
+        nights = float(nights_by_wd.get(i, 0.0))
+        pct = (nights / (max(1, inv_units) * days_count) * 100.0) if days_count > 0 else 0.0
+        weekday_rows.append({"day": name, "pct": _fmt_pct(pct, 2)})
+
+    # LOS median y buckets; Lead-time buckets
+    d_stats = _preprocess(df)
+    if props and "Alojamiento" in d_stats.columns:
+        d_stats = d_stats[d_stats["Alojamiento"].astype(str).isin(props)].copy()
+    # filtrar por fecha entrada en el periodo
+    mask_in = (d_stats["Fecha entrada"] >= pd.to_datetime(start)) & (d_stats["Fecha entrada"] <= pd.to_datetime(end))
+    d_stats = d_stats.loc[mask_in].copy()
+    los_median = None
+    los_buckets = {"1":0.0,"2":0.0,"3-6":0.0,"7+":0.0}
+    lead_buckets = {"<7d":0.0,"7-30d":0.0,">30d":0.0}
+    if not d_stats.empty:
+        los = (d_stats["Fecha salida"] - d_stats["Fecha entrada"]).dt.days.clip(lower=1)
+        los_median = float(los.median()) if len(los) else None
+        total_res = len(los)
+        los_buckets = {
+            "1": int((los == 1).sum()) / total_res * 100.0,
+            "2": int((los == 2).sum()) / total_res * 100.0,
+            "3-6": int(((los >= 3) & (los <= 6)).sum()) / total_res * 100.0,
+            "7+": int((los >= 7).sum()) / total_res * 100.0,
+        }
+        # lead time
+        if "Fecha alta" in d_stats.columns:
+            lead = (d_stats["Fecha entrada"].dt.normalize() - d_stats["Fecha alta"].dt.normalize()).dt.days
+            lead = lead.dropna()
+            if len(lead):
+                total_lead = len(lead)
+                lead_buckets = {
+                    "<7d": int((lead < 7).sum()) / total_lead * 100.0,
+                    "7-30d": int(((lead >= 7) & (lead <= 30)).sum()) / total_lead * 100.0,
+                    ">30d": int((lead > 30).sum()) / total_lead * 100.0,
+                }
+
+    # Top months (por ingresos) — para mostrar en la portada/HTML también
+    monthly_rows_raw = _monthly_summary(df, pd.to_datetime(start), pd.to_datetime(end), props, inv_units)
+    top_months = sorted(monthly_rows_raw, key=lambda r: r.get("ing_act", 0.0), reverse=True)[:3]
+
     # Portada
     st.markdown(f"### {apto or '—'}")
     st.markdown(f"Propietario: {owner or '—'}")
@@ -603,7 +672,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                 # chart_portales_b64 = _plot_portales_png(portal_df)   # ← eliminado
                 chart_adr_b64      = _plot_adr_png(act, ly, gran)
                 # calcular resumen mensual para la segunda página
-                monthly_rows_raw = _monthly_summary(df, pd.to_datetime(start), pd.to_datetime(end), props, inv_units)
+                monthly_rows_raw = monthly_rows_raw  # (se calculó arriba)
                 # formatear para plantilla: € con 2 decimales y % con 2 decimales
                 monthly_rows = []
                 for r in monthly_rows_raw:
@@ -618,6 +687,19 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                         "nights_act": f"{r.get('nights_act',0):,}".replace(",", "."),
                         "nights_ly":  f"{r.get('nights_ly',0):,}".replace(",", "."),
                     })
+                # formatear top_portals y top_months, weekday, buckets para plantilla
+                tp_formatted = []
+                for p in top_portals:
+                    tp_formatted.append({
+                        "Portal": p.get("Portal"),
+                        "Ingresos": _fmt_money(p.get("Ingresos", 0.0), 2),
+                        "Share": f"{p.get('Share',0.0):.2f} %"
+                    })
+                wd_formatted = [{"day": w["day"], "pct": w["pct"]} for w in weekday_rows]
+                los_b_fmt = {k: f"{v:.1f} %" for k,v in los_buckets.items()}
+                lead_b_fmt = {k: f"{v:.1f} %" for k,v in lead_buckets.items()}
+                top_months_fmt = [{"mes": m["mes"], "ing": _fmt_money(m.get("ing_act",0.0),2)} for m in top_months]
+
                 ctx = {
                     "apto": apto, "owner": owner,
                     "period_act": _period_label(start, end),
@@ -632,7 +714,15 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                     "logo_b64": _logo_b64(),
                     "los_avg": f"{stats['los_avg']:.1f}" if stats["los_avg"] is not None else "—",
                     "lead_avg": f"{stats['lead_avg']:.0f}" if stats["lead_avg"] is not None else "—",
-                    "monthly_rows": monthly_rows,   # ← NUEVO
+                    "monthly_rows": monthly_rows,   # ← existente
+                    # NUEVOS campos:
+                    "revpar": {"act": _fmt_money(revpar_act,2), "ly": _fmt_money(revpar_ly,2)},
+                    "top_portals": tp_formatted,
+                    "weekday_rows": wd_formatted,
+                    "los_median": (f"{los_median:.1f}" if los_median is not None else "—"),
+                    "los_buckets": los_b_fmt,
+                    "lead_buckets": lead_b_fmt,
+                    "top_months": top_months_fmt,
                 }
                 # render
                 from jinja2 import Environment, FileSystemLoader
