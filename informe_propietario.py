@@ -244,8 +244,25 @@ def _pace_dataframe(act: pd.DataFrame, ly: pd.DataFrame, start: date, end: date,
     )
 
 # ====== NUEVO: helpers faltantes ======
-def _fmt_money(x: float) -> str:
-    return f"{x:,.0f}".replace(",", ".")
+def _fmt_money(x: float, decimals: int = 2) -> str:
+    if x is None:
+        return "—"
+    try:
+        s = f"{x:,.{decimals}f}"
+        # convertir a formato español: miles con '.' y decimales con ','
+        s = s.replace(",", "_").replace(".", ",").replace("_", ".")
+        return f"€{s}"
+    except Exception:
+        return f"€{x:.{decimals}f}"
+
+def _fmt_pct(x: float, decimals: int = 2) -> str:
+    if x is None:
+        return "—"
+    try:
+        s = f"{x:.{decimals}f}".replace(".", ",")
+        return f"{s} %"
+    except Exception:
+        return f"{x:.{decimals}f} %"
 
 # NUEVO: reservas por portal en el periodo (por fecha de alta si existe; si no, por check-in)
 def _bookings_by_portal(df_raw: pd.DataFrame, start: date, end: date, props: list[str] | None) -> pd.DataFrame:
@@ -586,8 +603,21 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                 # chart_portales_b64 = _plot_portales_png(portal_df)   # ← eliminado
                 chart_adr_b64      = _plot_adr_png(act, ly, gran)
                 # calcular resumen mensual para la segunda página
-                monthly_rows = _monthly_summary(df, pd.to_datetime(start), pd.to_datetime(end), props, inv_units)
-
+                monthly_rows_raw = _monthly_summary(df, pd.to_datetime(start), pd.to_datetime(end), props, inv_units)
+                # formatear para plantilla: € con 2 decimales y % con 2 decimales
+                monthly_rows = []
+                for r in monthly_rows_raw:
+                    monthly_rows.append({
+                        "mes": r.get("mes"),
+                        "ing_act": _fmt_money(r.get("ing_act", 0.0), 2),
+                        "ing_ly":  _fmt_money(r.get("ing_ly", 0.0), 2),
+                        "adr_act": _fmt_money(r.get("adr_act", 2), 2),
+                        "adr_ly":  _fmt_money(r.get("adr_ly", 2), 2),
+                        "ocup_act": _fmt_pct(r.get("ocup_act", 0.0), 2),
+                        "ocup_ly":  _fmt_pct(r.get("ocup_ly", 0.0), 2),
+                        "nights_act": f"{r.get('nights_act',0):,}".replace(",", "."),
+                        "nights_ly":  f"{r.get('nights_ly',0):,}".replace(",", "."),
+                    })
                 ctx = {
                     "apto": apto, "owner": owner,
                     "period_act": _period_label(start, end),

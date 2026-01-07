@@ -118,5 +118,39 @@
     <div class="comments">{{ comments or '—' }}</div>
   </div>
 
+<div style="page-break-before: always;"></div>
+
+<h2 style="margin-top:4mm;">Desglose mensual</h2>
+<table style="width:100%; border-collapse:collapse; font-family: Arial, sans-serif; font-size:12px;">
+  <thead>
+    <tr style="background:#f2f2f2;">
+      <th style="text-align:left; padding:6px; border:1px solid #ddd;">Mes</th>
+      <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ingresos (ACT)</th>
+      <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ingresos (LY)</th>
+      <th style="text-align:right; padding:6px; border:1px solid #ddd;">ADR (ACT)</th>
+      <th style="text-align:right; padding:6px; border:1px solid #ddd;">ADR (LY)</th>
+      <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ocupación (ACT)</th>
+      <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ocupación (LY)</th>
+      <th style="text-align:right; padding:6px; border:1px solid #ddd;">Noches (ACT)</th>
+      <th style="text-align:right; padding:6px; border:1px solid #ddd;">Noches (LY)</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in monthly_rows %}
+    <tr>
+      <td style="padding:6px; border:1px solid #ddd;">{{ r.mes }}</td>
+      <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ing_act }}</td>
+      <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ing_ly }}</td>
+      <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.adr_act }}</td>
+      <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.adr_ly }}</td>
+      <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ocup_act }}</td>
+      <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ocup_ly }}</td>
+      <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.nights_act }}</td>
+      <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.nights_ly }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
 </body>
 </html>
