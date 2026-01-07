@@ -144,6 +144,8 @@ def render_resumen_comparativo(raw):
             "resumen_comp"
         )
 
+        view_mode = st.radio("Modo de vista", ["Por periodo (actual)", "Por meses (con resumen general)"], index=0)
+
         st.header("Gestión de grupos")
         groups = load_groups()
         group_names = ["Ninguno"] + sorted(list(groups.keys()))
@@ -188,6 +190,8 @@ def render_resumen_comparativo(raw):
     props_sel = props_rc if props_rc else None
 
     def _by_prop_with_occ(cutoff_dt, start_dt, end_dt, props_sel=None):
+        # calcula días del periodo localmente para que funcione por meses
+        days_local = (pd.to_datetime(end_dt) - pd.to_datetime(start_dt)).days + 1
         by_prop, _ = compute_kpis(
             df_all=raw,
             cutoff=pd.to_datetime(cutoff_dt),
@@ -199,148 +203,269 @@ def render_resumen_comparativo(raw):
         if by_prop.empty:
             return pd.DataFrame(columns=["Alojamiento","ADR","Ocupación %","Ingresos"])
         out = by_prop.copy()
-        out["Ocupación %"] = (out["Noches ocupadas"] / days_period * 100.0).astype(float)
+        out["Ocupación %"] = (out["Noches ocupadas"] / days_local * 100.0).astype(float)
         return out[["Alojamiento","ADR","Ocupación %","Ingresos"]]
 
-    # Actual
-    now_df = _by_prop_with_occ(cutoff_rc, start_rc, end_rc, props_sel).rename(columns={
-        "ADR":"ADR actual", "Ocupación %":"Ocupación actual %", "Ingresos":"Ingresos actuales (€)"
-    })
+    def _make_resumen(start_dt, end_dt, cutoff_dt, props_sel):
+        # devuelve resumen mergeado con las columnas/format actuales
+        now_df = _by_prop_with_occ(cutoff_dt, start_dt, end_dt, props_sel).rename(columns={
+            "ADR":"ADR actual", "Ocupación %":"Ocupación actual %", "Ingresos":"Ingresos actuales (€)"
+        })
 
-    # LY (mismo periodo y cutoff -1 año)
-    ly_df = _by_prop_with_occ(
-        pd.to_datetime(cutoff_rc) - pd.DateOffset(years=1),
-        pd.to_datetime(start_rc) - pd.DateOffset(years=1),
-        pd.to_datetime(end_rc)   - pd.DateOffset(years=1),
-        props_sel
-    ).rename(columns={
-        "ADR":"ADR LY", "Ocupación %":"Ocupación LY %", "Ingresos":"Ingresos LY (€)"
-    })
+        ly_df = _by_prop_with_occ(
+            pd.to_datetime(cutoff_dt) - pd.DateOffset(years=1),
+            pd.to_datetime(start_dt) - pd.DateOffset(years=1),
+            pd.to_datetime(end_dt)   - pd.DateOffset(years=1),
+            props_sel
+        ).rename(columns={
+            "ADR":"ADR LY", "Ocupación %":"Ocupación LY %", "Ingresos":"Ingresos LY (€)"
+        })
 
-    # LY final (resultado): mismo periodo LY, pero corte = fin del periodo LY
-    ly_final_df = _by_prop_with_occ(
-        pd.to_datetime(end_rc)   - pd.DateOffset(years=1),
-        pd.to_datetime(start_rc) - pd.DateOffset(years=1),
-        pd.to_datetime(end_rc)   - pd.DateOffset(years=1),
-        props_sel
-    )
-    ly_final_df = ly_final_df[["Alojamiento","Ingresos"]].rename(columns={"Ingresos":"Ingresos finales LY (€)"})
-
-    # NUEVO: LY-2 (mismo periodo y cutoff -2 años)
-    ly2_df = _by_prop_with_occ(
-        pd.to_datetime(cutoff_rc) - pd.DateOffset(years=2),
-        pd.to_datetime(start_rc)  - pd.DateOffset(years=2),
-        pd.to_datetime(end_rc)    - pd.DateOffset(years=2),
-        props_sel
-    ).rename(columns={
-        "ADR":"ADR LY-2", "Ocupación %":"Ocupación LY-2 %", "Ingresos":"Ingresos LY-2 (€)"
-    })
-
-    # NUEVO: LY-2 final (resultado): mismo periodo LY-2, corte = fin del periodo LY-2
-    ly2_final_df = _by_prop_with_occ(
-        pd.to_datetime(end_rc)    - pd.DateOffset(years=2),
-        pd.to_datetime(start_rc)  - pd.DateOffset(years=2),
-        pd.to_datetime(end_rc)    - pd.DateOffset(years=2),
-        props_sel
-    )
-    ly2_final_df = ly2_final_df[["Alojamiento","Ingresos"]].rename(columns={"Ingresos":"Ingresos finales LY-2 (€)"})
-
-    # Merge total
-    resumen = now_df.merge(ly_df, on="Alojamiento", how="outer") \
-                    .merge(ly2_df[["Alojamiento","Ingresos LY-2 (€)"]], on="Alojamiento", how="left") \
-                    .merge(ly_final_df, on="Alojamiento", how="left") \
-                    .merge(ly2_final_df, on="Alojamiento", how="left")
-
-    if resumen.empty:
-        st.info(
-            "No hay reservas que intersecten el periodo **a la fecha de corte** seleccionada.\n"
-            "- Prueba a ampliar el periodo o mover la fecha de corte.\n"
-            "- Recuerda que se incluyen reservas con **Fecha alta ≤ corte** y estancia dentro del periodo."
+        ly_final_df = _by_prop_with_occ(
+            pd.to_datetime(end_dt)   - pd.DateOffset(years=1),
+            pd.to_datetime(start_dt) - pd.DateOffset(years=1),
+            pd.to_datetime(end_dt)   - pd.DateOffset(years=1),
+            props_sel
         )
-        st.stop()
+        ly_final_df = ly_final_df[["Alojamiento","Ingresos"]].rename(columns={"Ingresos":"Ingresos finales LY (€)"})
 
-    resumen = resumen.reindex(columns=[
-        "Alojamiento",
-        "ADR actual","ADR LY",
-        "Ocupación actual %","Ocupación LY %",
-        "Ingresos actuales (€)","Ingresos LY (€)","Ingresos LY-2 (€)",
-        "Ingresos finales LY (€)","Ingresos finales LY-2 (€)"
-    ])
+        ly2_df = _by_prop_with_occ(
+            pd.to_datetime(cutoff_dt) - pd.DateOffset(years=2),
+            pd.to_datetime(start_dt)  - pd.DateOffset(years=2),
+            pd.to_datetime(end_dt)    - pd.DateOffset(years=2),
+            props_sel
+        ).rename(columns={
+            "ADR":"ADR LY-2", "Ocupación %":"Ocupación LY-2 %", "Ingresos":"Ingresos LY-2 (€)"
+        })
 
+        ly2_final_df = _by_prop_with_occ(
+            pd.to_datetime(end_dt)    - pd.DateOffset(years=2),
+            pd.to_datetime(start_dt)  - pd.DateOffset(years=2),
+            pd.to_datetime(end_dt)    - pd.DateOffset(years=2),
+            props_sel
+        )
+        ly2_final_df = ly2_final_df[["Alojamiento","Ingresos"]].rename(columns={"Ingresos":"Ingresos finales LY-2 (€)"})
+
+        resumen = now_df.merge(ly_df, on="Alojamiento", how="outer") \
+                        .merge(ly2_df[["Alojamiento","Ingresos LY-2 (€)"]], on="Alojamiento", how="left") \
+                        .merge(ly_final_df, on="Alojamiento", how="left") \
+                        .merge(ly2_final_df, on="Alojamiento", how="left")
+
+        if resumen.empty:
+            return pd.DataFrame(columns=[
+                "Alojamiento",
+                "ADR actual","ADR LY",
+                "Ocupación actual %","Ocupación LY %",
+                "Ingresos actuales (€)","Ingresos LY (€)","Ingresos LY-2 (€)",
+                "Ingresos finales LY (€)","Ingresos finales LY-2 (€)"
+            ])
+
+        resumen = resumen.reindex(columns=[
+            "Alojamiento",
+            "ADR actual","ADR LY",
+            "Ocupación actual %","Ocupación LY %",
+            "Ingresos actuales (€)","Ingresos LY (€)","Ingresos LY-2 (€)",
+            "Ingresos finales LY (€)","Ingresos finales LY-2 (€)"
+        ])
+        return resumen
+
+    def _month_ranges(start, end):
+        s = pd.to_datetime(start)
+        e = pd.to_datetime(end)
+        starts = pd.date_range(start=s, end=e, freq='MS')
+        out = []
+        for st in starts:
+            y, m = st.year, st.month
+            last = calendar.monthrange(y, m)[1]
+            st_date = pd.Timestamp(date(y, m, 1))
+            ed_date = pd.Timestamp(date(y, m, last))
+            # clip to overall range
+            if ed_date < s or st_date > e:
+                continue
+            out.append((max(st_date, s), min(ed_date, e)))
+        return out
+
+    # estilos y funciones de formato compartidas
     GREEN = "background-color: #d4edda; color: #155724; font-weight: 600;"
     RED   = "background-color: #f8d7da; color: #721c24; font-weight: 600;"
-    def _style_row(r: pd.Series):
-        s = pd.Series("", index=resumen.columns, dtype="object")
-        def mark(a, b):
-            va, vb = r.get(a), r.get(b)
-            if pd.notna(va) and pd.notna(vb):
-                try:
-                    if float(va) > float(vb): s[a] = GREEN
-                    elif float(va) < float(vb): s[a] = RED
-                except Exception:
-                    pass
-        mark("ADR actual", "ADR LY")
-        mark("Ocupación actual %", "Ocupación LY %")
-        mark("Ingresos actuales (€)", "Ingresos LY (€)")
-        return s
-    styler = (
-        resumen.style
-        .apply(_style_row, axis=1)
-        .format({
-            "ADR actual": "{:.2f} €", "ADR LY": "{:.2f} €",
-            "Ocupación actual %": "{:.2f}%", "Ocupación LY %": "{:.2f}%",
-            "Ingresos actuales (€)": "{:.2f} €", "Ingresos LY (€)": "{:.2f} €",
-            "Ingresos LY-2 (€)": "{:.2f} €",
-            "Ingresos finales LY (€)": "{:.2f} €",
-            "Ingresos finales LY-2 (€)": "{:.2f} €",
-        })
-    )
-    st.dataframe(styler, use_container_width=True)
+    def _style_row_factory(resumen_df):
+        def _style_row(r: pd.Series):
+            s = pd.Series("", index=resumen_df.columns, dtype="object")
+            def mark(a, b):
+                va, vb = r.get(a), r.get(b)
+                if pd.notna(va) and pd.notna(vb):
+                    try:
+                        if float(va) > float(vb): s[a] = GREEN
+                        elif float(va) < float(vb): s[a] = RED
+                    except Exception:
+                        pass
+            mark("ADR actual", "ADR LY")
+            mark("Ocupación actual %", "Ocupación LY %")
+            mark("Ingresos actuales (€)", "Ingresos LY (€)")
+            return s
+        return _style_row
 
-    # Descargas
-    csv_bytes = resumen.to_csv(index=False).encode("utf-8-sig")
-    st.download_button("📥 Descargar CSV", data=csv_bytes,
-                       file_name="resumen_comparativo.csv", mime="text/csv")
-
+    # función para exportar Excel con varias hojas (Resumen + por mes si procede)
     import io
-    buffer = io.BytesIO()
-    try:
-        from xlsxwriter.utility import xl_rowcol_to_cell
-        with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-            resumen.to_excel(writer, index=False, sheet_name="Resumen")
-            wb = writer.book
-            ws = writer.sheets["Resumen"]
-            for j, col in enumerate(resumen.columns):
-                width = int(min(38, max(12, resumen[col].astype(str).str.len().max() if not resumen.empty else 12)))
-                ws.set_column(j, j, width)
-            fmt_green = wb.add_format({"bg_color": "#d4edda", "font_color": "#155724", "bold": True})
-            fmt_red   = wb.add_format({"bg_color": "#f8d7da", "font_color": "#721c24", "bold": True})
-            pairs = [
-                ("ADR actual", "ADR LY"),
-                ("Ocupación actual %", "Ocupación LY %"),
-                ("Ingresos actuales (€)", "Ingresos LY (€)"),
-            ]
-            n = len(resumen)
-            if n > 0:
-                first_row = 1
-                last_row  = first_row + n - 1
-                for a_col, ly_col in pairs:
-                    a_idx  = resumen.columns.get_loc(a_col)
-                    ly_idx = resumen.columns.get_loc(ly_col)
-                    a_cell  = xl_rowcol_to_cell(first_row, a_idx,  row_abs=False, col_abs=True)
-                    ly_cell = xl_rowcol_to_cell(first_row, ly_idx, row_abs=False, col_abs=True)
-                    ws.conditional_format(first_row, a_idx, last_row, a_idx, {
-                        "type": "formula", "criteria": f"={a_cell}>{ly_cell}", "format": fmt_green
+    def _export_excel_general_and_months(resumen_general, months_list, resumen_by_months):
+        buffer = io.BytesIO()
+        try:
+            from xlsxwriter.utility import xl_rowcol_to_cell
+            with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+                # hoja resumen general
+                resumen_general.to_excel(writer, index=False, sheet_name="Resumen")
+                wb = writer.book
+
+                def _write_sheet(df, name):
+                    ws = writer.sheets[name]
+                    for j, col in enumerate(df.columns):
+                        width = int(min(38, max(12, df[col].astype(str).str.len().max() if not df.empty else 12)))
+                        ws.set_column(j, j, width)
+                    fmt_green = wb.add_format({"bg_color": "#d4edda", "font_color": "#155724", "bold": True})
+                    fmt_red   = wb.add_format({"bg_color": "#f8d7da", "font_color": "#721c24", "bold": True})
+                    pairs = [
+                        ("ADR actual", "ADR LY"),
+                        ("Ocupación actual %", "Ocupación LY %"),
+                        ("Ingresos actuales (€)", "Ingresos LY (€)"),
+                    ]
+                    n = len(df)
+                    if n > 0:
+                        first_row = 1
+                        last_row  = first_row + n - 1
+                        for a_col, ly_col in pairs:
+                            if a_col in df.columns and ly_col in df.columns:
+                                a_idx  = df.columns.get_loc(a_col)
+                                ly_idx = df.columns.get_loc(ly_col)
+                                a_cell  = xl_rowcol_to_cell(first_row, a_idx,  row_abs=False, col_abs=True)
+                                ly_cell = xl_rowcol_to_cell(first_row, ly_idx, row_abs=False, col_abs=True)
+                                ws.conditional_format(first_row, a_idx, last_row, a_idx, {
+                                    "type": "formula", "criteria": f"={a_cell}>{ly_cell}", "format": fmt_green
+                                })
+                                ws.conditional_format(first_row, a_idx, last_row, a_idx, {
+                                    "type": "formula", "criteria": f"={a_cell}<{ly_cell}", "format": fmt_red
+                                })
+
+                # resumen sheet already written
+                writer.sheets["Resumen"] = writer.sheets.get("Resumen")
+                _write_sheet(resumen_general, "Resumen")
+
+                # escribir por meses si hay
+                for key, dfm in resumen_by_months.items():
+                    name = key[:31]  # límite Excel
+                    dfm.to_excel(writer, index=False, sheet_name=name)
+                    writer.sheets[name] = writer.sheets.get(name)
+                    _write_sheet(dfm, name)
+        except Exception:
+            with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+                resumen_general.to_excel(writer, index=False, sheet_name="Resumen")
+                for key, dfm in resumen_by_months.items():
+                    name = key[:31]
+                    dfm.to_excel(writer, index=False, sheet_name=name)
+        return buffer.getvalue()
+
+    # Generación según modo
+    if view_mode == "Por periodo (actual)":
+        resumen = _make_resumen(start_rc, end_rc, cutoff_rc, props_sel)
+
+        if resumen.empty:
+            st.info(
+                "No hay reservas que intersecten el periodo **a la fecha de corte** seleccionada.\n"
+                "- Prueba a ampliar el periodo o mover la fecha de corte.\n"
+                "- Recuerda que se incluyen reservas con **Fecha alta ≤ corte** y estancia dentro del periodo."
+            )
+            st.stop()
+
+        styler = (
+            resumen.style
+            .apply(_style_row_factory(resumen), axis=1)
+            .format({
+                "ADR actual": "{:.2f} €", "ADR LY": "{:.2f} €",
+                "Ocupación actual %": "{:.2f}%", "Ocupación LY %": "{:.2f}%",
+                "Ingresos actuales (€)": "{:.2f} €", "Ingresos LY (€)": "{:.2f} €",
+                "Ingresos LY-2 (€)": "{:.2f} €",
+                "Ingresos finales LY (€)": "{:.2f} €",
+                "Ingresos finales LY-2 (€)": "{:.2f} €",
+            })
+        )
+        st.dataframe(styler, use_container_width=True)
+
+        # Descargas
+        csv_bytes = resumen.to_csv(index=False).encode("utf-8-sig")
+        st.download_button("📥 Descargar CSV", data=csv_bytes,
+                           file_name="resumen_comparativo.csv", mime="text/csv")
+
+        xlsx_bytes = _export_excel_general_and_months(resumen, {}, {})
+        st.download_button(
+            "📥 Descargar Excel (.xlsx)",
+            data=xlsx_bytes,
+            file_name="resumen_comparativo.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+    else:
+        # Por meses: generar resumen general + lista de meses y pestañas
+        month_ranges = _month_ranges(start_rc, end_rc)
+        if not month_ranges:
+            st.info("No hay meses en el periodo seleccionado.")
+            st.stop()
+
+        # resumen general
+        resumen_general = _make_resumen(start_rc, end_rc, cutoff_rc, props_sel)
+        # por mes: diccionario nombre -> resumen df
+        resumen_by_months = {}
+        for sdt, edt in month_ranges:
+            label = sdt.strftime("%B %Y")
+            resumen_by_months[label] = _make_resumen(sdt, edt, cutoff_rc, props_sel)
+
+        # pestañas: una general + una por mes
+        tabs = st.tabs(["Resumen general"] + list(resumen_by_months.keys()))
+        # General
+        with tabs[0]:
+            if resumen_general.empty:
+                st.info("No hay datos en el resumen general para el periodo seleccionado.")
+            else:
+                sty = (
+                    resumen_general.style
+                    .apply(_style_row_factory(resumen_general), axis=1)
+                    .format({
+                        "ADR actual": "{:.2f} €", "ADR LY": "{:.2f} €",
+                        "Ocupación actual %": "{:.2f}%", "Ocupación LY %": "{:.2f}%",
+                        "Ingresos actuales (€)": "{:.2f} €", "Ingresos LY (€)": "{:.2f} €",
+                        "Ingresos LY-2 (€)": "{:.2f} €",
+                        "Ingresos finales LY (€)": "{:.2f} €",
+                        "Ingresos finales LY-2 (€)": "{:.2f} €",
                     })
-                    ws.conditional_format(first_row, a_idx, last_row, a_idx, {
-                        "type": "formula", "criteria": f"={a_cell}<{ly_cell}", "format": fmt_red
-                    })
-    except Exception:
-        with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-            resumen.to_excel(writer, index=False, sheet_name="Resumen")
-    st.download_button(
-        "📥 Descargar Excel (.xlsx)",
-        data=buffer.getvalue(),
-        file_name="resumen_comparativo.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+                )
+                st.dataframe(sty, use_container_width=True)
+
+        for i, (label, dfm) in enumerate(resumen_by_months.items(), start=1):
+            with tabs[i]:
+                if dfm.empty:
+                    st.info(f"No hay datos para {label}.")
+                else:
+                    sty_m = (
+                        dfm.style
+                        .apply(_style_row_factory(dfm), axis=1)
+                        .format({
+                            "ADR actual": "{:.2f} €", "ADR LY": "{:.2f} €",
+                            "Ocupación actual %": "{:.2f}%", "Ocupación LY %": "{:.2f}%",
+                            "Ingresos actuales (€)": "{:.2f} €", "Ingresos LY (€)": "{:.2f} €",
+                            "Ingresos LY-2 (€)": "{:.2f} €",
+                            "Ingresos finales LY (€)": "{:.2f} €",
+                            "Ingresos finales LY-2 (€)": "{:.2f} €",
+                        })
+                    )
+                    st.dataframe(sty_m, use_container_width=True)
+
+        # Descargas: CSV general y Excel con una hoja por mes + hoja Resumen
+        csv_bytes = resumen_general.to_csv(index=False).encode("utf-8-sig")
+        st.download_button("📥 Descargar CSV (resumen general)", data=csv_bytes,
+                           file_name="resumen_comparativo_resumen.csv", mime="text/csv")
+
+        xlsx_bytes = _export_excel_general_and_months(resumen_general, month_ranges, resumen_by_months)
+        st.download_button(
+            "📥 Descargar Excel (.xlsx) (Resumen + por meses)",
+            data=xlsx_bytes,
+            file_name="resumen_comparativo_por_meses.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
