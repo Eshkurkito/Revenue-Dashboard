@@ -10,6 +10,7 @@ matplotlib.use("Agg")  # backend headless para Cloud
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import re
+import calendar
 
 TITLE = "Informe de propietario"
 BUILD = "v1.9-portales"
@@ -584,6 +585,9 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
             try:
                 # chart_portales_b64 = _plot_portales_png(portal_df)   # ← eliminado
                 chart_adr_b64      = _plot_adr_png(act, ly, gran)
+                # calcular resumen mensual para la segunda página
+                monthly_rows = _monthly_summary(df, pd.to_datetime(start), pd.to_datetime(end), props, inv_units)
+
                 ctx = {
                     "apto": apto, "owner": owner,
                     "period_act": _period_label(start, end),
@@ -591,14 +595,14 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                                                pd.to_datetime(end)-pd.DateOffset(years=1)),
                     "act": {"ingresos": _fmt_money(k_act['ingresos']), "adr": _fmt_money(k_act['adr']), "noches": f"{k_act['noches']:,}".replace(",",".")},
                     "ly":  {"ingresos": _fmt_money(k_ly['ingresos']),  "adr": _fmt_money(k_ly['adr']),  "noches": f"{k_ly['noches']:,}".replace(",",".")},
-                    # "chart_portales": chart_portales_b64,            # ← eliminado
-                    "portal_rows": portal_simple.to_dict(orient="records"),  # ← NUEVO
+                    "portal_rows": portal_simple.to_dict(orient="records"),
                     "chart_adr": chart_adr_b64,
                     "gran_label": gran.lower(),
                     "comments": st.session_state.get("inf_comments") or "",
                     "logo_b64": _logo_b64(),
                     "los_avg": f"{stats['los_avg']:.1f}" if stats["los_avg"] is not None else "—",
                     "lead_avg": f"{stats['lead_avg']:.0f}" if stats["lead_avg"] is not None else "—",
+                    "monthly_rows": monthly_rows,   # ← NUEVO
                 }
                 # render
                 from jinja2 import Environment, FileSystemLoader
@@ -666,6 +670,63 @@ def _period_label(s: date | pd.Timestamp, e: date | pd.Timestamp) -> str:
     sd = pd.to_datetime(s).date()
     ed = pd.to_datetime(e).date()
     return f"{sd.strftime('%d/%m/%Y')} – {ed.strftime('%d/%m/%Y')}"
+
+# --- NEW: rangos por mes y resumen mensual ---
+def _month_ranges(start: date | pd.Timestamp, end: date | pd.Timestamp):
+    s = pd.to_datetime(start).date().replace(day=1)
+    e = pd.to_datetime(end).date()
+    out = []
+    cur = s
+    while cur <= e:
+        y, m = cur.year, cur.month
+        last = calendar.monthrange(y, m)[1]
+        ms = pd.Timestamp(date(y, m, 1))
+        me = pd.Timestamp(date(y, m, last))
+        out.append((ms, me))
+        # next month
+        if m == 12:
+            cur = date(y + 1, 1, 1)
+        else:
+            cur = date(y, m + 1, 1)
+    return out
+
+def _monthly_summary(df_raw: pd.DataFrame, start: date, end: date, props: list[str] | None, inv_units: int) -> list[dict]:
+    """
+    Devuelve lista de dicts por mes con métricas ACT vs LY:
+    {'mes': 'Enero 2026', 'ing_act':float, 'ing_ly':float, 'adr_act':float, 'adr_ly':float, 'ocup_act':float, 'ocup_ly':float}
+    """
+    d = _preprocess(df_raw)
+    if props and "Alojamiento" in d.columns:
+        d = d[d["Alojamiento"].astype(str).isin(props)].copy()
+    months = _month_ranges(start, end)
+    rows = []
+    for ms, me in months:
+        # ACT
+        daily_act = _overlap_nights_rows(d, ms, me)
+        nights_act = int(daily_act["Noches"].sum()) if not daily_act.empty else 0
+        ing_act = float(daily_act["Ingresos"].sum()) if not daily_act.empty else 0.0
+        adr_act = (ing_act / nights_act) if nights_act > 0 else 0.0
+        days_month = (pd.to_datetime(me).date() - pd.to_datetime(ms).date()).days + 1
+        ocup_act = (nights_act / (max(1, int(inv_units)) * days_month) * 100.0) if days_month > 0 else 0.0
+
+        # LY (mismo mes año anterior)
+        ms_ly = ms - pd.DateOffset(years=1)
+        me_ly = me - pd.DateOffset(years=1)
+        daily_ly = _overlap_nights_rows(d, ms_ly, me_ly)
+        nights_ly = int(daily_ly["Noches"].sum()) if not daily_ly.empty else 0
+        ing_ly = float(daily_ly["Ingresos"].sum()) if not daily_ly.empty else 0.0
+        adr_ly = (ing_ly / nights_ly) if nights_ly > 0 else 0.0
+        ocup_ly = (nights_ly / (max(1, int(inv_units)) * days_month) * 100.0) if days_month > 0 else 0.0
+
+        rows.append({
+            "mes": ms.strftime("%B %Y"),
+            "ing_act": ing_act, "ing_ly": ing_ly,
+            "adr_act": adr_act, "adr_ly": adr_ly,
+            "ocup_act": ocup_act, "ocup_ly": ocup_ly,
+            "days": days_month,
+            "nights_act": nights_act, "nights_ly": nights_ly,
+        })
+    return rows
 
 def _logo_b64() -> str | None:
     base = Path(__file__).resolve().parent
