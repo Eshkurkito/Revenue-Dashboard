@@ -2,14 +2,14 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import calendar
+import io
 from datetime import date
+from pathlib import Path
 
 # --- Fallbacks si no existe utils.py ---
 try:
     from utils import period_inputs, group_selector, save_group_csv, load_groups, GROUPS_CSV
 except Exception:
-    from pathlib import Path
-
     GROUPS_CSV = Path(__file__).resolve().parent / "grupos_guardados.csv"
 
     def period_inputs(label_start, label_end, default_start, default_end, key_prefix="resumen_comp"):
@@ -44,7 +44,6 @@ except Exception:
               .astype({gcol: str, pcol: str})
               .groupby(gcol)[pcol].apply(list).to_dict()
         )
-        # quita duplicados manteniendo orden
         return {g: list(dict.fromkeys(v)) for g, v in d.items()}
 
     def save_group_csv(name: str, props: list[str]):
@@ -55,6 +54,7 @@ except Exception:
         else:
             dfw = pd.DataFrame(rows)
         dfw.to_csv(GROUPS_CSV, index=False, encoding="utf-8-sig")
+
 
 def compute_kpis(
     df_all: pd.DataFrame,
@@ -124,12 +124,12 @@ def compute_kpis(
     }
     return by_prop, tot
 
+
 def render_resumen_comparativo(raw):
     if raw is None or raw.empty:
         st.warning("No hay datos cargados.")
         st.stop()
 
-    # Fechas por defecto (mes actual) sin usar pd.Timestamp
     today = date.today()
     default_start = today.replace(day=1)
     last_day = calendar.monthrange(today.year, today.month)[1]
@@ -154,7 +154,6 @@ def render_resumen_comparativo(raw):
         if selected_group and selected_group != "Ninguno":
             props_rc = groups[selected_group]
             if st.button(f"Eliminar grupo '{selected_group}'"):
-                # usar el alias pd del módulo; no reimportar dentro de la función
                 try:
                     df = pd.read_csv(GROUPS_CSV, encoding="utf-8-sig")
                 except Exception:
@@ -190,7 +189,6 @@ def render_resumen_comparativo(raw):
     props_sel = props_rc if props_rc else None
 
     def _by_prop_with_occ(cutoff_dt, start_dt, end_dt, props_sel=None):
-        # calcula días del periodo localmente para que funcione por meses
         days_local = (pd.to_datetime(end_dt) - pd.to_datetime(start_dt)).days + 1
         by_prop, _ = compute_kpis(
             df_all=raw,
@@ -207,7 +205,6 @@ def render_resumen_comparativo(raw):
         return out[["Alojamiento","ADR","Ocupación %","Ingresos"]]
 
     def _make_resumen(start_dt, end_dt, cutoff_dt, props_sel):
-        # devuelve resumen mergeado con las columnas/format actuales
         now_df = _by_prop_with_occ(cutoff_dt, start_dt, end_dt, props_sel).rename(columns={
             "ADR":"ADR actual", "Ocupación %":"Ocupación actual %", "Ingresos":"Ingresos actuales (€)"
         })
@@ -279,13 +276,11 @@ def render_resumen_comparativo(raw):
             last = calendar.monthrange(y, m)[1]
             st_date = pd.Timestamp(date(y, m, 1))
             ed_date = pd.Timestamp(date(y, m, last))
-            # clip to overall range
             if ed_date < s or st_date > e:
                 continue
             out.append((max(st_date, s), min(ed_date, e)))
         return out
 
-    # estilos y funciones de formato compartidas
     GREEN = "background-color: #d4edda; color: #155724; font-weight: 600;"
     RED   = "background-color: #f8d7da; color: #721c24; font-weight: 600;"
     def _style_row_factory(resumen_df):
@@ -305,14 +300,11 @@ def render_resumen_comparativo(raw):
             return s
         return _style_row
 
-    # función para exportar Excel con varias hojas (Resumen + por mes si procede)
-    import io
     def _export_excel_general_and_months(resumen_general, months_list, resumen_by_months):
         buffer = io.BytesIO()
         try:
             from xlsxwriter.utility import xl_rowcol_to_cell
             with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-                # hoja resumen general
                 resumen_general.to_excel(writer, index=False, sheet_name="Resumen")
                 wb = writer.book
 
@@ -345,13 +337,11 @@ def render_resumen_comparativo(raw):
                                     "type": "formula", "criteria": f"={a_cell}<{ly_cell}", "format": fmt_red
                                 })
 
-                # resumen sheet already written
                 writer.sheets["Resumen"] = writer.sheets.get("Resumen")
                 _write_sheet(resumen_general, "Resumen")
 
-                # escribir por meses si hay
                 for key, dfm in resumen_by_months.items():
-                    name = key[:31]  # límite Excel
+                    name = key[:31]
                     dfm.to_excel(writer, index=False, sheet_name=name)
                     writer.sheets[name] = writer.sheets.get(name)
                     _write_sheet(dfm, name)
@@ -389,7 +379,6 @@ def render_resumen_comparativo(raw):
         )
         st.dataframe(styler, use_container_width=True)
 
-        # Descargas
         csv_bytes = resumen.to_csv(index=False).encode("utf-8-sig")
         st.download_button("📥 Descargar CSV", data=csv_bytes,
                            file_name="resumen_comparativo.csv", mime="text/csv")
@@ -403,23 +392,18 @@ def render_resumen_comparativo(raw):
         )
 
     else:
-        # Por meses: generar resumen general + lista de meses y pestañas
         month_ranges = _month_ranges(start_rc, end_rc)
         if not month_ranges:
             st.info("No hay meses en el periodo seleccionado.")
             st.stop()
 
-        # resumen general
         resumen_general = _make_resumen(start_rc, end_rc, cutoff_rc, props_sel)
-        # por mes: diccionario nombre -> resumen df
         resumen_by_months = {}
         for sdt, edt in month_ranges:
             label = sdt.strftime("%B %Y")
             resumen_by_months[label] = _make_resumen(sdt, edt, cutoff_rc, props_sel)
 
-        # pestañas: una general + una por mes
         tabs = st.tabs(["Resumen general"] + list(resumen_by_months.keys()))
-        # General
         with tabs[0]:
             if resumen_general.empty:
                 st.info("No hay datos en el resumen general para el periodo seleccionado.")
@@ -457,7 +441,6 @@ def render_resumen_comparativo(raw):
                     )
                     st.dataframe(sty_m, use_container_width=True)
 
-        # Descargas: CSV general y Excel con una hoja por mes + hoja Resumen
         csv_bytes = resumen_general.to_csv(index=False).encode("utf-8-sig")
         st.download_button("📥 Descargar CSV (resumen general)", data=csv_bytes,
                            file_name="resumen_comparativo_resumen.csv", mime="text/csv")
