@@ -310,11 +310,25 @@ def render_resumen_comparativo(raw):
 
                 def _write_sheet(df, name):
                     ws = writer.sheets[name]
-                    for j, col in enumerate(df.columns):
-                        width = int(min(38, max(12, df[col].astype(str).str.len().max() if not df.empty else 12)))
-                        ws.set_column(j, j, width)
+
                     fmt_green = wb.add_format({"bg_color": "#d4edda", "font_color": "#155724", "bold": True})
                     fmt_red   = wb.add_format({"bg_color": "#f8d7da", "font_color": "#721c24", "bold": True})
+                    fmt_currency = wb.add_format({"num_format": "#,##0.00 €"})
+                    fmt_percent  = wb.add_format({"num_format": '0.00 " %"'})
+
+                    # Ajustar ancho y aplicar formato por columna
+                    for j, col in enumerate(df.columns):
+                        width = int(min(38, max(12, df[col].astype(str).str.len().max() if not df.empty else 12)))
+                        if col in ["ADR actual", "ADR LY",
+                                   "Ingresos actuales (€)", "Ingresos LY (€)", "Ingresos LY-2 (€)",
+                                   "Ingresos finales LY (€)", "Ingresos finales LY-2 (€)"]:
+                            ws.set_column(j, j, width, fmt_currency)
+                        elif col in ["Ocupación actual %", "Ocupación LY %"]:
+                            ws.set_column(j, j, width, fmt_percent)
+                        else:
+                            ws.set_column(j, j, width)
+
+                    # Condicionales (mantener resaltado comparativo)
                     pairs = [
                         ("ADR actual", "ADR LY"),
                         ("Ocupación actual %", "Ocupación LY %"),
