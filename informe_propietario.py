@@ -705,6 +705,20 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                 lead_b_fmt = {k: f"{v:.1f} %" for k,v in lead_buckets.items()}
                 top_months_fmt = [{"mes": m["mes"], "ing": _fmt_money(m.get("ing_act",0.0),2)} for m in top_months]
 
+                # Unificar tabla de portales (Reservas + Ingresos + Share) para el PDF
+                portal_rows_pdf = []
+                try:
+                    if not portal_df.empty:
+                        for _, pr in portal_df.iterrows():
+                            portal_rows_pdf.append({
+                                "Portal": pr["Portal"],
+                                "Reservas": int(pr["Reservas"]) if not pd.isna(pr["Reservas"]) else 0,
+                                "Ingresos": _fmt_money(float(pr["Ingresos"]) if not pd.isna(pr["Ingresos"]) else 0.0, 2),
+                                "Share": f"{float(pr.get('Share',0.0)):.2f} %"
+                            })
+                except Exception:
+                    portal_rows_pdf = []
+
                 # Si el usuario seleccionó varios pisos, generar un resumen mensual por piso
                 monthly_by_property = []
                 try:
@@ -735,7 +749,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                                                pd.to_datetime(end)-pd.DateOffset(years=1)),
                     "act": {"ingresos": _fmt_money(k_act['ingresos']), "adr": _fmt_money(k_act['adr']), "noches": f"{k_act['noches']:,}".replace(",",".")},
                     "ly":  {"ingresos": _fmt_money(k_ly['ingresos']),  "adr": _fmt_money(k_ly['adr']),  "noches": f"{k_ly['noches']:,}".replace(",",".")},
-                    "portal_rows": portal_simple.to_dict(orient="records"),
+                    "portal_rows": portal_rows_pdf,
                     "chart_adr": chart_adr_b64,
                     "gran_label": gran.lower(),
                     "comments": st.session_state.get("inf_comments") or "",
