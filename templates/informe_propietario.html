@@ -129,9 +129,9 @@
   </div>
 
   <!-- Tabla general: Desglose mensual de TODOS los alojamientos (primera) -->
-  <h2 style="margin-top:4mm;">Desglose mensual</h2>
-  <div class="avoid-break-block">
-    <table style="width:100%; border-collapse:collapse; font-family: Arial, sans-serif; font-size:12px;">
+  <div class="card avoid-break-block" style="margin-top:4mm;">
+    <h3>Desglose mensual</h3>
+    <table class="table" style="width:100%; border-collapse:collapse; font-family: Arial, sans-serif; font-size:12px;">
      <thead>
        <tr style="background:#f2f2f2;">
          <th style="text-align:left; padding:6px; border:1px solid #ddd;">Mes</th>
@@ -160,7 +160,7 @@
        </tr>
        {% endfor %}
      </tbody>
-   </table>
+    </table>
   </div>
 
   {# Si se solicitaron varios pisos, mostrar un desglose mensual por cada piso #}
