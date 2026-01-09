@@ -700,6 +700,29 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                 lead_b_fmt = {k: f"{v:.1f} %" for k,v in lead_buckets.items()}
                 top_months_fmt = [{"mes": m["mes"], "ing": _fmt_money(m.get("ing_act",0.0),2)} for m in top_months]
 
+                # Si el usuario seleccionó varios pisos, generar un resumen mensual por piso
+                monthly_by_property = []
+                try:
+                    if props and isinstance(props, (list, tuple)) and len(props) > 1:
+                        for p in props:
+                            mr_raw = _monthly_summary(df, pd.to_datetime(start), pd.to_datetime(end), [p], 1)
+                            mr_fmt = []
+                            for r in mr_raw:
+                                mr_fmt.append({
+                                    "mes": r.get("mes"),
+                                    "ing_act": _fmt_money(r.get("ing_act", 0.0), 2),
+                                    "ing_ly":  _fmt_money(r.get("ing_ly", 0.0), 2),
+                                    "adr_act": _fmt_money(r.get("adr_act", 2), 2),
+                                    "adr_ly":  _fmt_money(r.get("adr_ly", 2), 2),
+                                    "ocup_act": _fmt_pct(r.get("ocup_act", 0.0), 2),
+                                    "ocup_ly":  _fmt_pct(r.get("ocup_ly", 0.0), 2),
+                                    "nights_act": f"{r.get('nights_act',0):,}".replace(",","."),
+                                    "nights_ly":  f"{r.get('nights_ly',0):,}".replace(",","."),
+                                })
+                            monthly_by_property.append({"apto": p, "monthly_rows": mr_fmt})
+                except Exception:
+                    monthly_by_property = []
+
                 ctx = {
                     "apto": apto, "owner": owner,
                     "period_act": _period_label(start, end),
@@ -715,6 +738,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                     "los_avg": f"{stats['los_avg']:.1f}" if stats["los_avg"] is not None else "—",
                     "lead_avg": f"{stats['lead_avg']:.0f}" if stats["lead_avg"] is not None else "—",
                     "monthly_rows": monthly_rows,   # ← existente
+                    "monthly_by_property": monthly_by_property,
                     # NUEVOS campos:
                     "revpar": {"act": _fmt_money(revpar_act,2), "ly": _fmt_money(revpar_ly,2)},
                     "top_portals": tp_formatted,
