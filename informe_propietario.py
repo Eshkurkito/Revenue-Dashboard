@@ -575,20 +575,8 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
     if "Fecha alta" not in df.columns:
         st.caption("Antelación media: no se encontró una columna de fecha de reserva (usa “Fecha alta”, “Fecha reserva”, “Fecha confirmación”…).")
 
-    # Reservas por portal (tabla simple)
-    st.subheader("Reservas por portal en el periodo")
-    portal_df = _bookings_by_portal(df, start, end, props)
-
-    if portal_df.empty:
-        st.info("No hay reservas en ese periodo.")
-        portal_simple = pd.DataFrame(columns=["Portal","Reservas"])
-    else:
-        portal_simple = (
-            portal_df[["Portal","Reservas"]]
-            .sort_values("Reservas", ascending=False)
-            .reset_index(drop=True)
-        )
-        st.dataframe(portal_simple, use_container_width=True, hide_index=True)
+    # (Tabla previa de "Reservas por portal" en la UI eliminada;
+    #  se mantiene el bloque de portales en el PDF y el cálculo arriba)
 
     # ADR (sube la altura)
     st.subheader(f"ADR por {gran.lower()} (Act vs LY alineado)")
@@ -719,7 +707,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                                 "Reservas": reservas,
                                 "PctReservas": f"{pct_res:.2f} %",
                                 "Ingresos": _fmt_money(ingresos_val, 2),
-                                "Share": f"{float(pr.get('Share',0.0)):.2f} %"
+                                # "% share" eliminado de la tabla PDF
                             })
                 except Exception:
                     portal_rows_pdf = []
