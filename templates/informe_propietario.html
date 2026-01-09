@@ -193,19 +193,28 @@
   <div class="card">
     <h3>Reservas por portal (periodo)</h3>
     <table class="table">
-      <thead><tr><th>Portal</th><th>Reservas</th><th style="text-align:right">Ingresos</th><th style="text-align:right">% share</th></tr></thead>
-      <tbody>
+      <thead>
+        <tr>
+          <th>Portal</th>
+          <th>Reservas</th>
+          <th style="text-align:right">% reservas</th>
+          <th style="text-align:right">Ingresos</th>
+          <th style="text-align:right">% share</th>
+        </tr>
+      </thead>
+       <tbody>
         {% for r in portal_rows %}
         <tr>
           <td>{{ r.Portal }}</td>
           <td>{{ r.Reservas }}</td>
+          <td style="text-align:right">{{ r.PctReservas }}</td>
           <td style="text-align:right">{{ r.Ingresos }}</td>
           <td style="text-align:right">{{ r.Share }}</td>
         </tr>
         {% endfor %}
-      </tbody>
-    </table>
-  </div>
+       </tbody>
+     </table>
+   </div>
 
   <!-- NUEVO: RevPAR y Top months -->
   <div class="card" style="display:flex; gap:12px;">

@@ -709,11 +709,16 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                 portal_rows_pdf = []
                 try:
                     if not portal_df.empty:
+                        total_res = int(portal_df["Reservas"].sum()) if not pd.isna(portal_df["Reservas"].sum()) else 0
                         for _, pr in portal_df.iterrows():
+                            reservas = int(pr["Reservas"]) if not pd.isna(pr["Reservas"]) else 0
+                            ingresos_val = float(pr["Ingresos"]) if not pd.isna(pr["Ingresos"]) else 0.0
+                            pct_res = (reservas / total_res * 100.0) if total_res > 0 else 0.0
                             portal_rows_pdf.append({
                                 "Portal": pr["Portal"],
-                                "Reservas": int(pr["Reservas"]) if not pd.isna(pr["Reservas"]) else 0,
-                                "Ingresos": _fmt_money(float(pr["Ingresos"]) if not pd.isna(pr["Ingresos"]) else 0.0, 2),
+                                "Reservas": reservas,
+                                "PctReservas": f"{pct_res:.2f} %",
+                                "Ingresos": _fmt_money(ingresos_val, 2),
                                 "Share": f"{float(pr.get('Share',0.0)):.2f} %"
                             })
                 except Exception:
