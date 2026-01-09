@@ -200,14 +200,19 @@ def _compute_series(df: pd.DataFrame, start: date, end: date, props: list[str] |
     # Reindex rango completo para rellenar huecos
     rng = pd.date_range(s, e, freq="D")
     act = act.set_index("Fecha").reindex(rng, fill_value=0).rename_axis("Fecha").reset_index()
-    act["ADR"] = np.where(act["Noches"] > 0, act["Ingresos"] / act["Noches"], 0.0)
+    # Evitar ZeroDivisionError: usar arrays NumPy para que la división no se evalúe cuando el denominador es 0
+    act_noches = act["Noches"].to_numpy(dtype=float)
+    act_ing = act["Ingresos"].to_numpy(dtype=float)
+    act["ADR"] = np.where(act_noches > 0, act_ing / act_noches, 0.0)
 
     s_ly = s - pd.DateOffset(years=1)
     e_ly = e - pd.DateOffset(years=1)
     ly = _overlap_nights_rows(d, s_ly, e_ly)
     rng_ly = pd.date_range(s_ly, e_ly, freq="D")
     ly = ly.set_index("Fecha").reindex(rng_ly, fill_value=0).rename_axis("Fecha").reset_index()
-    ly["ADR"] = np.where(ly["Noches"] > 0, ly["Ingresos"] / ly["Noches"], 0.0)
+    ly_noches = ly["Noches"].to_numpy(dtype=float)
+    ly_ing = ly["Ingresos"].to_numpy(dtype=float)
+    ly["ADR"] = np.where(ly_noches > 0, ly_ing / ly_noches, 0.0)
     return act, ly
 
 def _agg_kpis(daily: pd.DataFrame) -> dict:
