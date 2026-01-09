@@ -30,6 +30,15 @@
   /* helpers para controlar saltos si más adelante hace falta forzar */
   .always-break { page-break-before: always; }
   .avoid-break { page-break-inside: avoid; break-inside: avoid; }
+  /* Tratar tablas como bloques atómicos: si no caben, mover la tabla completa a la siguiente página */
+  .avoid-break-block {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    -webkit-column-break-inside: avoid;
+    -webkit-page-break-inside: avoid;
+    display: inline-block;
+    width: 100%;
+  }
 </style>
 </head>
 <body>
@@ -83,14 +92,16 @@
 
   <div class="card">
     <h3>Reservas por portal (periodo)</h3>
-    <table class="table">
-      <thead><tr><th>Portal</th><th>Reservas</th></tr></thead>
-      <tbody>
-        {% for r in portal_rows %}
-        <tr><td>{{ r.Portal }}</td><td>{{ r.Reservas }}</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="avoid-break-block">
+      <table class="table">
+        <thead><tr><th>Portal</th><th>Reservas</th></tr></thead>
+        <tbody>
+          {% for r in portal_rows %}
+          <tr><td>{{ r.Portal }}</td><td>{{ r.Reservas }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
 
   <div class="card">
@@ -119,120 +130,130 @@
 
   <!-- Tabla general: Desglose mensual de TODOS los alojamientos (primera) -->
   <h2 style="margin-top:4mm;">Desglose mensual</h2>
-  <table style="width:100%; border-collapse:collapse; font-family: Arial, sans-serif; font-size:12px;">
-    <thead>
-      <tr style="background:#f2f2f2;">
-        <th style="text-align:left; padding:6px; border:1px solid #ddd;">Mes</th>
-        <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ingresos (ACT)</th>
-        <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ingresos (LY)</th>
-        <th style="text-align:right; padding:6px; border:1px solid #ddd;">ADR (ACT)</th>
-        <th style="text-align:right; padding:6px; border:1px solid #ddd;">ADR (LY)</th>
-        <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ocupación (ACT)</th>
-        <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ocupación (LY)</th>
-        <th style="text-align:right; padding:6px; border:1px solid #ddd;">Noches (ACT)</th>
-        <th style="text-align:right; padding:6px; border:1px solid #ddd;">Noches (LY)</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in monthly_rows %}
-      <tr>
-        <td style="padding:6px; border:1px solid #ddd;">{{ r.mes }}</td>
-        <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ing_act }}</td>
-        <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ing_ly }}</td>
-        <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.adr_act }}</td>
-        <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.adr_ly }}</td>
-        <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ocup_act }}</td>
-        <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ocup_ly }}</td>
-        <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.nights_act }}</td>
-        <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.nights_ly }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="avoid-break-block">
+    <table style="width:100%; border-collapse:collapse; font-family: Arial, sans-serif; font-size:12px;">
+     <thead>
+       <tr style="background:#f2f2f2;">
+         <th style="text-align:left; padding:6px; border:1px solid #ddd;">Mes</th>
+         <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ingresos (ACT)</th>
+         <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ingresos (LY)</th>
+         <th style="text-align:right; padding:6px; border:1px solid #ddd;">ADR (ACT)</th>
+         <th style="text-align:right; padding:6px; border:1px solid #ddd;">ADR (LY)</th>
+         <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ocupación (ACT)</th>
+         <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ocupación (LY)</th>
+         <th style="text-align:right; padding:6px; border:1px solid #ddd;">Noches (ACT)</th>
+         <th style="text-align:right; padding:6px; border:1px solid #ddd;">Noches (LY)</th>
+       </tr>
+     </thead>
+     <tbody>
+       {% for r in monthly_rows %}
+       <tr>
+         <td style="padding:6px; border:1px solid #ddd;">{{ r.mes }}</td>
+         <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ing_act }}</td>
+         <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ing_ly }}</td>
+         <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.adr_act }}</td>
+         <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.adr_ly }}</td>
+         <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ocup_act }}</td>
+         <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ocup_ly }}</td>
+         <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.nights_act }}</td>
+         <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.nights_ly }}</td>
+       </tr>
+       {% endfor %}
+     </tbody>
+   </table>
+  </div>
 
   {# Si se solicitaron varios pisos, mostrar un desglose mensual por cada piso #}
-  {% if monthly_by_property %}
-    {% for mb in monthly_by_property %}
-      <div class="card">
-        <h3>Desglose mensual — {{ mb.apto }}</h3>
-        <table style="width:100%; border-collapse:collapse; font-family: Arial, sans-serif; font-size:12px;">
-          <thead>
-            <tr style="background:#f2f2f2;">
-              <th style="text-align:left; padding:6px; border:1px solid #ddd;">Mes</th>
-              <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ingresos (ACT)</th>
-              <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ingresos (LY)</th>
-              <th style="text-align:right; padding:6px; border:1px solid #ddd;">ADR (ACT)</th>
-              <th style="text-align:right; padding:6px; border:1px solid #ddd;">ADR (LY)</th>
-              <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ocupación (ACT)</th>
-              <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ocupación (LY)</th>
-              <th style="text-align:right; padding:6px; border:1px solid #ddd;">Noches (ACT)</th>
-              <th style="text-align:right; padding:6px; border:1px solid #ddd;">Noches (LY)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for r in mb.monthly_rows %}
-            <tr>
-              <td style="padding:6px; border:1px solid #ddd;">{{ r.mes }}</td>
-              <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ing_act }}</td>
-              <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ing_ly }}</td>
-              <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.adr_act }}</td>
-              <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.adr_ly }}</td>
-              <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ocup_act }}</td>
-              <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ocup_ly }}</td>
-              <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.nights_act }}</td>
-              <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.nights_ly }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    {% endfor %}
-  {% endif %}
+   {% if monthly_by_property %}
+     {% for mb in monthly_by_property %}
+       <div class="card">
+         <h3>Desglose mensual — {{ mb.apto }}</h3>
+         <div class="avoid-break-block">
+           <table style="width:100%; border-collapse:collapse; font-family: Arial, sans-serif; font-size:12px;">
+            <thead>
+              <tr style="background:#f2f2f2;">
+                <th style="text-align:left; padding:6px; border:1px solid #ddd;">Mes</th>
+                <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ingresos (ACT)</th>
+                <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ingresos (LY)</th>
+                <th style="text-align:right; padding:6px; border:1px solid #ddd;">ADR (ACT)</th>
+                <th style="text-align:right; padding:6px; border:1px solid #ddd;">ADR (LY)</th>
+                <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ocupación (ACT)</th>
+                <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ocupación (LY)</th>
+                <th style="text-align:right; padding:6px; border:1px solid #ddd;">Noches (ACT)</th>
+                <th style="text-align:right; padding:6px; border:1px solid #ddd;">Noches (LY)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in mb.monthly_rows %}
+              <tr>
+                <td style="padding:6px; border:1px solid #ddd;">{{ r.mes }}</td>
+                <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ing_act }}</td>
+                <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ing_ly }}</td>
+                <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.adr_act }}</td>
+                <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.adr_ly }}</td>
+                <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ocup_act }}</td>
+                <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ocup_ly }}</td>
+                <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.nights_act }}</td>
+                <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.nights_ly }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+         </div>
+       </div>
+     {% endfor %}
+   {% endif %}
 
   <!-- Tabla unificada: Reservas por portal + Ingresos + Share -->
   <div class="card">
     <h3>Reservas por portal (periodo)</h3>
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Portal</th>
-          <th>Reservas</th>
-          <th style="text-align:right">% reservas</th>
-          <th style="text-align:right">Ingresos</th>
-        </tr>
-      </thead>
-       <tbody>
-        {% for r in portal_rows %}
-        <tr>
-          <td>{{ r.Portal }}</td>
-          <td>{{ r.Reservas }}</td>
-          <td style="text-align:right">{{ r.PctReservas }}</td>
-          <td style="text-align:right">{{ r.Ingresos }}</td>
-        </tr>
-        {% endfor %}
-       </tbody>
-     </table>
+    <div class="avoid-break-block">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Portal</th>
+            <th>Reservas</th>
+            <th style="text-align:right">% reservas</th>
+            <th style="text-align:right">Ingresos</th>
+          </tr>
+        </thead>
+         <tbody>
+          {% for r in portal_rows %}
+          <tr>
+            <td>{{ r.Portal }}</td>
+            <td>{{ r.Reservas }}</td>
+            <td style="text-align:right">{{ r.PctReservas }}</td>
+            <td style="text-align:right">{{ r.Ingresos }}</td>
+          </tr>
+          {% endfor %}
+         </tbody>
+       </table>
+     </div>
    </div>
 
   <!-- NUEVO: RevPAR y Top months -->
   <div class="card" style="display:flex; gap:12px;">
     <div style="flex:1;">
       <h3>RevPAR (€/noche disponible)</h3>
-      <table class="table" style="width:100%;">
-        <thead><tr><th>ACT</th><th>LY</th></tr></thead>
-        <tbody><tr><td>{{ revpar.act }}</td><td>{{ revpar.ly }}</td></tr></tbody>
-      </table>
+      <div class="avoid-break-block">
+        <table class="table" style="width:100%;">
+          <thead><tr><th>ACT</th><th>LY</th></tr></thead>
+          <tbody><tr><td>{{ revpar.act }}</td><td>{{ revpar.ly }}</td></tr></tbody>
+        </table>
+      </div>
     </div>
     <div style="flex:1;">
       <h3>Top meses (ingresos)</h3>
-      <table class="table">
-        <thead><tr><th>Mes</th><th>Ingresos</th></tr></thead>
-        <tbody>
-          {% for m in top_months %}
-          <tr><td>{{ m.mes }}</td><td>{{ m.ing }}</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      <div class="avoid-break-block">
+        <table class="table">
+          <thead><tr><th>Mes</th><th>Ingresos</th></tr></thead>
+          <tbody>
+            {% for m in top_months %}
+            <tr><td>{{ m.mes }}</td><td>{{ m.ing }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -252,26 +273,28 @@
   <!-- NUEVO: LOS y Antelación (buckets) -->
   <div class="card">
     <h3>Estancia media y antelación (buckets)</h3>
-    <table class="table">
-      <thead><tr><th>Métrica</th><th>Valor</th></tr></thead>
-      <tbody>
-        <tr><td>LOS mediana</td><td>{{ los_median }} días</td></tr>
-        <tr><td>LOS buckets</td>
-          <td>
-            1 noche: {{ los_buckets["1"] }} · 2: {{ los_buckets["2"] }} · 3-6: {{ los_buckets["3-6"] }} · 7+: {{ los_buckets["7+"] }}
-          </td>
-        </tr>
-        <tr><td>Antelación buckets</td>
-          <td>&lt;7d: {{ lead_buckets["<7d"] }} · 7-30d: {{ lead_buckets["7-30d"] }} · &gt;30d: {{ lead_buckets[">30d"] }}</td>
-        </tr>
-      </tbody>
-    </table>
+    <div class="avoid-break-block">
+      <table class="table">
+       <thead><tr><th>Métrica</th><th>Valor</th></tr></thead>
+       <tbody>
+         <tr><td>LOS mediana</td><td>{{ los_median }} días</td></tr>
+         <tr><td>LOS buckets</td>
+           <td>
+             1 noche: {{ los_buckets["1"] }} · 2: {{ los_buckets["2"] }} · 3-6: {{ los_buckets["3-6"] }} · 7+: {{ los_buckets["7+"] }}
+           </td>
+         </tr>
+         <tr><td>Antelación buckets</td>
+           <td>&lt;7d: {{ lead_buckets["<7d"] }} · 7-30d: {{ lead_buckets["7-30d"] }} · &gt;30d: {{ lead_buckets[">30d"] }}</td>
+         </tr>
+       </tbody>
+      </table>
+    </div>
   </div>
 
-  <div class="card">
-    <h3>Comentarios del Revenue Manager</h3>
-    <div class="comments">{{ comments or '—' }}</div>
-  </div>
+   <div class="card">
+     <h3>Comentarios del Revenue Manager</h3>
+     <div class="comments">{{ comments or '—' }}</div>
+   </div>
 
 </body>
 </html>
