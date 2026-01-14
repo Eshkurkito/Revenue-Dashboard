@@ -7,7 +7,7 @@ from datetime import date
 from pathlib import Path
 import re
 import time
-from streamlit.errors import StreamlitDuplicateElementKey
+from streamlit.errors import StreamlitDuplicateElementKey, StreamlitDuplicateElementId
 
 # --- Fallbacks si no existe utils.py ---
 try:
@@ -190,7 +190,10 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
         st.header("Gestión de grupos")
         groups = load_groups()
         group_names = ["Ninguno"] + sorted(list(groups.keys()))
-        selected_group = st.selectbox("Grupo guardado", group_names)
+        try:
+            selected_group = st.selectbox("Grupo guardado", group_names, key=f"{module_key}_select_group_{ts}")
+        except (StreamlitDuplicateElementKey, StreamlitDuplicateElementId):
+            selected_group = st.selectbox("Grupo guardado", group_names)
 
         if selected_group and selected_group != "Ninguno":
             props_rc = groups[selected_group]
