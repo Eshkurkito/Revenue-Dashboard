@@ -126,7 +126,7 @@ def compute_kpis(
     return by_prop, tot
 
 
-def render_resumen_comparativo(raw):
+def render_resumen_comparativo(raw: pd.DataFrame | None = None):
     if raw is None or raw.empty:
         st.warning("No hay datos cargados.")
         st.stop()
