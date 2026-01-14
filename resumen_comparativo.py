@@ -243,7 +243,8 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
             save_group_csv(group_name, props_rc)
             st.success(f"Grupo '{group_name}' guardado.")
 
-    st.subheader("📊 Resumen comparativo por alojamiento")
+    # Un único título (evita duplicados)
+    st.title("📊 Resumen comparativo por alojamiento")
 
     days_period = (pd.to_datetime(end_rc) - pd.to_datetime(start_rc)).days + 1
     if days_period <= 0:
@@ -673,3 +674,31 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
                         st.dataframe(sty, use_container_width=True)
             else:
                 st.info("No hay meses con datos para mostrar.")
+
+    # --- Exportar: un único botón de Excel que incluye hoja de resumen + hojas mensuales (si aplica) ---
+    # preparar diccionario de hojas según modo
+    export_sheets: dict[str, pd.DataFrame] = {}
+    if view_mode == "Por periodo (actual)":
+        export_sheets["Resumen periodo"] = resumen
+    else:
+        export_sheets["Resumen periodo"] = resumen_periodo
+        # añadir únicamente hojas mensuales que existen
+        export_sheets.update({k: v for k, v in (resumenes_mensuales_display or {}).items()})
+
+    # quedarnos solo con hojas no vacías
+    available_sheets = {k: v for k, v in export_sheets.items() if isinstance(v, pd.DataFrame) and not v.empty}
+    if not available_sheets:
+        st.info("No hay datos disponibles para exportar.")
+    else:
+        try:
+            main_sheet = available_sheets.get("Resumen periodo", list(available_sheets.values())[0])
+            buf = _export_excel_general_and_months(main_sheet, list(available_sheets.keys()), available_sheets)
+            st.download_button(
+                "📂 Descargar Excel (Resumen + Meses)",
+                buf,
+                "resumen_comparativo.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"{MODULE_KEY}_download_excel"
+            )
+        except Exception:
+            st.error("Error al preparar la exportación. Revisa los datos.")
