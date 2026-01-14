@@ -415,6 +415,41 @@ def render_resumen_comparativo(raw):
         )
         st.dataframe(styler, use_container_width=True)
 
+        # --- RESUMEN GENERAL TOTAL DEL PERIODO ---
+        if not resumen.empty:
+            total_row = {
+                "Alojamiento": "TOTAL",
+                "ADR actual": resumen["ADR actual"].sum() if "ADR actual" in resumen else 0.0,
+                "ADR LY": resumen["ADR LY"].sum() if "ADR LY" in resumen else 0.0,
+                "Ocupación actual %": resumen["Ocupación actual %"].mean() if "Ocupación actual %" in resumen else 0.0,
+                "Ocupación LY %": resumen["Ocupación LY %"].mean() if "Ocupación LY %" in resumen else 0.0,
+                "Ingresos actuales (€)": resumen["Ingresos actuales (€)"].sum() if "Ingresos actuales (€)" in resumen else 0.0,
+                "Ingresos LY (€)": resumen["Ingresos LY (€)"].sum() if "Ingresos LY (€)" in resumen else 0.0,
+                "Ingresos LY-2 (€)": resumen["Ingresos LY-2 (€)"].sum() if "Ingresos LY-2 (€)" in resumen else 0.0,
+                "Ingresos finales LY (€)": resumen["Ingresos finales LY (€)"].sum() if "Ingresos finales LY (€)" in resumen else 0.0,
+                "Ingresos finales LY-2 (€)": resumen["Ingresos finales LY-2 (€)"].sum() if "Ingresos finales LY-2 (€)" in resumen else 0.0,
+                "Forecast periodo (€)": resumen["Forecast periodo (€)"].sum() if "Forecast periodo (€)" in resumen else 0.0,
+            }
+            # ADR total real: ingresos totales / noches totales
+            if "Noches ocupadas" in resumen and resumen["Noches ocupadas"].sum() > 0:
+                total_row["ADR actual"] = resumen["Ingresos actuales (€)"].sum() / resumen["Noches ocupadas"].sum()
+            if "Noches ocupadas" in resumen and resumen["Noches ocupadas"].sum() > 0 and "Ingresos LY (€)" in resumen:
+                total_row["ADR LY"] = resumen["Ingresos LY (€)"].sum() / resumen["Noches ocupadas"].sum()
+            resumen_total = pd.DataFrame([total_row])
+            st.subheader("🔢 Total periodo seleccionado")
+            st.dataframe(
+                resumen_total.style.format({
+                    "ADR actual": "{:.2f} €", "ADR LY": "{:.2f} €",
+                    "Ocupación actual %": "{:.2f}%", "Ocupación LY %": "{:.2f}%",
+                    "Ingresos actuales (€)": "{:.2f} €", "Ingresos LY (€)": "{:.2f} €",
+                    "Ingresos LY-2 (€)": "{:.2f} €",
+                    "Ingresos finales LY (€)": "{:.2f} €",
+                    "Ingresos finales LY-2 (€)": "{:.2f} €",
+                    "Forecast periodo (€)": "{:.2f} €",
+                }),
+                use_container_width=True
+            )
+
     else:
         # --- por meses: dividir periodo en tramos mensuales ---
         month_ranges = _month_ranges(start_rc, end_rc)
