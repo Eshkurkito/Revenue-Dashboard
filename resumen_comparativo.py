@@ -243,6 +243,10 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
             save_group_csv(group_name, props_rc)
             st.success(f"Grupo '{group_name}' guardado.")
 
+    if not st.session_state.get(f"{MODULE_KEY}_title_shown", False):
+        st.title("📊 Resumen comparativo por alojamiento")
+        st.session_state[f"{MODULE_KEY}_title_shown"] = True
+
     # Un único título (evita duplicados)
     st.title("📊 Resumen comparativo por alojamiento")
 
