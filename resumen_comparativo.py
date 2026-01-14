@@ -172,7 +172,13 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
                 default_start, default_end
             )
 
-        view_mode = st.radio("Modo de vista", ["Por periodo (actual)", "Por meses (con resumen general)"], index=0)
+        # elegir modo — usar key explícita para evitar StreamlitDuplicateElementId
+        view_mode = st.radio(
+            "Modo de vista",
+            ["Por periodo (actual)", "Por meses (con resumen general)"],
+            index=0,
+            key=f"{module_key}_view_mode"
+        )
 
         st.header("Gestión de grupos")
         groups = load_groups()
