@@ -145,11 +145,13 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
 
     with st.sidebar:
         st.header("Parámetros – Resumen comparativo")
-        cutoff_rc = st.date_input("Fecha de corte", value=today, key="cut_resumen_comp")
+        # usar key por módulo para evitar duplicados cuando la app incluye varios módulos
+        module_key = __name__.replace(".", "_")
+        cutoff_rc = st.date_input("Fecha de corte", value=today, key=f"{module_key}_cut_resumen_comp")
         start_rc, end_rc = period_inputs(
             "Inicio del periodo", "Fin del periodo",
             default_start, default_end,
-            "resumen_comp"
+            f"{module_key}_resumen_comp"
         )
 
         view_mode = st.radio("Modo de vista", ["Por periodo (actual)", "Por meses (con resumen general)"], index=0)
@@ -178,7 +180,7 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
             props_rc = group_selector(
                 "Filtrar alojamientos (opcional)",
                 sorted([str(x) for x in raw["Alojamiento"].dropna().unique()]),
-                key_prefix="props_rc",
+                key_prefix=f"{module_key}_props_rc",
                 default=[]
             )
 
