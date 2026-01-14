@@ -150,12 +150,11 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
 
     with st.sidebar:
         st.header("Parámetros – Resumen comparativo")
-        # usar key por módulo + timestamp para evitar StreamlitDuplicateElementKey
-        module_key = __name__.replace(".", "_")
-        ts = int(time.time() * 1000)
-        cutoff_key = f"{module_key}_cut_resumen_comp_{ts}"
-        period_prefix = f"{module_key}_resumen_comp_{ts}"
-        props_prefix = f"{module_key}_props_rc_{ts}"
+        # usar keys determinísticas por módulo (evita múltiples paneles si la vista se ejecuta dos veces)
+        module_key = MODULE_KEY
+        cutoff_key = f"{MODULE_KEY}_cutoff"
+        period_prefix = f"{MODULE_KEY}_period"
+        props_prefix = f"{MODULE_KEY}_props"
 
         # intentar con key; si ya existe, caer a versión sin key
         try:
@@ -194,7 +193,7 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
         groups = load_groups()
         group_names = ["Ninguno"] + sorted(list(groups.keys()))
         try:
-            selected_group = st.selectbox("Grupo guardado", group_names, key=f"{module_key}_select_group_{ts}")
+            selected_group = st.selectbox("Grupo guardado", group_names, key=f"{MODULE_KEY}_select_group")
         except (StreamlitDuplicateElementKey, StreamlitDuplicateElementId):
             selected_group = st.selectbox("Grupo guardado", group_names)
 
