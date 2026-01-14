@@ -373,30 +373,24 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
 
     # ---- Forecast: carga desde data/forecast_db.csv por defecto (sin subir) ----
     with st.expander("Forecast mensual (opcional): usar data/forecast_db.csv o subir archivo para reemplazar", expanded=False):
-        forecast_df = pd.DataFrame()
-        # Intentar cargar DB local primero
-        default_path = Path(__file__).resolve().parent / "data" / "forecast_db.csv"
-        if default_path.exists():
-            try:
-                forecast_df = pd.read_csv(default_path, sep=";", encoding="cp1252", engine="python", dtype=str)
-            except Exception:
-                try:
-                    forecast_df = pd.read_csv(default_path, sep=";", encoding="utf-8", engine="python", dtype=str)
-                except Exception:
-                    forecast_df = pd.DataFrame()
+        # intenta cargar automáticamente el forecast DB
+        forecast_df = _find_and_read_forecast_db()
 
         # Si el usuario sube un archivo, lo usa para reemplazar la DB en memoria (no sobrescribe fichero en disco)
         uploaded = st.file_uploader("Opcional: sube CSV/Excel para reemplazar el forecast cargado", type=["csv","xlsx","xls"], key="pro_forecast_upload")
         if uploaded is not None:
             try:
                 if str(uploaded.name).lower().endswith(".csv"):
-                    # Intentar leer CSV europeo con distintos encodings
+                    # Intentar leer CSV europeo con distintos encodings/separadores
                     for enc in ("cp1252","latin-1","utf-8","utf-8-sig"):
                         try:
                             forecast_df = pd.read_csv(uploaded, sep=";", encoding=enc, engine="python", dtype=str)
                             break
                         except Exception:
-                            uploaded.seek(0)
+                            try:
+                                uploaded.seek(0)
+                            except Exception:
+                                pass
                     if forecast_df.empty:
                         # fallback lectura sin separador semicolon
                         forecast_df = pd.read_csv(uploaded)
@@ -769,3 +763,36 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
     st.markdown(exec_blocks["headline"])
     with st.expander("Ver análisis detallado", expanded=False):
         st.markdown(exec_blocks["detail"])
+
+def _find_and_read_forecast_db() -> pd.DataFrame:
+    """Busca y lee data/forecast_db.csv probando varios paths, encodings y separadores."""
+    mod_dir = Path(__file__).resolve().parent
+    candidates = [
+        mod_dir / "data" / "forecast_db.csv",
+        Path.cwd() / "data" / "forecast_db.csv",
+    ]
+    # incluye cualquier fichero con ese nombre dentro del módulo
+    candidates += [p for p in mod_dir.rglob("forecast_db.csv")]
+    seen = set()
+    for p in candidates:
+        if not p or p in seen:
+            continue
+        seen.add(p)
+        if not p.exists():
+            continue
+        for enc in ("cp1252", "latin-1", "utf-8", "utf-8-sig"):
+            for sep in (";", ","):
+                try:
+                    df = pd.read_csv(p, sep=sep, engine="python", encoding=enc, dtype=str)
+                    if not df.empty:
+                        return df
+                except Exception:
+                    continue
+            # intento sin forzar separador
+            try:
+                df = pd.read_csv(p, engine="python", encoding=enc, dtype=str)
+                if not df.empty:
+                    return df
+            except Exception:
+                continue
+    return pd.DataFrame()
