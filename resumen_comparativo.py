@@ -127,7 +127,14 @@ def compute_kpis(
 
 
 def render_resumen_comparativo(raw: pd.DataFrame | None = None):
-    if raw is None or raw.empty:
+    # intentar usar el DF pasado; si no, buscar en session_state bajo claves comunes
+    if raw is None or (isinstance(raw, pd.DataFrame) and raw.empty):
+        for key in ("raw", "df", "df_raw", "uploaded_df", "dataframe"):
+            if key in st.session_state and isinstance(st.session_state[key], pd.DataFrame) and not st.session_state[key].empty:
+                raw = st.session_state[key]
+                break
+
+    if raw is None or (isinstance(raw, pd.DataFrame) and raw.empty):
         st.warning("No hay datos cargados.")
         st.stop()
 
