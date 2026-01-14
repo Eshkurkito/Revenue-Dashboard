@@ -5,9 +5,12 @@ import calendar
 import io
 from datetime import date
 from pathlib import Path
-import re
-import time
 from streamlit.errors import StreamlitDuplicateElementKey, StreamlitDuplicateElementId
+import time
+import re
+
+# unique module key for widget keys (use a fixed deterministic key, not timestamps)
+MODULE_KEY = "resumen_comp"
 
 # --- Fallbacks si no existe utils.py ---
 try:
@@ -225,8 +228,9 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
                     default=[]
                 )
 
-        group_name = st.text_input("Nombre del grupo para guardar")
-        if st.button("Guardar grupo de pisos") and group_name and props_rc:
+        # nombre del grupo para guardar (usar key única por módulo)
+        group_name = st.text_input("Nombre del grupo para guardar", key=f"{MODULE_KEY}_group_name")
+        if st.button("Guardar grupo", key=f"{MODULE_KEY}_save_group") and group_name and props_rc:
             save_group_csv(group_name, props_rc)
             st.success(f"Grupo '{group_name}' guardado.")
 
