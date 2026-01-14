@@ -560,7 +560,19 @@ def render_resumen_comparativo(raw):
             key="download_csv_resumen_comp"
         )
 
-        excel_buffer = _export_excel_general_and_months(resumen, month_ranges, resumenes_mensuales_raw)
+        # Preparar y exportar Excel según modo (evita usar variable `resumen` si no existe)
+        try:
+            if view_mode == "Por periodo (actual)":
+                excel_buffer = _export_excel_general_and_months(to_export, [], {"Resumen periodo": to_export})
+            else:
+                # intentar usar las estructuras creadas en la rama "por meses"
+                months_list = list(resumenes_mensuales_display.keys()) if "resumenes_mensuales_display" in globals() or "resumenes_mensuales_display" in locals() else list(resumenes_mensuales_raw.keys())
+                resumens_for_export = resumenes_mensuales_display if "resumenes_mensuales_display" in locals() else (resumenes_mensuales_raw if "resumenes_mensuales_raw" in locals() else {"Meses": to_export})
+                excel_buffer = _export_excel_general_and_months(to_export, months_list, resumens_for_export)
+        except Exception:
+            # fallback seguro
+            excel_buffer = _export_excel_general_and_months(to_export, [], {"Resumen": to_export})
+
         st.download_button(
             "📂 Descargar Excel",
             excel_buffer,
