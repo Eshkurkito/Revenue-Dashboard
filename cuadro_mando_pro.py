@@ -143,6 +143,111 @@ def _compute_adr_bands_period_prorate(df: pd.DataFrame, period_start, period_end
     q = _weighted_quantile(values, weights, qs=(0.1, 0.5, 0.9))
     return pd.Series(q)
 
+def _load_forecast_table(df_forecast: pd.DataFrame) -> pd.DataFrame:
+    """
+    Normaliza tabla de forecast a formato largo con columnas:
+    'Alojamiento' (str), 'mes_num' (1..12) y 'Forecast' (float).
+    Admite encabezados tipo 'Enero', 'enero', '2024-01' o '2024/01'.
+    """
+    if df_forecast is None or df_forecast.empty:
+        return pd.DataFrame(columns=["Alojamiento", "mes_num", "Forecast"])
+
+    # Renombra columna alojamiento si aparece como 'Apartamento' u otras variantes
+    cols = {c.lower().strip(): c for c in df_forecast.columns}
+    if "alojamiento" not in cols and "apartamento" in cols:
+        df_forecast = df_forecast.rename(columns={cols["apartamento"]: "Alojamiento"})
+    elif "alojamiento" not in cols and "apartamento" not in cols:
+        # intenta encontrar col primera como alojamiento
+        first = df_forecast.columns[0]
+        df_forecast = df_forecast.rename(columns={first: "Alojamiento"})
+
+    if "Alojamiento" not in df_forecast.columns:
+        return pd.DataFrame(columns=["Alojamiento", "mes_num", "Forecast"])
+
+    # Mapeo de meses (español / inglés)
+    meses_map = {
+        "enero":1,"febrero":2,"marzo":3,"abril":4,"mayo":5,"junio":6,
+        "julio":7,"agosto":8,"septiembre":9,"setiembre":9,"octubre":10,"noviembre":11,"diciembre":12,
+        "january":1,"february":2,"march":3,"april":4,"may":5,"june":6,
+        "july":7,"august":8,"september":9,"october":10,"november":11,"december":12,
+    }
+
+    month_cols = [c for c in df_forecast.columns if c != "Alojamiento"]
+    rows = []
+    for col in month_cols:
+        col_key = str(col).strip()
+        lc = col_key.lower().strip()
+        mes_num = None
+        # formato YYYY-MM o YYYY/MM
+        try:
+            if "-" in lc or "/" in lc:
+                p = pd.to_datetime(lc, errors="coerce")
+                if not pd.isna(p):
+                    mes_num = int(p.month)
+        except Exception:
+            mes_num = None
+        if mes_num is None and lc in meses_map:
+            mes_num = meses_map[lc]
+        # si no pudo, intenta extraer número
+        if mes_num is None:
+            import re
+            m = re.search(r"(\b0?[1-9]\b|\b1[0-2]\b)", lc)
+            if m:
+                mes_num = int(m.group(1))
+        if mes_num is None:
+            continue
+        # convierte valores numéricos (quita miles/€, comas)
+        ser = pd.to_numeric(df_forecast[col].astype(str).str.replace(r"[^\d\-,\.]", "", regex=True).str.replace(",", "."), errors="coerce").fillna(0.0)
+        for apt, val in zip(df_forecast["Alojamiento"].astype(str), ser):
+            rows.append({"Alojamiento": apt.strip(), "mes_num": int(mes_num), "Forecast": float(val)})
+
+    if not rows:
+        return pd.DataFrame(columns=["Alojamiento", "mes_num", "Forecast"])
+    return pd.DataFrame(rows)
+
+def _render_forecast_vs_actual(df: pd.DataFrame, forecast: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp, props: list | None, cutoff, inv_override) -> pd.DataFrame:
+    """
+    Construye y muestra comparativa Forecast vs Actual por mes.
+    - forecast: salida de _load_forecast_table (mes_num 1..12)
+    - usa [`compute_kpis`](utils.py) para obtener 'ingresos' por mes.
+    """
+    months = pd.period_range(pd.to_datetime(start).to_period("M"), pd.to_datetime(end).to_period("M"), freq="M")
+    rows = []
+    for p in months:
+        s = p.to_timestamp(how="start")
+        e = p.to_timestamp(how="end")
+        _, tot = compute_kpis(  # see: utils.py
+            df,
+            pd.to_datetime(cutoff),
+            pd.to_datetime(s),
+            pd.to_datetime(e),
+            inventory_override=int(inv_override) if (inv_override is not None and int(inv_override) > 0) else None,
+            filter_props=props if props else None,
+        )
+        actual_ing = float(tot.get("ingresos", 0.0))
+        if not forecast.empty:
+            fmask = forecast["mes_num"] == int(p.month)
+            if props:
+                fmask &= forecast["Alojamiento"].isin(props)
+            forecast_ing = float(forecast.loc[fmask, "Forecast"].sum()) if fmask.any() else 0.0
+        else:
+            forecast_ing = 0.0
+        diff = actual_ing - forecast_ing
+        pct = (diff / forecast_ing * 100.0) if forecast_ing != 0 else np.nan
+        rows.append({"Mes": p.strftime("%Y-%m"), "Forecast": forecast_ing, "Actual": actual_ing, "Diff": diff, "DiffPct": pct})
+    df_cmp = pd.DataFrame(rows)
+    st.subheader("📊 Comparativa Forecast vs Actual (mensual)")
+    st.dataframe(df_cmp.fillna("").style.format({"Forecast":"{:.2f}","Actual":"{:.2f}","Diff":"{:.2f}","DiffPct":"{:.1f}%"}), use_container_width=True)
+    if not df_cmp.empty:
+        plot = df_cmp.melt(id_vars=["Mes"], value_vars=["Forecast","Actual"], var_name="Serie", value_name="Ingresos")
+        chart = (
+            alt.Chart(plot)
+            .mark_bar()
+            .encode(x=alt.X("Mes:N", sort=list(df_cmp["Mes"])), y=alt.Y("Ingresos:Q"), color="Serie:N", tooltip=["Mes","Serie","Ingresos"])
+        )
+        st.altair_chart(chart, use_container_width=True)
+    return df_cmp
+
 def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
     # --- validación ---
     if not isinstance(raw, pd.DataFrame) or raw.empty:
@@ -255,6 +360,55 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
     g3.metric("Ingresos LY final (€)", f"{tot_ly_final['ingresos']:.2f}")
     g4.metric("Ingresos LY-2 a este corte (€)", f"{tot_ly2_cut_ing['ingresos']:.2f}")
     g5.metric("Ingresos LY-2 final (€)", f"{tot_ly2_final_ing['ingresos']:.2f}")
+
+    # ---- Forecast: carga local o subido ----
+    with st.expander("Forecast mensual (opcional): cargar archivo o usar data/forecast_db.csv", expanded=False):
+        uploaded = st.file_uploader("Sube Excel/CSV de forecast (Alojamiento + columnas mes)", type=["xlsx","xls","csv"], key="pro_forecast_upload")
+        forecast_df = pd.DataFrame()
+        if uploaded is not None:
+            try:
+                if str(uploaded.name).lower().endswith(".csv"):
+                    forecast_df = pd.read_csv(uploaded)
+                else:
+                    forecast_df = pd.read_excel(uploaded, engine="openpyxl")
+            except Exception:
+                st.error("No se pudo leer el archivo de forecast.")
+        else:
+            # si existe archivo de forecast en repo, usarlo por defecto
+            default_path = Path(__file__).resolve().parent / "data" / "forecast_db.csv"
+            if default_path.exists():
+                try:
+                    forecast_df = pd.read_csv(default_path, sep=";", encoding="latin-1")
+                except Exception:
+                    try:
+                        forecast_df = pd.read_csv(default_path, sep=";", encoding="utf-8")
+                    except Exception:
+                        forecast_df = pd.DataFrame()
+
+        if not forecast_df.empty:
+            fc_long = _load_forecast_table(forecast_df)
+            if fc_long.empty:
+                st.warning("No se detectó formato válido en el forecast.")
+            else:
+                # --- Mostrar forecast filtrado por periodo y por pisos seleccionados ---
+                months = pd.period_range(pd.to_datetime(pro_start).to_period("M"), pd.to_datetime(pro_end).to_period("M"), freq="M")
+                months_map = {p.month: p.strftime("%Y-%m") for p in months}
+                month_nums = [p.month for p in months]
+                mask = fc_long["mes_num"].isin(month_nums)
+                if props_pro:
+                    mask &= fc_long["Alojamiento"].isin(props_pro)
+                fc_sel = fc_long.loc[mask].copy()
+                if not fc_sel.empty:
+                    fc_sel["Mes"] = fc_sel["mes_num"].map(months_map).fillna(fc_sel["mes_num"].astype(str))
+                    pivot = fc_sel.pivot_table(index="Alojamiento", columns="Mes", values="Forecast", aggfunc="sum", fill_value=0.0)
+                    st.subheader("🔎 Forecast por Alojamiento / Mes (periodo seleccionado)")
+                    st.dataframe(pivot.reset_index(), use_container_width=True)
+                else:
+                    st.info("No hay forecast para los alojamientos/meses seleccionados.")
+                # --- Comparativa agregada mensual ---
+                _render_forecast_vs_actual(df=_standardize_columns(raw.copy()), forecast=fc_long, start=pro_start, end=pro_end, props=props_pro if props_pro else None, cutoff=pro_cut, inv_override=inv_pro)
+        else:
+            st.info("No hay forecast cargado y no se encontró data/forecast_db.csv.")
 
     # ====== ADR ======
     st.subheader("🏷️ ADR (a fecha de corte)")
