@@ -172,13 +172,20 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
                 default_start, default_end
             )
 
-        # elegir modo — usar key explícita para evitar StreamlitDuplicateElementId
-        view_mode = st.radio(
-            "Modo de vista",
-            ["Por periodo (actual)", "Por meses (con resumen general)"],
-            index=0,
-            key=f"{module_key}_view_mode"
-        )
+        # elegir modo — intentar con key y caer a versión sin key si da conflicto
+        try:
+            view_mode = st.radio(
+                "Modo de vista",
+                ["Por periodo (actual)", "Por meses (con resumen general)"],
+                index=0,
+                key=f"{module_key}_view_mode"
+            )
+        except StreamlitDuplicateElementKey:
+            view_mode = st.radio(
+                "Modo de vista",
+                ["Por periodo (actual)", "Por meses (con resumen general)"],
+                index=0
+            )
 
         st.header("Gestión de grupos")
         groups = load_groups()
