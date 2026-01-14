@@ -437,7 +437,7 @@ def render_resumen_comparativo(raw):
         resumen_general = pd.concat([resumen for resumen in resumenes_mensuales.values()])
         resumen_total = resumen_general.groupby("Alojamiento", as_index=False).sum(numeric_only=True)
 
-        # calcular ADR total usando la columna de ingresos presente
+        # determinar columna de ingresos para calcular ADR_total
         if "Ingresos actuales (€)" in resumen_total.columns:
             ingresos_col = "Ingresos actuales (€)"
         elif "Ingresos" in resumen_total.columns:
@@ -445,14 +445,35 @@ def render_resumen_comparativo(raw):
         else:
             ingresos_col = None
 
+        # calcular ADR_total de forma robusta y asegurar columna 'ADR_total' antes del merge
         if ingresos_col is not None and "Noches ocupadas" in resumen_total.columns:
-            resumen_total["ADR"] = resumen_total[ingresos_col] / resumen_total["Noches ocupadas"].replace(0, 1)
+            resumen_total["ADR_total"] = resumen_total[ingresos_col] / resumen_total["Noches ocupadas"].replace(0, 1)
         else:
-            resumen_total["ADR"] = 0.0
+            # fallback: si no hay noches/ingresos, crear ADR_total = 0.0
+            resumen_total["ADR_total"] = 0.0
 
-        resumen_general = resumen_general.merge(resumen_total[["Alojamiento", "ADR"]], on="Alojamiento", how="left", suffixes=("", "_total"))
+        # merge explicitando ADR_total (evita dependencias de sufijos)
+        resumen_general = resumen_general.merge(resumen_total[["Alojamiento", "ADR_total"]], on="Alojamiento", how="left")
 
         # --- formato: añade columnas de variación respecto al total ---
+        # asegurar existencia de columnas usadas en las variaciones
+        if "ADR" not in resumen_general.columns:
+            resumen_general["ADR"] = 0.0
+        if "ADR_total" not in resumen_general.columns:
+            resumen_general["ADR_total"] = 0.0
+        if "Ocupación actual %" not in resumen_general.columns:
+            resumen_general["Ocupación actual %"] = 0.0
+        if "Ocupación LY %" not in resumen_general.columns:
+            resumen_general["Ocupación LY %"] = 0.0
+        if "Ingresos actuales (€)" not in resumen_general.columns:
+            resumen_general["Ingresos actuales (€)"] = 0.0
+        if "Ingresos LY (€)" not in resumen_general.columns:
+            resumen_general["Ingresos LY (€)"] = 0.0
+        if "Ingresos finales LY (€)" not in resumen_general.columns:
+            resumen_general["Ingresos finales LY (€)"] = 0.0
+        if "Ingresos finales LY-2 (€)" not in resumen_general.columns:
+            resumen_general["Ingresos finales LY-2 (€)"] = 0.0
+
         resumen_general["Var. ADR"] = resumen_general["ADR"] - resumen_general["ADR_total"]
         resumen_general["Var. Ocupación %"] = resumen_general["Ocupación actual %"] - resumen_general["Ocupación LY %"]
         resumen_general["Var. Ingresos actuales (€)"] = resumen_general["Ingresos actuales (€)"] - resumen_general["Ingresos LY (€)"]
