@@ -595,10 +595,10 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
         agg["ADR LY periodo (€)"] = agg.apply(lambda r: (r["Ingresos LY (€)"] / r["Noches ocupadas"]) if r["Noches ocupadas"] > 0 else 0.0, axis=1)
         agg["Ocupación media %"] = agg["Noches ocupadas"] / days_total * 100.0
 
-        resumen_periodo = agg[{
+        resumen_periodo = agg[[
             "Alojamiento", "ADR periodo (€)", "ADR LY periodo (€)", "Ocupación media %",
             "Ingresos actuales (€)", "Ingresos LY (€)", "Forecast periodo (€)"
-        }].sort_values("Alojamiento").reset_index(drop=True)
+        ]].sort_values("Alojamiento").reset_index(drop=True)
 
         # Mostrar en pestañas: resumen por periodo + detalle por meses (cada mes en su propia pestaña)
         month_keys = list(resumenes_mensuales_display.keys())
