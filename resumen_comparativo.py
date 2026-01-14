@@ -619,9 +619,12 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
         }].sort_values("Alojamiento").reset_index(drop=True)
 
         # Mostrar en pestañas: resumen por periodo + detalle por meses (cada mes en su propia pestaña)
-        tab_summary, tab_detail = st.tabs(["Resumen periodo", "Detalle por meses"])
+        month_keys = list(resumenes_mensuales_display.keys())
+        tabs_labels = ["Resumen periodo"] + month_keys
+        tabs = st.tabs(tabs_labels)
 
-        with tab_summary:
+        # pestaña resumen por periodo (por apartamento)
+        with tabs[0]:
             st.subheader("🔢 Resumen por periodo (por alojamiento)")
             st.dataframe(
                 resumen_periodo.style.format({
@@ -632,48 +635,24 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
                 use_container_width=True
             )
 
-        with tab_detail:
-            st.subheader("📅 Detalle por meses (filas por alojamiento / mes)")
-            month_keys = list(resumenes_mensuales_display.keys())
-            if month_keys:
-                # usar selectbox para elegir mes (más estable que muchas pestañas)
-                sel = st.selectbox("Seleccionar mes", ["Todos"] + month_keys, index=0, key=f"{MODULE_KEY}_mes_sel")
-                if sel == "Todos":
-                    df_all = pd.concat(list(resumenes_mensuales_display.values()), ignore_index=True)
-                    if df_all.empty:
-                        st.info("No hay datos para mostrar.")
-                    else:
-                        sty = (
-                            df_all.style
-                            .apply(_style_row_factory(df_all), axis=1)
-                            .format({
-                                "Ocupación actual %": "{:.2f}%",
-                                "Ocupación LY %": "{:.2f}%",
-                                "Ingresos actuales (€)": "{:.2f} €",
-                                "Ingresos LY (€)": "{:.2f} €",
-                                "Forecast periodo (€)": "{:.2f} €",
-                            })
-                        )
-                        st.dataframe(sty, use_container_width=True)
+        # pestañas individuales por cada mes
+        for i, month_label in enumerate(month_keys, start=1):
+            dfm = resumenes_mensuales_display.get(month_label, pd.DataFrame())
+            with tabs[i]:
+                st.subheader(f"📅 Detalle: {month_label}")
+                if dfm.empty:
+                    st.info(f"No hay datos para {month_label}")
                 else:
-                    dfm = resumenes_mensuales_display.get(sel, pd.DataFrame())
-                    if dfm.empty:
-                        st.info(f"No hay datos para {sel}")
-                    else:
-                        sty = (
-                            dfm.style
-                            .apply(_style_row_factory(dfm), axis=1)
-                            .format({
-                                "Ocupación actual %": "{:.2f}%",
-                                "Ocupación LY %": "{:.2f}%",
-                                "Ingresos actuales (€)": "{:.2f} €",
-                                "Ingresos LY (€)": "{:.2f} €",
-                                "Forecast periodo (€)": "{:.2f} €",
-                            })
-                        )
-                        st.dataframe(sty, use_container_width=True)
-            else:
-                st.info("No hay meses con datos para mostrar.")
+                    sty = (
+                        dfm.style
+                        .apply(_style_row_factory(dfm), axis=1)
+                        .format({
+                            "Ocupación actual %": "{:.2f}%", "Ocupación LY %": "{:.2f}%",
+                            "Ingresos actuales (€)": "{:.2f} €", "Ingresos LY (€)": "{:.2f} €",
+                            "Forecast periodo (€)": "{:.2f} €",
+                        })
+                    )
+                    st.dataframe(sty, use_container_width=True)
 
     # --- Exportar: un único botón de Excel que incluye hoja de resumen + hojas mensuales (si aplica) ---
     # preparar diccionario de hojas según modo
