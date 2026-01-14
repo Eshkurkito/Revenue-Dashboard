@@ -247,8 +247,7 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
         st.title("📊 Resumen comparativo por alojamiento")
         st.session_state[f"{MODULE_KEY}_title_shown"] = True
 
-    # Un único título (evita duplicados)
-    st.title("📊 Resumen comparativo por alojamiento")
+    # (Título mostrado solo una vez vía session_state)
 
     days_period = (pd.to_datetime(end_rc) - pd.to_datetime(start_rc)).days + 1
     if days_period <= 0:
