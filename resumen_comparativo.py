@@ -452,7 +452,7 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
                                     "type": "formula", "criteria": f"={a_cell}<{ly_cell}", "format": fmt_red
                                 })
 
-                writer.sheets["Resumen"] = writer.sheets.get("Resumen")
+                # asegurarse de no crear duplicados: sólo usar la hoja "Resumen periodo"
                 writer.sheets["Resumen periodo"] = writer.sheets.get("Resumen periodo")
                 _write_sheet(resumen_general, "Resumen periodo")
 
@@ -463,7 +463,7 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
                     _write_sheet(dfm, name)
         except Exception:
             with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-                resumen_general.to_excel(writer, index=False, sheet_name="Resumen")
+                resumen_general.to_excel(writer, index=False, sheet_name="Resumen periodo")
                 for key, dfm in resumen_by_months.items():
                     name = key[:31]
                     dfm.to_excel(writer, index=False, sheet_name=name)
@@ -541,13 +541,40 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
 
         for start_m, end_m in month_ranges:
             month_label = f"{MONTHS_ES[start_m.month-1]} {start_m.year}"
+            # versión de presentación (sin Noches ocupadas)
             res_m = _make_resumen(start_m, end_m, cutoff_rc, props_sel)
             if res_m.empty:
                 continue
-            # conservar raw (con noches) para agregaciones por periodo
-            resumenes_mensuales_raw[month_label] = res_m.copy()
-            # versión de presentación sin columna auxiliar
             resumenes_mensuales_display[month_label] = res_m.drop(columns=["Noches ocupadas"], errors="ignore")
+
+            # construir versión "raw" que incluya Noches ocupadas e Ingresos LY para agregación por periodo
+            # ingresos actuales + noches
+            base_now = _by_prop_with_occ(cutoff_rc, start_m, end_m, props_sel)
+            if base_now.empty:
+                base_now = pd.DataFrame(columns=["Alojamiento","Ingresos","Noches ocupadas"])
+            base_now = base_now.rename(columns={"Ingresos":"Ingresos actuales (€)"})
+
+            # ingresos LY (mismo mes hace 1 año)
+            ly_start = pd.to_datetime(start_m) - pd.DateOffset(years=1)
+            ly_end   = pd.to_datetime(end_m)   - pd.DateOffset(years=1)
+            base_ly = _by_prop_with_occ(pd.to_datetime(cutoff_rc) - pd.DateOffset(years=1), ly_start, ly_end, props_sel)
+            if base_ly.empty:
+                base_ly = pd.DataFrame(columns=["Alojamiento","Ingresos"])
+            base_ly = base_ly.rename(columns={"Ingresos":"Ingresos LY (€)"})[["Alojamiento","Ingresos LY (€)"]]
+
+            # forecast mensual si existe
+            try:
+                fdb = _load_forecast_db_norm()
+                mes_key = f"{start_m.year}-{start_m.month:02d}"
+                fmonth = fdb[fdb["Mes"] == mes_key].groupby("Alojamiento", as_index=False)["Forecast"].sum().rename(columns={"Forecast":"Forecast periodo (€)"})
+            except Exception:
+                fmonth = pd.DataFrame(columns=["Alojamiento","Forecast periodo (€)"])
+
+            # Merge: Alojamiento, Ingresos actuales, Ingresos LY, Noches ocupadas, Forecast
+            df_raw = base_now.merge(base_ly, on="Alojamiento", how="left") \
+                             .merge(fmonth, on="Alojamiento", how="left") \
+                             .fillna({ "Ingresos LY (€)": 0.0, "Forecast periodo (€)": 0.0 })
+            resumenes_mensuales_raw[month_label] = df_raw
 
         if not resumenes_mensuales_display:
             st.info(
