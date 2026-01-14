@@ -364,6 +364,58 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
             out.append((max(st_date, s), min(ed_date, e)))
         return out
 
+    # --- cargar forecast normalizado (opcional) ---
+    def _load_forecast_db_norm(year: int | None = None) -> pd.DataFrame:
+        p = Path(__file__).resolve().parent / "data" / "forecast_db.csv"
+        if not p.exists():
+            return pd.DataFrame(columns=["Alojamiento", "Mes", "Forecast"])
+        df = None
+        for enc in ("cp1252", "latin-1", "utf-8", "utf-8-sig"):
+            try:
+                df = pd.read_csv(p, sep=";", engine="python", encoding=enc, dtype=str)
+                break
+            except Exception:
+                continue
+        if df is None or df.empty:
+            return pd.DataFrame(columns=["Alojamiento", "Mes", "Forecast"])
+        df.columns = [str(c).strip() for c in df.columns]
+        aloj_col = df.columns[0]
+        month_cols = [c for c in df.columns if c != aloj_col]
+        def clean_amount(x):
+            if pd.isna(x):
+                return 0.0
+            s = str(x).strip().replace("\xa0", "")
+            s = re.sub(r"[^\d,.\-]", "", s)
+            s = s.replace(".", "").replace(",", ".")
+            try:
+                return float(s)
+            except Exception:
+                return 0.0
+        long = df.melt(id_vars=[aloj_col], value_vars=month_cols, var_name="Mes_raw", value_name="Forecast_raw")
+        long = long.rename(columns={aloj_col: "Alojamiento"})
+        long["Mes_raw"] = long["Mes_raw"].astype(str).str.strip()
+        year = int(year) if year else date.today().year
+        mes_map = {
+            "enero":1,"febrero":2,"marzo":3,"abril":4,"mayo":5,"junio":6,
+            "julio":7,"agosto":8,"septiembre":9,"setiembre":9,"octubre":10,"noviembre":11,"diciembre":12
+        }
+        def mes_to_ym(mr):
+            k = str(mr).strip()
+            dt = pd.to_datetime(k, errors="coerce", dayfirst=True)
+            if not pd.isna(dt):
+                return f"{dt.year}-{dt.month:02d}"
+            kl = k.lower()
+            for name, num in mes_map.items():
+                if name in kl:
+                    return f"{year}-{num:02d}"
+            m = re.search(r"\b(0?[1-9]|1[0-2])\b", kl)
+            if m:
+                return f"{year}-{int(m.group(0)):02d}"
+            return None
+        long["Mes"] = long["Mes_raw"].apply(mes_to_ym)
+        long["Forecast"] = long["Forecast_raw"].apply(clean_amount)
+        res = long[["Alojamiento","Mes","Forecast"]].dropna(subset=["Alojamiento","Mes"]).reset_index(drop=True)
+        return res
     GREEN = "background-color: #d4edda; color: #155724; font-weight: 600;"
     RED   = "background-color: #f8d7da; color: #721c24; font-weight: 600;"
     def _style_row_factory(resumen_df):
@@ -583,117 +635,41 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
             st.subheader("📅 Detalle por meses (filas por alojamiento / mes)")
             month_keys = list(resumenes_mensuales_display.keys())
             if month_keys:
-                month_tabs = st.tabs(month_keys)
-                for key, mtab in zip(month_keys, month_tabs):
-                    with mtab:
-                        dfm = resumenes_mensuales_display.get(key, pd.DataFrame())
-                        if dfm.empty:
-                            st.info(f"No hay datos para {key}")
-                        else:
-                            sty = (
-                                dfm.style
-                                .apply(_style_row_factory(dfm), axis=1)
-                                .format({
-                                    "Ocupación actual %": "{:.2f}%",
-                                    "Ocupación LY %": "{:.2f}%",
-                                    "Ingresos actuales (€)": "{:.2f} €",
-                                    "Ingresos LY (€)": "{:.2f} €",
-                                    "Forecast periodo (€)": "{:.2f} €",
-                                })
-                            )
-                            st.dataframe(sty, use_container_width=True)
+                # usar selectbox para elegir mes (más estable que muchas pestañas)
+                sel = st.selectbox("Seleccionar mes", ["Todos"] + month_keys, index=0, key=f"{MODULE_KEY}_mes_sel")
+                if sel == "Todos":
+                    df_all = pd.concat(list(resumenes_mensuales_display.values()), ignore_index=True)
+                    if df_all.empty:
+                        st.info("No hay datos para mostrar.")
+                    else:
+                        sty = (
+                            df_all.style
+                            .apply(_style_row_factory(df_all), axis=1)
+                            .format({
+                                "Ocupación actual %": "{:.2f}%",
+                                "Ocupación LY %": "{:.2f}%",
+                                "Ingresos actuales (€)": "{:.2f} €",
+                                "Ingresos LY (€)": "{:.2f} €",
+                                "Forecast periodo (€)": "{:.2f} €",
+                            })
+                        )
+                        st.dataframe(sty, use_container_width=True)
+                else:
+                    dfm = resumenes_mensuales_display.get(sel, pd.DataFrame())
+                    if dfm.empty:
+                        st.info(f"No hay datos para {sel}")
+                    else:
+                        sty = (
+                            dfm.style
+                            .apply(_style_row_factory(dfm), axis=1)
+                            .format({
+                                "Ocupación actual %": "{:.2f}%",
+                                "Ocupación LY %": "{:.2f}%",
+                                "Ingresos actuales (€)": "{:.2f} €",
+                                "Ingresos LY (€)": "{:.2f} €",
+                                "Forecast periodo (€)": "{:.2f} €",
+                            })
+                        )
+                        st.dataframe(sty, use_container_width=True)
             else:
                 st.info("No hay meses con datos para mostrar.")
-
-    st.markdown("<hr>", unsafe_allow_html=True)
-    st.subheader("📥 Exportar datos")
-    # Un único botón/descarga: preparar datos según modo
-    if view_mode == "Por periodo (actual)":
-        to_export = resumen  # ya calculado en esa rama
-        sheets = {"Resumen periodo": resumen}
-    else:
-        # usar resumen_periodo (sumas por alojamiento) como resumen principal + hojas mensuales
-        to_export = resumen_periodo
-        sheets = {"Resumen periodo": resumen_periodo}
-        # añadir hojas mensuales con nombre de mes
-        sheets.update(resumenes_mensuales_display)
-
-    if to_export is not None and not to_export.empty:
-        csv = to_export.to_csv(index=False, encoding="utf-8-sig")
-        st.download_button(
-            "📂 Descargar CSV",
-            csv,
-            "resumen_comparativo.csv",
-            "text/csv",
-            key="download_csv_resumen_comp"
-        )
-
-        # generar un único Excel con la hoja Resumen periodo + hojas mensuales
-        try:
-            excel_buffer = _export_excel_general_and_months(to_export, sheets.keys(), sheets)
-        except Exception:
-            excel_buffer = _export_excel_general_and_months(to_export, [], {"Resumen": to_export})
-
-        st.download_button(
-            "📂 Descargar Excel",
-            excel_buffer,
-            "resumen_comparativo.xlsx",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="download_excel_resumen_comp"
-        )
-    else:
-        st.info("No hay datos disponibles para exportar.")
-
-
-# --- NEW: cargar y normalizar forecast DB (data/forecast_db.csv) ---
-def _load_forecast_db_norm(year: int | None = None) -> pd.DataFrame:
-    p = Path(__file__).resolve().parent / "data" / "forecast_db.csv"
-    if not p.exists():
-        return pd.DataFrame(columns=["Alojamiento", "Mes", "Forecast"])
-    df = None
-    for enc in ("cp1252", "latin-1", "utf-8", "utf-8-sig"):
-        try:
-            df = pd.read_csv(p, sep=";", engine="python", encoding=enc, dtype=str)
-            break
-        except Exception:
-            continue
-    if df is None or df.empty:
-        return pd.DataFrame(columns=["Alojamiento", "Mes", "Forecast"])
-    df.columns = [str(c).strip() for c in df.columns]
-    aloj_col = df.columns[0]
-    month_cols = [c for c in df.columns if c != aloj_col]
-    mes_map = {
-        "enero":1,"febrero":2,"marzo":3,"abril":4,"mayo":5,"junio":6,
-        "julio":7,"agosto":8,"septiembre":9,"setiembre":9,"octubre":10,"noviembre":11,"diciembre":12
-    }
-    def clean_amount(x):
-        if pd.isna(x):
-            return 0.0
-        s = str(x).strip().replace("\xa0", "")
-        s = re.sub(r"[^\d,.\-]", "", s)
-        s = s.replace(".", "").replace(",", ".")
-        try:
-            return float(s)
-        except Exception:
-            return 0.0
-    long = df.melt(id_vars=[aloj_col], value_vars=month_cols, var_name="Mes_raw", value_name="Forecast_raw")
-    long = long.rename(columns={aloj_col: "Alojamiento"})
-    long["Mes_raw"] = long["Mes_raw"].astype(str).str.strip()
-    year = int(year) if year else date.today().year
-    def mes_to_ym(mr):
-        k = str(mr).strip()
-        dt = pd.to_datetime(k, errors="coerce", dayfirst=True)
-        if not pd.isna(dt):
-            return f"{dt.year}-{dt.month:02d}"
-        kl = k.lower()
-        for name, num in mes_map.items():
-            if name in kl:
-                return f"{year}-{num:02d}"
-        m = re.search(r"\b(0?[1-9]|1[0-2])\b", kl)
-        if m:
-            return f"{year}-{int(m.group(0)):02d}"
-        return None
-    long["Mes"] = long["Mes_raw"].apply(mes_to_ym)
-    long["Forecast"] = long["Forecast_raw"].apply(clean_amount)
-    res = long[["Alojamiento","Mes","Forecast"]].dropna(subset=["Alojamiento","Mes"]).reset_index(drop=True)
-    return res
