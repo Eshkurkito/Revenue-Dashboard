@@ -197,7 +197,10 @@ def _load_forecast_table(df_forecast: pd.DataFrame) -> pd.DataFrame:
         if mes_num is None:
             continue
         # convierte valores numéricos (quita miles/€, comas)
-        ser = pd.to_numeric(df_forecast[col].astype(str).str.replace(r"[^\d\-,\.]", "", regex=True).str.replace(",", "."), errors="coerce").fillna(0.0)
+        # limpiar: quitar todo menos dígitos, comas, puntos y signos; eliminar separador de miles '.'; convertir ','->'.'
+        ser_raw = df_forecast[col].astype(str).str.replace(r"[^\d\-,\.]", "", regex=True)
+        ser_clean = ser_raw.str.replace(".", "", regex=False).str.replace(",", ".", regex=False)
+        ser = pd.to_numeric(ser_clean, errors="coerce").fillna(0.0)
         for apt, val in zip(df_forecast["Alojamiento"].astype(str), ser):
             rows.append({"Alojamiento": apt.strip(), "mes_num": int(mes_num), "Forecast": float(val)})
 
