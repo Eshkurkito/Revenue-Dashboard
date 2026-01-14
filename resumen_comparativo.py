@@ -148,122 +148,79 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
     last_day = calendar.monthrange(today.year, today.month)[1]
     default_end = date(today.year, today.month, last_day)
 
-    with st.sidebar:
-        # asegurar un único header global en el sidebar (robusto frente a llamadas duplicadas)
-        SIDEBAR_HEADER_KEY = f"{MODULE_KEY}_sidebar_header_shown"
-        if not st.session_state.get(SIDEBAR_HEADER_KEY, False):
-            # usar st.sidebar.markdown evita crear widgets con keys duplicadas dentro de varios with st.sidebar
-            st.sidebar.markdown("### Parámetros – Resumen comparativo")
-            st.session_state[SIDEBAR_HEADER_KEY] = True
+    # construir sidebar solo la primera vez; luego leer valores desde session_state
+    SIDEBAR_BUILT_KEY = f"{MODULE_KEY}_sidebar_built"
+    module_key = MODULE_KEY
+    cutoff_key = f"{MODULE_KEY}_cutoff"
+    period_prefix = f"{MODULE_KEY}_period"
+    props_prefix = f"{MODULE_KEY}_props"
 
-        # usar keys determinísticas por módulo (evita múltiples paneles si la vista se ejecuta dos veces)
-        module_key = MODULE_KEY
-        cutoff_key = f"{MODULE_KEY}_cutoff"
-        period_prefix = f"{MODULE_KEY}_period"
-        props_prefix = f"{MODULE_KEY}_props"
-
-        # intentar con key; si ya existe, caer a versión sin key
-        try:
+    if not st.session_state.get(SIDEBAR_BUILT_KEY, False):
+        with st.sidebar:
+            st.markdown("### Parámetros – Resumen comparativo")
             cutoff_rc = st.date_input("Fecha de corte", value=today, key=cutoff_key)
-        except StreamlitDuplicateElementKey:
-            cutoff_rc = st.date_input("Fecha de corte", value=today)
 
-        # llamar a period_inputs con fallback robusto (soporta imports distintos o firmas diferentes)
-        start_rc = end_rc = None
-        if callable(period_inputs):
+            # period inputs con keys determinísticos
             try:
-                res = period_inputs("Inicio del periodo", "Fin del periodo", default_start, default_end, period_prefix)
-                if isinstance(res, (list, tuple)) and len(res) == 2:
-                    start_rc, end_rc = res
-            except TypeError:
-                # intentar sin key_prefix (firma distinta)
-                try:
-                    res = period_inputs("Inicio del periodo", "Fin del periodo", default_start, default_end)
-                    if isinstance(res, (list, tuple)) and len(res) == 2:
-                        start_rc, end_rc = res
-                except Exception:
-                    start_rc = end_rc = None
+                start_rc, end_rc = period_inputs("Inicio del periodo", "Fin del periodo", default_start, default_end, period_prefix)
             except Exception:
-                start_rc = end_rc = None
-
-        # si period_inputs no devolvió correctamente, usar inputs directos (con manejo de keys)
-        if start_rc is None or end_rc is None:
-            try:
                 c1, c2 = st.columns(2)
                 start_rc = c1.date_input("Inicio del periodo", value=default_start, key=f"{period_prefix}_start")
                 end_rc   = c2.date_input("Fin del periodo",   value=default_end,   key=f"{period_prefix}_end")
-            except StreamlitDuplicateElementKey:
-                c1, c2 = st.columns(2)
-                start_rc = c1.date_input("Inicio del periodo", value=default_start)
-                end_rc   = c2.date_input("Fin del periodo",   value=default_end)
 
-        # elegir modo — intentar con key y caer a versión sin key si da conflicto
-        try:
             view_mode = st.radio(
                 "Modo de vista",
                 ["Por periodo (actual)", "Por meses (con resumen general)"],
                 index=0,
                 key=f"{module_key}_view_mode"
             )
-        except StreamlitDuplicateElementKey:
-            view_mode = st.radio(
-                "Modo de vista",
-                ["Por periodo (actual)", "Por meses (con resumen general)"],
-                index=0
-            )
 
-        st.header("Gestión de grupos")
-        groups = load_groups()
-        group_names = ["Ninguno"] + sorted(list(groups.keys()))
-        try:
+            st.header("Gestión de grupos")
+            groups = load_groups()
+            group_names = ["Ninguno"] + sorted(list(groups.keys()))
             selected_group = st.selectbox("Grupo guardado", group_names, key=f"{MODULE_KEY}_select_group")
-        except (StreamlitDuplicateElementKey, StreamlitDuplicateElementId):
-            selected_group = st.selectbox("Grupo guardado", group_names)
 
-        if selected_group and selected_group != "Ninguno":
-            props_rc = groups[selected_group]
-            if st.button(f"Eliminar grupo '{selected_group}'"):
-                try:
-                    df = pd.read_csv(GROUPS_CSV, encoding="utf-8-sig")
-                except Exception:
-                    df = pd.read_csv(GROUPS_CSV)
-                df = df[df["Grupo"] != selected_group]
-                df.to_csv(GROUPS_CSV, index=False, encoding="utf-8-sig")
-                st.success(f"Grupo '{selected_group}' eliminado.")
-                try: st.rerun()
-                except Exception: pass
-        else:
-            if "Alojamiento" not in raw.columns:
-                st.warning("No se encontró la columna 'Alojamiento'.")
-                st.stop()
-            try:
+            if selected_group and selected_group != "Ninguno":
+                props_rc = groups[selected_group]
+                if st.button("Eliminar grupo", key=f"{MODULE_KEY}_delete_group"):
+                    try:
+                        df = pd.read_csv(GROUPS_CSV, encoding="utf-8-sig")
+                    except Exception:
+                        df = pd.read_csv(GROUPS_CSV)
+                    df = df[df["Grupo"] != selected_group]
+                    df.to_csv(GROUPS_CSV, index=False, encoding="utf-8-sig")
+                    st.success(f"Grupo '{selected_group}' eliminado.")
+                    try: st.rerun()
+                    except Exception: pass
+            else:
+                if "Alojamiento" not in raw.columns:
+                    st.warning("No se encontró la columna 'Alojamiento'.")
+                    st.stop()
                 props_rc = group_selector(
                     "Filtrar alojamientos (opcional)",
                     sorted([str(x) for x in raw["Alojamiento"].dropna().unique()]),
                     key_prefix=props_prefix,
                     default=[]
                 )
-            except StreamlitDuplicateElementKey:
-                props_rc = group_selector(
-                    "Filtrar alojamientos (opcional)",
-                    sorted([str(x) for x in raw["Alojamiento"].dropna().unique()]),
-                    default=[]
-                )
 
-        # nombre del grupo para guardar (usar key única por módulo)
-        try:
             group_name = st.text_input("Nombre del grupo para guardar", key=f"{MODULE_KEY}_group_name")
-        except StreamlitDuplicateElementKey:
-            group_name = st.text_input("Nombre del grupo para guardar")
-
-        try:
             save_clicked = st.button("Guardar grupo", key=f"{MODULE_KEY}_save_group")
-        except StreamlitDuplicateElementKey:
-            save_clicked = st.button("Guardar grupo")
+            if save_clicked and group_name and props_rc:
+                save_group_csv(group_name, props_rc)
+                st.success(f"Grupo '{group_name}' guardado.")
 
-        if save_clicked and group_name and props_rc:
-            save_group_csv(group_name, props_rc)
-            st.success(f"Grupo '{group_name}' guardado.")
+        st.session_state[SIDEBAR_BUILT_KEY] = True
+    else:
+        # leer valores ya almacenados en session_state (evita reconstruir widgets)
+        cutoff_rc = st.session_state.get(cutoff_key, today)
+        start_rc = st.session_state.get(f"{period_prefix}_start", default_start)
+        end_rc = st.session_state.get(f"{period_prefix}_end", default_end)
+        view_mode = st.session_state.get(f"{module_key}_view_mode", "Por periodo (actual)")
+        props_rc = st.session_state.get(f"{props_prefix}_props", [])
+        # selected group / group_name si están
+        selected_group = st.session_state.get(f"{MODULE_KEY}_select_group", "Ninguno")
+        group_name = st.session_state.get(f"{MODULE_KEY}_group_name", "")
+        save_clicked = False
 
     if not st.session_state.get(f"{MODULE_KEY}_title_shown", False):
         st.title("📊 Resumen comparativo por alojamiento")
