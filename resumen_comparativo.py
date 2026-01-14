@@ -457,15 +457,14 @@ def render_resumen_comparativo(raw):
         resumenes_mensuales_display = {}  # para mostrar / exportar (sin Noches ocupadas)
         MONTHS_ES = ("Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre")
 
-        for i, (start_m, end_m) in enumerate(month_ranges):
-            # nombre de hoja: "Enero 2026"
+        for start_m, end_m in month_ranges:
             month_label = f"{MONTHS_ES[start_m.month-1]} {start_m.year}"
             res_m = _make_resumen(start_m, end_m, cutoff_rc, props_sel)
             if res_m.empty:
                 continue
-            # mantener raw con Noches ocupadas para cálculos agregados
+            # conservar raw (con noches) para agregaciones por periodo
             resumenes_mensuales_raw[month_label] = res_m.copy()
-            # preparar versión a mostrar/exportar sin columna auxiliar
+            # versión de presentación sin columna auxiliar
             resumenes_mensuales_display[month_label] = res_m.drop(columns=["Noches ocupadas"], errors="ignore")
 
         if not resumenes_mensuales_display:
@@ -476,70 +475,72 @@ def render_resumen_comparativo(raw):
             )
             st.stop()
 
-        # concat para mostrar (esta tabla será la lista por meses, no el resumen periodo)
-        resumen_general = pd.concat(list(resumenes_mensuales_display.values()), ignore_index=True)
-        resumen_general = resumen_general.drop(columns=["Noches ocupadas"], errors="ignore")
+        # tabla detalle por meses (filas por alojamiento / mes)
+        resumen_general = pd.concat(list(resumenes_mensuales_display.values()), ignore_index=True).drop(columns=["Noches ocupadas"], errors="ignore")
 
         # --- RESUMEN POR PERIODO (por alojamiento): suma/avg por todo el periodo ---
         raw_concat = pd.concat(list(resumenes_mensuales_raw.values()), ignore_index=True)
-        # asegurar columnas
         for c in ["Ingresos actuales (€)","Ingresos LY (€)","Forecast periodo (€)","Noches ocupadas"]:
             if c not in raw_concat.columns:
                 raw_concat[c] = 0.0
 
         days_total = (pd.to_datetime(end_rc) - pd.to_datetime(start_rc)).days + 1
-        # agrupar por alojamiento y agregar sumas necesarias
+        # agregar por alojamiento
         agg = raw_concat.groupby("Alojamiento", as_index=False).agg({
             "Ingresos actuales (€)": "sum",
             "Ingresos LY (€)": "sum",
             "Forecast periodo (€)": "sum",
             "Noches ocupadas": "sum"
-        }).rename(columns={
-            "Ingresos actuales (€)": "Ingresos actuales (€)",
-            "Ingresos LY (€)": "Ingresos LY (€)",
-            "Forecast periodo (€)": "Forecast periodo (€)",
-            "Noches ocupadas": "Noches ocupadas"
         })
-        # calcular ADR periodo y ocupación media por alojamiento
+        # cálculos por alojamiento
         agg["ADR periodo (€)"] = agg.apply(lambda r: (r["Ingresos actuales (€)"] / r["Noches ocupadas"]) if r["Noches ocupadas"] > 0 else 0.0, axis=1)
         agg["ADR LY periodo (€)"] = agg.apply(lambda r: (r["Ingresos LY (€)"] / r["Noches ocupadas"]) if r["Noches ocupadas"] > 0 else 0.0, axis=1)
-        agg["Ocupación media %"] = agg["Noches ocupadas"] / max(1, days_total) * 100.0
-        # reordenar columnas para la vista de resumen periodo
-        resumen_periodo = agg[[
+        agg["Ocupación media %"] = agg["Noches ocupadas"] / days_total * 100.0
+
+        resumen_periodo = agg[{
             "Alojamiento", "ADR periodo (€)", "ADR LY periodo (€)", "Ocupación media %",
             "Ingresos actuales (€)", "Ingresos LY (€)", "Forecast periodo (€)"
-        ]].sort_values("Alojamiento").reset_index(drop=True)
+        }].sort_values("Alojamiento").reset_index(drop=True)
 
-        # Mostrar resumen periodo (por alojamiento) encima de la tabla por meses
-        st.subheader("🔢 Resumen por periodo (por alojamiento)")
-        st.dataframe(
-            resumen_periodo.style.format({
-                "ADR periodo (€)": "{:.2f} €", "ADR LY periodo (€)": "{:.2f} €",
-                "Ocupación media %": "{:.2f}%",
-                "Ingresos actuales (€)": "{:.2f} €", "Ingresos LY (€)": "{:.2f} €",
-                "Forecast periodo (€)": "{:.2f} €",
-            }),
-            use_container_width=True
-        )
+        # Mostrar en pestañas: resumen por periodo + detalle por meses (cada mes en su propia pestaña)
+        tab_summary, tab_detail = st.tabs(["Resumen periodo", "Detalle por meses"])
 
-        # Formateo y visualización de la tabla por meses (detalle)
-        styler = (
-            resumen_general.style
-            .apply(_style_row_factory(resumen_general), axis=1)
-            .format({
-                "Ocupación actual %": "{:.2f}%",
-                "Ocupación LY %": "{:.2f}%",
-                "Ingresos actuales (€)": "{:.2f} €",
-                "Ingresos LY (€)": "{:.2f} €",
-                "Ingresos LY-2 (€)": "{:.2f} €",
-                "Ingresos finales LY (€)": "{:.2f} €",
-                "Ingresos finales LY-2 (€)": "{:.2f} €",
-                "Forecast periodo (€)": "{:.2f} €",
-            })
-        )
-        st.dataframe(styler, use_container_width=True)
+        with tab_summary:
+            st.subheader("🔢 Resumen por periodo (por alojamiento)")
+            st.dataframe(
+                resumen_periodo.style.format({
+                    "ADR periodo (€)": "{:.2f} €", "ADR LY periodo (€)": "{:.2f} €",
+                    "Ocupación media %": "{:.2f}%", "Ingresos actuales (€)": "{:.2f} €",
+                    "Ingresos LY (€)": "{:.2f} €", "Forecast periodo (€)": "{:.2f} €",
+                }),
+                use_container_width=True
+            )
 
-        # (Eliminado botón individual "Exportar a Excel" aquí — se usa el único botón unificado al final)
+        with tab_detail:
+            st.subheader("📅 Detalle por meses (filas por alojamiento / mes)")
+            month_keys = list(resumenes_mensuales_display.keys())
+            if month_keys:
+                month_tabs = st.tabs(month_keys)
+                for key, mtab in zip(month_keys, month_tabs):
+                    with mtab:
+                        dfm = resumenes_mensuales_display.get(key, pd.DataFrame())
+                        if dfm.empty:
+                            st.info(f"No hay datos para {key}")
+                        else:
+                            sty = (
+                                dfm.style
+                                .apply(_style_row_factory(dfm), axis=1)
+                                .format({
+                                    "Ocupación actual %": "{:.2f}%",
+                                    "Ocupación LY %": "{:.2f}%",
+                                    "Ingresos actuales (€)": "{:.2f} €",
+                                    "Ingresos LY (€)": "{:.2f} €",
+                                    "Forecast periodo (€)": "{:.2f} €",
+                                })
+                            )
+                            st.dataframe(sty, use_container_width=True)
+            else:
+                st.info("No hay meses con datos para mostrar.")
 
     st.markdown("<hr>", unsafe_allow_html=True)
     st.subheader("📥 Exportar datos")
