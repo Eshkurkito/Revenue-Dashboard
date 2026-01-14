@@ -476,46 +476,44 @@ def render_resumen_comparativo(raw):
             )
             st.stop()
 
-        # concat para mostrar
+        # concat para mostrar (esta tabla será la lista por meses, no el resumen periodo)
         resumen_general = pd.concat(list(resumenes_mensuales_display.values()), ignore_index=True)
         resumen_general = resumen_general.drop(columns=["Noches ocupadas"], errors="ignore")
 
-        # --- RESUMEN TOTAL DEL PERIODO (sumas y ADR calc) ---
-        # usamos datos raw (con Noches ocupadas) para cálculos correctos
+        # --- RESUMEN POR PERIODO (por alojamiento): suma/avg por todo el periodo ---
         raw_concat = pd.concat(list(resumenes_mensuales_raw.values()), ignore_index=True)
         # asegurar columnas
         for c in ["Ingresos actuales (€)","Ingresos LY (€)","Forecast periodo (€)","Noches ocupadas"]:
             if c not in raw_concat.columns:
                 raw_concat[c] = 0.0
 
-        ingresos_tot = raw_concat["Ingresos actuales (€)"].sum()
-        ingresos_ly_tot = raw_concat["Ingresos LY (€)"].sum() if "Ingresos LY (€)" in raw_concat else 0.0
-        forecast_tot = raw_concat["Forecast periodo (€)"].sum() if "Forecast periodo (€)" in raw_concat else 0.0
-        noches_tot = raw_concat["Noches ocupadas"].sum() if "Noches ocupadas" in raw_concat else 0
-
-        # número de alojamientos considerados (filtro aplicado o total en raw)
-        num_props = len(props_sel) if props_sel else int(raw["Alojamiento"].nunique())
         days_total = (pd.to_datetime(end_rc) - pd.to_datetime(start_rc)).days + 1
-        avail_nights = max(1, num_props * days_total)
+        # agrupar por alojamiento y agregar sumas necesarias
+        agg = raw_concat.groupby("Alojamiento", as_index=False).agg({
+            "Ingresos actuales (€)": "sum",
+            "Ingresos LY (€)": "sum",
+            "Forecast periodo (€)": "sum",
+            "Noches ocupadas": "sum"
+        }).rename(columns={
+            "Ingresos actuales (€)": "Ingresos actuales (€)",
+            "Ingresos LY (€)": "Ingresos LY (€)",
+            "Forecast periodo (€)": "Forecast periodo (€)",
+            "Noches ocupadas": "Noches ocupadas"
+        })
+        # calcular ADR periodo y ocupación media por alojamiento
+        agg["ADR periodo (€)"] = agg.apply(lambda r: (r["Ingresos actuales (€)"] / r["Noches ocupadas"]) if r["Noches ocupadas"] > 0 else 0.0, axis=1)
+        agg["ADR LY periodo (€)"] = agg.apply(lambda r: (r["Ingresos LY (€)"] / r["Noches ocupadas"]) if r["Noches ocupadas"] > 0 else 0.0, axis=1)
+        agg["Ocupación media %"] = agg["Noches ocupadas"] / max(1, days_total) * 100.0
+        # reordenar columnas para la vista de resumen periodo
+        resumen_periodo = agg[[
+            "Alojamiento", "ADR periodo (€)", "ADR LY periodo (€)", "Ocupación media %",
+            "Ingresos actuales (€)", "Ingresos LY (€)", "Forecast periodo (€)"
+        ]].sort_values("Alojamiento").reset_index(drop=True)
 
-        adr_tot = (ingresos_tot / noches_tot) if noches_tot > 0 else 0.0
-        adr_ly_tot = (ingresos_ly_tot / noches_tot) if noches_tot > 0 else 0.0
-        ocupacion_media_pct = (noches_tot / avail_nights * 100.0) if avail_nights > 0 else 0.0
-
-        resumen_total = pd.DataFrame([{
-            "Alojamiento": "TOTAL",
-            "ADR periodo (€)": adr_tot,
-            "ADR LY periodo (€)": adr_ly_tot,
-            "Ocupación media %": ocupacion_media_pct,
-            "Ingresos actuales (€)": ingresos_tot,
-            "Ingresos LY (€)": ingresos_ly_tot,
-            "Forecast periodo (€)": forecast_tot
-        }])
-
-        # Mostrar resumen total encima de la tabla por meses
-        st.subheader("🔢 Total periodo seleccionado")
+        # Mostrar resumen periodo (por alojamiento) encima de la tabla por meses
+        st.subheader("🔢 Resumen por periodo (por alojamiento)")
         st.dataframe(
-            resumen_total.style.format({
+            resumen_periodo.style.format({
                 "ADR periodo (€)": "{:.2f} €", "ADR LY periodo (€)": "{:.2f} €",
                 "Ocupación media %": "{:.2f}%",
                 "Ingresos actuales (€)": "{:.2f} €", "Ingresos LY (€)": "{:.2f} €",
@@ -524,7 +522,7 @@ def render_resumen_comparativo(raw):
             use_container_width=True
         )
 
-        # Formateo y visualización (sin Noches ocupadas)
+        # Formateo y visualización de la tabla por meses (detalle)
         styler = (
             resumen_general.style
             .apply(_style_row_factory(resumen_general), axis=1)
@@ -541,25 +539,20 @@ def render_resumen_comparativo(raw):
         )
         st.dataframe(styler, use_container_width=True)
 
-        # --- exportar a Excel: pasar claves como nombres de mes ---
-        if st.button("Exportar a Excel"):
-            # incluir hoja con TOTAL periodo + hojas mensuales
-            export_sheets = {"Total periodo": resumen_total}
-            export_sheets.update(resumenes_mensuales_display)
-            buf = _export_excel_general_and_months(resumen_general, export_sheets.keys(), export_sheets)
-            st.download_button(
-                "Descargar archivo Excel",
-                buf,
-                "resumen_comparativo.xlsx",
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="download_excel"
-            )
+        # (Eliminado botón individual "Exportar a Excel" aquí — se usa el único botón unificado al final)
+
     st.markdown("<hr>", unsafe_allow_html=True)
     st.subheader("📥 Exportar datos")
+    # Un único botón/descarga: preparar datos según modo
     if view_mode == "Por periodo (actual)":
-        to_export = resumen
+        to_export = resumen  # ya calculado en esa rama
+        sheets = {"Resumen periodo": resumen}
     else:
-        to_export = resumen_general
+        # usar resumen_periodo (sumas por alojamiento) como resumen principal + hojas mensuales
+        to_export = resumen_periodo
+        sheets = {"Resumen periodo": resumen_periodo}
+        # añadir hojas mensuales con nombre de mes
+        sheets.update(resumenes_mensuales_display)
 
     if to_export is not None and not to_export.empty:
         csv = to_export.to_csv(index=False, encoding="utf-8-sig")
@@ -571,17 +564,10 @@ def render_resumen_comparativo(raw):
             key="download_csv_resumen_comp"
         )
 
-        # Preparar y exportar Excel según modo (evita usar variable `resumen` si no existe)
+        # generar un único Excel con la hoja Resumen periodo + hojas mensuales
         try:
-            if view_mode == "Por periodo (actual)":
-                excel_buffer = _export_excel_general_and_months(to_export, [], {"Resumen periodo": to_export})
-            else:
-                # intentar usar las estructuras creadas en la rama "por meses"
-                months_list = list(resumenes_mensuales_display.keys()) if "resumenes_mensuales_display" in globals() or "resumenes_mensuales_display" in locals() else list(resumenes_mensuales_raw.keys())
-                resumens_for_export = resumenes_mensuales_display if "resumenes_mensuales_display" in locals() else (resumenes_mensuales_raw if "resumenes_mensuales_raw" in locals() else {"Meses": to_export})
-                excel_buffer = _export_excel_general_and_months(to_export, months_list, resumens_for_export)
+            excel_buffer = _export_excel_general_and_months(to_export, sheets.keys(), sheets)
         except Exception:
-            # fallback seguro
             excel_buffer = _export_excel_general_and_months(to_export, [], {"Resumen": to_export})
 
         st.download_button(
