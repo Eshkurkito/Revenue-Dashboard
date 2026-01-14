@@ -149,7 +149,11 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
     default_end = date(today.year, today.month, last_day)
 
     with st.sidebar:
-        st.header("Parámetros – Resumen comparativo")
+        # evitar header duplicado en caso de que la función se ejecute más de una vez
+        if not st.session_state.get(f"{MODULE_KEY}_sidebar_header_shown", False):
+            st.header("Parámetros – Resumen comparativo")
+            st.session_state[f"{MODULE_KEY}_sidebar_header_shown"] = True
+
         # usar keys determinísticas por módulo (evita múltiples paneles si la vista se ejecuta dos veces)
         module_key = MODULE_KEY
         cutoff_key = f"{MODULE_KEY}_cutoff"
@@ -162,17 +166,34 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
         except StreamlitDuplicateElementKey:
             cutoff_rc = st.date_input("Fecha de corte", value=today)
 
-        try:
-            start_rc, end_rc = period_inputs(
-                "Inicio del periodo", "Fin del periodo",
-                default_start, default_end,
-                period_prefix
-            )
-        except StreamlitDuplicateElementKey:
-            start_rc, end_rc = period_inputs(
-                "Inicio del periodo", "Fin del periodo",
-                default_start, default_end
-            )
+        # llamar a period_inputs con fallback robusto (soporta imports distintos o firmas diferentes)
+        start_rc = end_rc = None
+        if callable(period_inputs):
+            try:
+                res = period_inputs("Inicio del periodo", "Fin del periodo", default_start, default_end, period_prefix)
+                if isinstance(res, (list, tuple)) and len(res) == 2:
+                    start_rc, end_rc = res
+            except TypeError:
+                # intentar sin key_prefix (firma distinta)
+                try:
+                    res = period_inputs("Inicio del periodo", "Fin del periodo", default_start, default_end)
+                    if isinstance(res, (list, tuple)) and len(res) == 2:
+                        start_rc, end_rc = res
+                except Exception:
+                    start_rc = end_rc = None
+            except Exception:
+                start_rc = end_rc = None
+
+        # si period_inputs no devolvió correctamente, usar inputs directos (con manejo de keys)
+        if start_rc is None or end_rc is None:
+            try:
+                c1, c2 = st.columns(2)
+                start_rc = c1.date_input("Inicio del periodo", value=default_start, key=f"{period_prefix}_start")
+                end_rc   = c2.date_input("Fin del periodo",   value=default_end,   key=f"{period_prefix}_end")
+            except StreamlitDuplicateElementKey:
+                c1, c2 = st.columns(2)
+                start_rc = c1.date_input("Inicio del periodo", value=default_start)
+                end_rc   = c2.date_input("Fin del periodo",   value=default_end)
 
         # elegir modo — intentar con key y caer a versión sin key si da conflicto
         try:
