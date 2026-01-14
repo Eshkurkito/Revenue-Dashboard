@@ -405,7 +405,8 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
         try:
             from xlsxwriter.utility import xl_rowcol_to_cell
             with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-                resumen_general.to_excel(writer, index=False, sheet_name="Resumen")
+                # hoja principal con el resumen del periodo
+                resumen_general.to_excel(writer, index=False, sheet_name="Resumen periodo")
                 wb = writer.book
 
                 def _write_sheet(df, name):
@@ -452,7 +453,8 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
                                 })
 
                 writer.sheets["Resumen"] = writer.sheets.get("Resumen")
-                _write_sheet(resumen_general, "Resumen")
+                writer.sheets["Resumen periodo"] = writer.sheets.get("Resumen periodo")
+                _write_sheet(resumen_general, "Resumen periodo")
 
                 for key, dfm in resumen_by_months.items():
                     name = key[:31]
@@ -619,23 +621,17 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
                     st.dataframe(sty, use_container_width=True)
 
     # --- Exportar: un único botón de Excel que incluye hoja de resumen + hojas mensuales (si aplica) ---
-    # preparar diccionario de hojas según modo
-    export_sheets: dict[str, pd.DataFrame] = {}
+    # preparar data para exportar: hoja principal (resumen) + dict solo con meses
     if view_mode == "Por periodo (actual)":
-        export_sheets["Resumen periodo"] = resumen
+        resumen_principal = resumen
+        meses_dict = {}
     else:
-        export_sheets["Resumen periodo"] = resumen_periodo
-        # añadir únicamente hojas mensuales que existen
-        export_sheets.update({k: v for k, v in (resumenes_mensuales_display or {}).items()})
+        resumen_principal = resumen_periodo
+        meses_dict = {k: v for k, v in (resumenes_mensuales_display or {}).items() if isinstance(v, pd.DataFrame) and not v.empty}
 
-    # quedarnos solo con hojas no vacías
-    available_sheets = {k: v for k, v in export_sheets.items() if isinstance(v, pd.DataFrame) and not v.empty}
-    if not available_sheets:
-        st.info("No hay datos disponibles para exportar.")
-    else:
+    if (isinstance(resumen_principal, pd.DataFrame) and not resumen_principal.empty) or meses_dict:
         try:
-            main_sheet = available_sheets.get("Resumen periodo", list(available_sheets.values())[0])
-            buf = _export_excel_general_and_months(main_sheet, list(available_sheets.keys()), available_sheets)
+            buf = _export_excel_general_and_months(resumen_principal, list(meses_dict.keys()), meses_dict)
             st.download_button(
                 "📂 Descargar Excel (Resumen + Meses)",
                 buf,
