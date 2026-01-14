@@ -625,7 +625,7 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
 
         # pestaña resumen por periodo (por apartamento)
         with tabs[0]:
-            st.subheader("🔢 Resumen por periodo (por alojamiento)")
+            st.subheader
             st.dataframe(
                 resumen_periodo.style.format({
                     "ADR periodo (€)": "{:.2f} €", "ADR LY periodo (€)": "{:.2f} €",
