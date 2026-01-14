@@ -487,18 +487,26 @@ def render_resumen_comparativo(raw):
         for c in ["Ingresos actuales (€)","Ingresos LY (€)","Forecast periodo (€)","Noches ocupadas"]:
             if c not in raw_concat.columns:
                 raw_concat[c] = 0.0
+
         ingresos_tot = raw_concat["Ingresos actuales (€)"].sum()
         ingresos_ly_tot = raw_concat["Ingresos LY (€)"].sum() if "Ingresos LY (€)" in raw_concat else 0.0
         forecast_tot = raw_concat["Forecast periodo (€)"].sum() if "Forecast periodo (€)" in raw_concat else 0.0
         noches_tot = raw_concat["Noches ocupadas"].sum() if "Noches ocupadas" in raw_concat else 0
+
+        # número de alojamientos considerados (filtro aplicado o total en raw)
+        num_props = len(props_sel) if props_sel else int(raw["Alojamiento"].nunique())
+        days_total = (pd.to_datetime(end_rc) - pd.to_datetime(start_rc)).days + 1
+        avail_nights = max(1, num_props * days_total)
+
         adr_tot = (ingresos_tot / noches_tot) if noches_tot > 0 else 0.0
         adr_ly_tot = (ingresos_ly_tot / noches_tot) if noches_tot > 0 else 0.0
+        ocupacion_media_pct = (noches_tot / avail_nights * 100.0) if avail_nights > 0 else 0.0
 
         resumen_total = pd.DataFrame([{
             "Alojamiento": "TOTAL",
-            "ADR actual": adr_tot,
-            "ADR LY": adr_ly_tot,
-            "Ocupación actual %": raw_concat["Noches ocupadas"].sum() / max(1, (pd.to_datetime(end_rc) - pd.to_datetime(start_rc)).days + 1) if noches_tot > 0 else 0.0,
+            "ADR periodo (€)": adr_tot,
+            "ADR LY periodo (€)": adr_ly_tot,
+            "Ocupación media %": ocupacion_media_pct,
             "Ingresos actuales (€)": ingresos_tot,
             "Ingresos LY (€)": ingresos_ly_tot,
             "Forecast periodo (€)": forecast_tot
@@ -508,8 +516,8 @@ def render_resumen_comparativo(raw):
         st.subheader("🔢 Total periodo seleccionado")
         st.dataframe(
             resumen_total.style.format({
-                "ADR actual": "{:.2f} €", "ADR LY": "{:.2f} €",
-                "Ocupación actual %": "{:.2f}%", 
+                "ADR periodo (€)": "{:.2f} €", "ADR LY periodo (€)": "{:.2f} €",
+                "Ocupación media %": "{:.2f}%",
                 "Ingresos actuales (€)": "{:.2f} €", "Ingresos LY (€)": "{:.2f} €",
                 "Forecast periodo (€)": "{:.2f} €",
             }),
@@ -535,7 +543,10 @@ def render_resumen_comparativo(raw):
 
         # --- exportar a Excel: pasar claves como nombres de mes ---
         if st.button("Exportar a Excel"):
-            buf = _export_excel_general_and_months(resumen_general, resumenes_mensuales_display.keys(), resumenes_mensuales_display)
+            # incluir hoja con TOTAL periodo + hojas mensuales
+            export_sheets = {"Total periodo": resumen_total}
+            export_sheets.update(resumenes_mensuales_display)
+            buf = _export_excel_general_and_months(resumen_general, export_sheets.keys(), export_sheets)
             st.download_button(
                 "Descargar archivo Excel",
                 buf,
