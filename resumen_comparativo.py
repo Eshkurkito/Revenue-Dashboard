@@ -229,8 +229,17 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
                 )
 
         # nombre del grupo para guardar (usar key única por módulo)
-        group_name = st.text_input("Nombre del grupo para guardar", key=f"{MODULE_KEY}_group_name")
-        if st.button("Guardar grupo", key=f"{MODULE_KEY}_save_group") and group_name and props_rc:
+        try:
+            group_name = st.text_input("Nombre del grupo para guardar", key=f"{MODULE_KEY}_group_name")
+        except StreamlitDuplicateElementKey:
+            group_name = st.text_input("Nombre del grupo para guardar")
+
+        try:
+            save_clicked = st.button("Guardar grupo", key=f"{MODULE_KEY}_save_group")
+        except StreamlitDuplicateElementKey:
+            save_clicked = st.button("Guardar grupo")
+
+        if save_clicked and group_name and props_rc:
             save_group_csv(group_name, props_rc)
             st.success(f"Grupo '{group_name}' guardado.")
 
