@@ -237,7 +237,17 @@ def _render_forecast_vs_actual(df: pd.DataFrame, forecast: pd.DataFrame, start: 
         rows.append({"Mes": p.strftime("%Y-%m"), "Forecast": forecast_ing, "Actual": actual_ing, "Diff": diff, "DiffPct": pct})
     df_cmp = pd.DataFrame(rows)
     st.subheader("📊 Comparativa Forecast vs Actual (mensual)")
-    st.dataframe(df_cmp.fillna("").style.format({"Forecast":"{:.2f}","Actual":"{:.2f}","Diff":"{:.2f}","DiffPct":"{:.1f}%"}), use_container_width=True)
+
+    # Asegura dtype numérico para evitar ValueError al aplicar formato
+    for col in ["Forecast", "Actual", "Diff", "DiffPct"]:
+        if col in df_cmp.columns:
+            df_cmp[col] = pd.to_numeric(df_cmp[col], errors="coerce")
+
+    sty = df_cmp.style.format(
+        {"Forecast": "{:.2f}", "Actual": "{:.2f}", "Diff": "{:.2f}", "DiffPct": "{:.1f}%"},
+        na_rep=""
+    )
+    st.dataframe(sty, use_container_width=True)
     if not df_cmp.empty:
         plot = df_cmp.melt(id_vars=["Mes"], value_vars=["Forecast","Actual"], var_name="Serie", value_name="Ingresos")
         chart = (
