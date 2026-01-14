@@ -149,10 +149,12 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
     default_end = date(today.year, today.month, last_day)
 
     with st.sidebar:
-        # evitar header duplicado en caso de que la función se ejecute más de una vez
-        if not st.session_state.get(f"{MODULE_KEY}_sidebar_header_shown", False):
-            st.header("Parámetros – Resumen comparativo")
-            st.session_state[f"{MODULE_KEY}_sidebar_header_shown"] = True
+        # asegurar un único header global en el sidebar (robusto frente a llamadas duplicadas)
+        SIDEBAR_HEADER_KEY = f"{MODULE_KEY}_sidebar_header_shown"
+        if not st.session_state.get(SIDEBAR_HEADER_KEY, False):
+            # usar st.sidebar.markdown evita crear widgets con keys duplicadas dentro de varios with st.sidebar
+            st.sidebar.markdown("### Parámetros – Resumen comparativo")
+            st.session_state[SIDEBAR_HEADER_KEY] = True
 
         # usar keys determinísticas por módulo (evita múltiples paneles si la vista se ejecuta dos veces)
         module_key = MODULE_KEY
