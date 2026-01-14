@@ -458,6 +458,8 @@ def render_resumen_comparativo(raw):
             label = f"{start_m.date()} - {end_m.date()}"
             res_m = _make_resumen(start_m, end_m, cutoff_rc, props_sel)
             if not res_m.empty:
+                # eliminar columna auxiliar "Noches ocupadas" en la vista por meses
+                res_m = res_m.drop(columns=["Noches ocupadas"], errors="ignore")
                 resumenes_mensuales[label] = res_m
 
         if not resumenes_mensuales:
@@ -470,14 +472,8 @@ def render_resumen_comparativo(raw):
 
         # --- resumen general: concatenar y mostrar (sin columnas de variación) ---
         resumen_general = pd.concat([resumen for resumen in resumenes_mensuales.values()], ignore_index=True)
-
-        # Asegurar columnas numéricas clave existan antes de formatear
-        for col in [
-            "Ingresos actuales (€)","Ingresos LY (€)","Ingresos LY-2 (€)",
-            "Ingresos finales LY (€)","Ingresos finales LY-2 (€)","Forecast periodo (€)","Noches ocupadas"
-        ]:
-            if col not in resumen_general.columns:
-                resumen_general[col] = 0.0
+        # quitar columna auxiliar si sigue presente
+        resumen_general = resumen_general.drop(columns=["Noches ocupadas"], errors="ignore")
 
         # Formateo y visualización (sin ADR_total ni columnas de variación)
         styler = (
