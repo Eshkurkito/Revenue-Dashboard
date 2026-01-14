@@ -6,6 +6,7 @@ import io
 from datetime import date
 from pathlib import Path
 import re
+import time
 
 # --- Fallbacks si no existe utils.py ---
 try:
@@ -145,13 +146,18 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
 
     with st.sidebar:
         st.header("Parámetros – Resumen comparativo")
-        # usar key por módulo para evitar duplicados cuando la app incluye varios módulos
+        # usar key por módulo + timestamp para evitar StreamlitDuplicateElementKey
         module_key = __name__.replace(".", "_")
-        cutoff_rc = st.date_input("Fecha de corte", value=today, key=f"{module_key}_cut_resumen_comp")
+        ts = int(time.time() * 1000)
+        cutoff_key = f"{module_key}_cut_resumen_comp_{ts}"
+        period_prefix = f"{module_key}_resumen_comp_{ts}"
+        props_prefix = f"{module_key}_props_rc_{ts}"
+
+        cutoff_rc = st.date_input("Fecha de corte", value=today, key=cutoff_key)
         start_rc, end_rc = period_inputs(
             "Inicio del periodo", "Fin del periodo",
             default_start, default_end,
-            f"{module_key}_resumen_comp"
+            period_prefix
         )
 
         view_mode = st.radio("Modo de vista", ["Por periodo (actual)", "Por meses (con resumen general)"], index=0)
@@ -180,7 +186,7 @@ def render_resumen_comparativo(raw: pd.DataFrame | None = None):
             props_rc = group_selector(
                 "Filtrar alojamientos (opcional)",
                 sorted([str(x) for x in raw["Alojamiento"].dropna().unique()]),
-                key_prefix=f"{module_key}_props_rc",
+                key_prefix=props_prefix,
                 default=[]
             )
 
