@@ -200,10 +200,11 @@ def render_resumen_comparativo(raw):
             filter_props=props_sel if props_sel else None,
         )
         if by_prop.empty:
-            return pd.DataFrame(columns=["Alojamiento","ADR","Ocupación %","Ingresos"])
+            return pd.DataFrame(columns=["Alojamiento","ADR","Ocupación %","Ingresos","Noches ocupadas"])
         out = by_prop.copy()
         out["Ocupación %"] = (out["Noches ocupadas"] / days_local * 100.0).astype(float)
-        return out[["Alojamiento","ADR","Ocupación %","Ingresos"]]
+        # mantener también la columna Noches ocupadas para agregación posterior
+        return out[["Alojamiento","ADR","Ocupación %","Ingresos","Noches ocupadas"]]
 
     def _make_resumen(start_dt, end_dt, cutoff_dt, props_sel):
         now_df = _by_prop_with_occ(cutoff_dt, start_dt, end_dt, props_sel).rename(columns={
@@ -435,7 +436,20 @@ def render_resumen_comparativo(raw):
         # --- resumen general: concatenar y agregar totales ---
         resumen_general = pd.concat([resumen for resumen in resumenes_mensuales.values()])
         resumen_total = resumen_general.groupby("Alojamiento", as_index=False).sum(numeric_only=True)
-        resumen_total["ADR"] = resumen_total["Ingresos"] / resumen_total["Noches ocupadas"].replace(0, 1)
+
+        # calcular ADR total usando la columna de ingresos presente
+        if "Ingresos actuales (€)" in resumen_total.columns:
+            ingresos_col = "Ingresos actuales (€)"
+        elif "Ingresos" in resumen_total.columns:
+            ingresos_col = "Ingresos"
+        else:
+            ingresos_col = None
+
+        if ingresos_col is not None and "Noches ocupadas" in resumen_total.columns:
+            resumen_total["ADR"] = resumen_total[ingresos_col] / resumen_total["Noches ocupadas"].replace(0, 1)
+        else:
+            resumen_total["ADR"] = 0.0
+
         resumen_general = resumen_general.merge(resumen_total[["Alojamiento", "ADR"]], on="Alojamiento", how="left", suffixes=("", "_total"))
 
         # --- formato: añade columnas de variación respecto al total ---
