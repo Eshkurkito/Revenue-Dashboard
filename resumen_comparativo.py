@@ -453,16 +453,22 @@ def render_resumen_comparativo(raw):
     else:
         # --- por meses: dividir periodo en tramos mensuales ---
         month_ranges = _month_ranges(start_rc, end_rc)
-        resumenes_mensuales = {}
-        for i, (start_m, end_m) in enumerate(month_ranges):
-            label = f"{start_m.date()} - {end_m.date()}"
-            res_m = _make_resumen(start_m, end_m, cutoff_rc, props_sel)
-            if not res_m.empty:
-                # eliminar columna auxiliar "Noches ocupadas" en la vista por meses
-                res_m = res_m.drop(columns=["Noches ocupadas"], errors="ignore")
-                resumenes_mensuales[label] = res_m
+        resumenes_mensuales_raw = {}      # para cálculos (incluye Noches ocupadas)
+        resumenes_mensuales_display = {}  # para mostrar / exportar (sin Noches ocupadas)
+        MONTHS_ES = ("Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre")
 
-        if not resumenes_mensuales:
+        for i, (start_m, end_m) in enumerate(month_ranges):
+            # nombre de hoja: "Enero 2026"
+            month_label = f"{MONTHS_ES[start_m.month-1]} {start_m.year}"
+            res_m = _make_resumen(start_m, end_m, cutoff_rc, props_sel)
+            if res_m.empty:
+                continue
+            # mantener raw con Noches ocupadas para cálculos agregados
+            resumenes_mensuales_raw[month_label] = res_m.copy()
+            # preparar versión a mostrar/exportar sin columna auxiliar
+            resumenes_mensuales_display[month_label] = res_m.drop(columns=["Noches ocupadas"], errors="ignore")
+
+        if not resumenes_mensuales_display:
             st.info(
                 "No hay reservas que intersecten el periodo **a la fecha de corte** seleccionada.\n"
                 "- Prueba a ampliar el periodo o mover la fecha de corte.\n"
@@ -470,12 +476,47 @@ def render_resumen_comparativo(raw):
             )
             st.stop()
 
-        # --- resumen general: concatenar y mostrar (sin columnas de variación) ---
-        resumen_general = pd.concat([resumen for resumen in resumenes_mensuales.values()], ignore_index=True)
-        # quitar columna auxiliar si sigue presente
+        # concat para mostrar
+        resumen_general = pd.concat(list(resumenes_mensuales_display.values()), ignore_index=True)
         resumen_general = resumen_general.drop(columns=["Noches ocupadas"], errors="ignore")
 
-        # Formateo y visualización (sin ADR_total ni columnas de variación)
+        # --- RESUMEN TOTAL DEL PERIODO (sumas y ADR calc) ---
+        # usamos datos raw (con Noches ocupadas) para cálculos correctos
+        raw_concat = pd.concat(list(resumenes_mensuales_raw.values()), ignore_index=True)
+        # asegurar columnas
+        for c in ["Ingresos actuales (€)","Ingresos LY (€)","Forecast periodo (€)","Noches ocupadas"]:
+            if c not in raw_concat.columns:
+                raw_concat[c] = 0.0
+        ingresos_tot = raw_concat["Ingresos actuales (€)"].sum()
+        ingresos_ly_tot = raw_concat["Ingresos LY (€)"].sum() if "Ingresos LY (€)" in raw_concat else 0.0
+        forecast_tot = raw_concat["Forecast periodo (€)"].sum() if "Forecast periodo (€)" in raw_concat else 0.0
+        noches_tot = raw_concat["Noches ocupadas"].sum() if "Noches ocupadas" in raw_concat else 0
+        adr_tot = (ingresos_tot / noches_tot) if noches_tot > 0 else 0.0
+        adr_ly_tot = (ingresos_ly_tot / noches_tot) if noches_tot > 0 else 0.0
+
+        resumen_total = pd.DataFrame([{
+            "Alojamiento": "TOTAL",
+            "ADR actual": adr_tot,
+            "ADR LY": adr_ly_tot,
+            "Ocupación actual %": raw_concat["Noches ocupadas"].sum() / max(1, (pd.to_datetime(end_rc) - pd.to_datetime(start_rc)).days + 1) if noches_tot > 0 else 0.0,
+            "Ingresos actuales (€)": ingresos_tot,
+            "Ingresos LY (€)": ingresos_ly_tot,
+            "Forecast periodo (€)": forecast_tot
+        }])
+
+        # Mostrar resumen total encima de la tabla por meses
+        st.subheader("🔢 Total periodo seleccionado")
+        st.dataframe(
+            resumen_total.style.format({
+                "ADR actual": "{:.2f} €", "ADR LY": "{:.2f} €",
+                "Ocupación actual %": "{:.2f}%", 
+                "Ingresos actuales (€)": "{:.2f} €", "Ingresos LY (€)": "{:.2f} €",
+                "Forecast periodo (€)": "{:.2f} €",
+            }),
+            use_container_width=True
+        )
+
+        # Formateo y visualización (sin Noches ocupadas)
         styler = (
             resumen_general.style
             .apply(_style_row_factory(resumen_general), axis=1)
@@ -492,9 +533,9 @@ def render_resumen_comparativo(raw):
         )
         st.dataframe(styler, use_container_width=True)
 
-        # --- exportar a Excel: resumen general y por meses ---
+        # --- exportar a Excel: pasar claves como nombres de mes ---
         if st.button("Exportar a Excel"):
-            buf = _export_excel_general_and_months(resumen_general, resumenes_mensuales.keys(), resumenes_mensuales)
+            buf = _export_excel_general_and_months(resumen_general, resumenes_mensuales_display.keys(), resumenes_mensuales_display)
             st.download_button(
                 "Descargar archivo Excel",
                 buf,
@@ -502,10 +543,37 @@ def render_resumen_comparativo(raw):
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="download_excel"
             )
+    st.markdown("<hr>", unsafe_allow_html=True)
+    st.subheader("📥 Exportar datos")
+    if view_mode == "Por periodo (actual)":
+        to_export = resumen
+    else:
+        to_export = resumen_general
+
+    if to_export is not None and not to_export.empty:
+        csv = to_export.to_csv(index=False, encoding="utf-8-sig")
+        st.download_button(
+            "📂 Descargar CSV",
+            csv,
+            "resumen_comparativo.csv",
+            "text/csv",
+            key="download_csv_resumen_comp"
+        )
+
+        excel_buffer = _export_excel_general_and_months(resumen, month_ranges, resumenes_mensuales_raw)
+        st.download_button(
+            "📂 Descargar Excel",
+            excel_buffer,
+            "resumen_comparativo.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="download_excel_resumen_comp"
+        )
+    else:
+        st.info("No hay datos disponibles para exportar.")
 
 
+# --- NEW: cargar y normalizar forecast DB (data/forecast_db.csv) ---
 def _load_forecast_db_norm(year: int | None = None) -> pd.DataFrame:
-    """Leer y normalizar data/forecast_db.csv -> columns: Alojamiento, Mes (YYYY-MM), Forecast (float)."""
     p = Path(__file__).resolve().parent / "data" / "forecast_db.csv"
     if not p.exists():
         return pd.DataFrame(columns=["Alojamiento", "Mes", "Forecast"])
@@ -530,7 +598,6 @@ def _load_forecast_db_norm(year: int | None = None) -> pd.DataFrame:
             return 0.0
         s = str(x).strip().replace("\xa0", "")
         s = re.sub(r"[^\d,.\-]", "", s)
-        # quitar separador de miles (puntos) y normalizar coma decimal
         s = s.replace(".", "").replace(",", ".")
         try:
             return float(s)
@@ -542,7 +609,6 @@ def _load_forecast_db_norm(year: int | None = None) -> pd.DataFrame:
     year = int(year) if year else date.today().year
     def mes_to_ym(mr):
         k = str(mr).strip()
-        # intentar parseo directo
         dt = pd.to_datetime(k, errors="coerce", dayfirst=True)
         if not pd.isna(dt):
             return f"{dt.year}-{dt.month:02d}"
