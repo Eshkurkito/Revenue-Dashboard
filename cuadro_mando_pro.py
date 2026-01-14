@@ -371,29 +371,39 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
     g4.metric("Ingresos LY-2 a este corte (€)", f"{tot_ly2_cut_ing['ingresos']:.2f}")
     g5.metric("Ingresos LY-2 final (€)", f"{tot_ly2_final_ing['ingresos']:.2f}")
 
-    # ---- Forecast: carga local o subido ----
-    with st.expander("Forecast mensual (opcional): cargar archivo o usar data/forecast_db.csv", expanded=False):
-        uploaded = st.file_uploader("Sube Excel/CSV de forecast (Alojamiento + columnas mes)", type=["xlsx","xls","csv"], key="pro_forecast_upload")
+    # ---- Forecast: carga desde data/forecast_db.csv por defecto (sin subir) ----
+    with st.expander("Forecast mensual (opcional): usar data/forecast_db.csv o subir archivo para reemplazar", expanded=False):
         forecast_df = pd.DataFrame()
+        # Intentar cargar DB local primero
+        default_path = Path(__file__).resolve().parent / "data" / "forecast_db.csv"
+        if default_path.exists():
+            try:
+                forecast_df = pd.read_csv(default_path, sep=";", encoding="cp1252", engine="python", dtype=str)
+            except Exception:
+                try:
+                    forecast_df = pd.read_csv(default_path, sep=";", encoding="utf-8", engine="python", dtype=str)
+                except Exception:
+                    forecast_df = pd.DataFrame()
+
+        # Si el usuario sube un archivo, lo usa para reemplazar la DB en memoria (no sobrescribe fichero en disco)
+        uploaded = st.file_uploader("Opcional: sube CSV/Excel para reemplazar el forecast cargado", type=["csv","xlsx","xls"], key="pro_forecast_upload")
         if uploaded is not None:
             try:
                 if str(uploaded.name).lower().endswith(".csv"):
-                    forecast_df = pd.read_csv(uploaded)
+                    # Intentar leer CSV europeo con distintos encodings
+                    for enc in ("cp1252","latin-1","utf-8","utf-8-sig"):
+                        try:
+                            forecast_df = pd.read_csv(uploaded, sep=";", encoding=enc, engine="python", dtype=str)
+                            break
+                        except Exception:
+                            uploaded.seek(0)
+                    if forecast_df.empty:
+                        # fallback lectura sin separador semicolon
+                        forecast_df = pd.read_csv(uploaded)
                 else:
-                    forecast_df = pd.read_excel(uploaded, engine="openpyxl")
+                    forecast_df = pd.read_excel(uploaded, engine="openpyxl", dtype=str)
             except Exception:
-                st.error("No se pudo leer el archivo de forecast.")
-        else:
-            # si existe archivo de forecast en repo, usarlo por defecto
-            default_path = Path(__file__).resolve().parent / "data" / "forecast_db.csv"
-            if default_path.exists():
-                try:
-                    forecast_df = pd.read_csv(default_path, sep=";", encoding="latin-1")
-                except Exception:
-                    try:
-                        forecast_df = pd.read_csv(default_path, sep=";", encoding="utf-8")
-                    except Exception:
-                        forecast_df = pd.DataFrame()
+                st.error("No se pudo leer el archivo subido. Se usará el forecast local si existe.")
 
         if not forecast_df.empty:
             fc_long = _load_forecast_table(forecast_df)
