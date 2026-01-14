@@ -5,6 +5,7 @@ import calendar
 import io
 from datetime import date
 from pathlib import Path
+import re
 
 # --- Fallbacks si no existe utils.py ---
 try:
@@ -264,6 +265,24 @@ def render_resumen_comparativo(raw):
             "Ingresos actuales (€)","Ingresos LY (€)","Ingresos LY-2 (€)",
             "Ingresos finales LY (€)","Ingresos finales LY-2 (€)"
         ])
+
+        # incorpora forecast (suma de meses dentro del periodo) si existe data/forecast_db.csv
+        try:
+            forecast_norm = _load_forecast_db_norm()
+            if not forecast_norm.empty:
+                fm = forecast_norm.copy()
+                fm["Mes_ts"] = pd.to_datetime(fm["Mes"], format="%Y-%m", errors="coerce")
+                mask_f = (fm["Mes_ts"] >= pd.to_datetime(start_dt)) & (fm["Mes_ts"] <= pd.to_datetime(end_dt))
+                fm = fm.loc[mask_f]
+                if props_sel:
+                    fm = fm[fm["Alojamiento"].isin(props_sel)]
+                fsum = fm.groupby("Alojamiento", as_index=False)["Forecast"].sum().rename(columns={"Forecast":"Forecast periodo (€)"})
+                resumen = resumen.merge(fsum, on="Alojamiento", how="left")
+            else:
+                resumen["Forecast periodo (€)"] = 0.0
+        except Exception:
+            resumen["Forecast periodo (€)"] = 0.0
+
         return resumen
 
     def _month_ranges(start, end):
@@ -321,7 +340,7 @@ def render_resumen_comparativo(raw):
                         width = int(min(38, max(12, df[col].astype(str).str.len().max() if not df.empty else 12)))
                         if col in ["ADR actual", "ADR LY",
                                    "Ingresos actuales (€)", "Ingresos LY (€)", "Ingresos LY-2 (€)",
-                                   "Ingresos finales LY (€)", "Ingresos finales LY-2 (€)"]:
+                                   "Ingresos finales LY (€)", "Ingresos finales LY-2 (€)", "Forecast periodo (€)"]:
                             ws.set_column(j, j, width, fmt_currency)
                         elif col in ["Ocupación actual %", "Ocupación LY %"]:
                             ws.set_column(j, j, width, fmt_percent)
@@ -379,6 +398,7 @@ def render_resumen_comparativo(raw):
             )
             st.stop()
 
+        # --- formato: añade Forecast periodo (€) ---
         styler = (
             resumen.style
             .apply(_style_row_factory(resumen), axis=1)
@@ -389,80 +409,119 @@ def render_resumen_comparativo(raw):
                 "Ingresos LY-2 (€)": "{:.2f} €",
                 "Ingresos finales LY (€)": "{:.2f} €",
                 "Ingresos finales LY-2 (€)": "{:.2f} €",
+                "Forecast periodo (€)": "{:.2f} €",
             })
         )
         st.dataframe(styler, use_container_width=True)
 
-        csv_bytes = resumen.to_csv(index=False).encode("utf-8-sig")
-        st.download_button("📥 Descargar CSV", data=csv_bytes,
-                           file_name="resumen_comparativo.csv", mime="text/csv")
-
-        xlsx_bytes = _export_excel_general_and_months(resumen, {}, {})
-        st.download_button(
-            "📥 Descargar Excel (.xlsx)",
-            data=xlsx_bytes,
-            file_name="resumen_comparativo.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
     else:
+        # --- por meses: dividir periodo en tramos mensuales ---
         month_ranges = _month_ranges(start_rc, end_rc)
-        if not month_ranges:
-            st.info("No hay meses en el periodo seleccionado.")
+        resumenes_mensuales = {}
+        for i, (start_m, end_m) in enumerate(month_ranges):
+            label = f"{start_m.date()} - {end_m.date()}"
+            res_m = _make_resumen(start_m, end_m, cutoff_rc, props_sel)
+            if not res_m.empty:
+                resumenes_mensuales[label] = res_m
+
+        if not resumenes_mensuales:
+            st.info(
+                "No hay reservas que intersecten el periodo **a la fecha de corte** seleccionada.\n"
+                "- Prueba a ampliar el periodo o mover la fecha de corte.\n"
+                "- Recuerda que se incluyen reservas con **Fecha alta ≤ corte** y estancia dentro del periodo."
+            )
             st.stop()
 
-        resumen_general = _make_resumen(start_rc, end_rc, cutoff_rc, props_sel)
-        resumen_by_months = {}
-        for sdt, edt in month_ranges:
-            label = sdt.strftime("%B %Y")
-            resumen_by_months[label] = _make_resumen(sdt, edt, cutoff_rc, props_sel)
+        # --- resumen general: concatenar y agregar totales ---
+        resumen_general = pd.concat([resumen for resumen in resumenes_mensuales.values()])
+        resumen_total = resumen_general.groupby("Alojamiento", as_index=False).sum(numeric_only=True)
+        resumen_total["ADR"] = resumen_total["Ingresos"] / resumen_total["Noches ocupadas"].replace(0, 1)
+        resumen_general = resumen_general.merge(resumen_total[["Alojamiento", "ADR"]], on="Alojamiento", how="left", suffixes=("", "_total"))
 
-        tabs = st.tabs(["Resumen general"] + list(resumen_by_months.keys()))
-        with tabs[0]:
-            if resumen_general.empty:
-                st.info("No hay datos en el resumen general para el periodo seleccionado.")
-            else:
-                sty = (
-                    resumen_general.style
-                    .apply(_style_row_factory(resumen_general), axis=1)
-                    .format({
-                        "ADR actual": "{:.2f} €", "ADR LY": "{:.2f} €",
-                        "Ocupación actual %": "{:.2f}%", "Ocupación LY %": "{:.2f}%",
-                        "Ingresos actuales (€)": "{:.2f} €", "Ingresos LY (€)": "{:.2f} €",
-                        "Ingresos LY-2 (€)": "{:.2f} €",
-                        "Ingresos finales LY (€)": "{:.2f} €",
-                        "Ingresos finales LY-2 (€)": "{:.2f} €",
-                    })
-                )
-                st.dataframe(sty, use_container_width=True)
+        # --- formato: añade columnas de variación respecto al total ---
+        resumen_general["Var. ADR"] = resumen_general["ADR"] - resumen_general["ADR_total"]
+        resumen_general["Var. Ocupación %"] = resumen_general["Ocupación actual %"] - resumen_general["Ocupación LY %"]
+        resumen_general["Var. Ingresos actuales (€)"] = resumen_general["Ingresos actuales (€)"] - resumen_general["Ingresos LY (€)"]
+        resumen_general["Var. Ingresos finales LY (€)"] = resumen_general["Ingresos finales LY (€)"] - resumen_general["Ingresos finales LY-2 (€)"]
 
-        for i, (label, dfm) in enumerate(resumen_by_months.items(), start=1):
-            with tabs[i]:
-                if dfm.empty:
-                    st.info(f"No hay datos para {label}.")
-                else:
-                    sty_m = (
-                        dfm.style
-                        .apply(_style_row_factory(dfm), axis=1)
-                        .format({
-                            "ADR actual": "{:.2f} €", "ADR LY": "{:.2f} €",
-                            "Ocupación actual %": "{:.2f}%", "Ocupación LY %": "{:.2f}%",
-                            "Ingresos actuales (€)": "{:.2f} €", "Ingresos LY (€)": "{:.2f} €",
-                            "Ingresos LY-2 (€)": "{:.2f} €",
-                            "Ingresos finales LY (€)": "{:.2f} €",
-                            "Ingresos finales LY-2 (€)": "{:.2f} €",
-                        })
-                    )
-                    st.dataframe(sty_m, use_container_width=True)
-
-        csv_bytes = resumen_general.to_csv(index=False).encode("utf-8-sig")
-        st.download_button("📥 Descargar CSV (resumen general)", data=csv_bytes,
-                           file_name="resumen_comparativo_resumen.csv", mime="text/csv")
-
-        xlsx_bytes = _export_excel_general_and_months(resumen_general, month_ranges, resumen_by_months)
-        st.download_button(
-            "📥 Descargar Excel (.xlsx) (Resumen + por meses)",
-            data=xlsx_bytes,
-            file_name="resumen_comparativo_por_meses.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        # --- formato: resaltar variaciones significativas ---
+        styler = (
+            resumen_general.style
+            .apply(_style_row_factory(resumen_general), axis=1)
+            .format({
+                "ADR": "{:.2f} €",
+                "Ocupación actual %": "{:.2f}%",
+                "Ingresos actuales (€)": "{:.2f} €",
+                "Ingresos finales LY (€)": "{:.2f} €",
+                "Ingresos finales LY-2 (€)": "{:.2f} €",
+                "Forecast periodo (€)": "{:.2f} €",
+            })
         )
+        st.dataframe(styler, use_container_width=True)
+
+        # --- exportar a Excel: resumen general y por meses ---
+        if st.button("Exportar a Excel"):
+            buf = _export_excel_general_and_months(resumen_general, resumenes_mensuales.keys(), resumenes_mensuales)
+            st.download_button(
+                "Descargar archivo Excel",
+                buf,
+                "resumen_comparativo.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="download_excel"
+            )
+
+
+def _load_forecast_db_norm(year: int | None = None) -> pd.DataFrame:
+    """Leer y normalizar data/forecast_db.csv -> columns: Alojamiento, Mes (YYYY-MM), Forecast (float)."""
+    p = Path(__file__).resolve().parent / "data" / "forecast_db.csv"
+    if not p.exists():
+        return pd.DataFrame(columns=["Alojamiento", "Mes", "Forecast"])
+    df = None
+    for enc in ("cp1252", "latin-1", "utf-8", "utf-8-sig"):
+        try:
+            df = pd.read_csv(p, sep=";", engine="python", encoding=enc, dtype=str)
+            break
+        except Exception:
+            continue
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["Alojamiento", "Mes", "Forecast"])
+    df.columns = [str(c).strip() for c in df.columns]
+    aloj_col = df.columns[0]
+    month_cols = [c for c in df.columns if c != aloj_col]
+    mes_map = {
+        "enero":1,"febrero":2,"marzo":3,"abril":4,"mayo":5,"junio":6,
+        "julio":7,"agosto":8,"septiembre":9,"setiembre":9,"octubre":10,"noviembre":11,"diciembre":12
+    }
+    def clean_amount(x):
+        if pd.isna(x):
+            return 0.0
+        s = str(x).strip().replace("\xa0", "")
+        s = re.sub(r"[^\d,.\-]", "", s)
+        # quitar separador de miles (puntos) y normalizar coma decimal
+        s = s.replace(".", "").replace(",", ".")
+        try:
+            return float(s)
+        except Exception:
+            return 0.0
+    long = df.melt(id_vars=[aloj_col], value_vars=month_cols, var_name="Mes_raw", value_name="Forecast_raw")
+    long = long.rename(columns={aloj_col: "Alojamiento"})
+    long["Mes_raw"] = long["Mes_raw"].astype(str).str.strip()
+    year = int(year) if year else date.today().year
+    def mes_to_ym(mr):
+        k = str(mr).strip()
+        # intentar parseo directo
+        dt = pd.to_datetime(k, errors="coerce", dayfirst=True)
+        if not pd.isna(dt):
+            return f"{dt.year}-{dt.month:02d}"
+        kl = k.lower()
+        for name, num in mes_map.items():
+            if name in kl:
+                return f"{year}-{num:02d}"
+        m = re.search(r"\b(0?[1-9]|1[0-2])\b", kl)
+        if m:
+            return f"{year}-{int(m.group(0)):02d}"
+        return None
+    long["Mes"] = long["Mes_raw"].apply(mes_to_ym)
+    long["Forecast"] = long["Forecast_raw"].apply(clean_amount)
+    res = long[["Alojamiento","Mes","Forecast"]].dropna(subset=["Alojamiento","Mes"]).reset_index(drop=True)
+    return res
