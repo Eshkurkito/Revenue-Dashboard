@@ -5,84 +5,162 @@
 <title>Informe de propietario · {{ apto or '—' }}</title>
 <style>
   * { box-sizing: border-box; }
+
+  :root {
+    --primary: #2e485f;
+    --primary-soft: #eef2f6;
+    --border: #e5e7eb;
+    --text: #111827;
+    --muted: #6b7280;
+    --bg-soft: #f8fafc;
+  }
+
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-    color: #111827;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial;
+    color: var(--text);
     margin: 0;
-    padding: 16px 18px;
+    padding: 18px 20px;
     font-size: 12px;
+    background: #ffffff;
   }
-  h1,h2,h3 { margin: 0 0 8px 0; }
-  .muted { color: #6b7280; }
-  .header { width: 100%; margin-bottom: 12px; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; }
-  .header-table { width: 100%; border-collapse: collapse; }
-  .header-table td { vertical-align: middle; }
-  .logo { height: 130px; }
-  .kpis { width: 100%; border-collapse: separate; border-spacing: 8px; margin: 6px 0 8px 0; }
-  .kpi {
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    padding: 10px 12px;
-    background: #f8fafc;
+
+  h1, h2, h3, h4 {
+    margin: 0 0 6px 0;
+    font-weight: 600;
+    color: #1f2937;
   }
-  .kpi h4 { margin: 0 0 4px 0; font-size: 12px; color: #374151; }
-  .kpi .v { font-size: 18px; font-weight: 700; }
-  .kpi .ly { font-size: 11px; color: #6b7280; }
-  .card {
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    padding: 10px;
-    margin-top: 10px;
-    /* tratar la card como bloque atómico: moverla entera si no cabe en la página */
-    display: inline-block;
-    vertical-align: top;
-    width: 100%;
-    page-break-inside: avoid;
-    break-inside: avoid;
-    -webkit-column-break-inside: avoid;
-    -webkit-page-break-inside: avoid;
+
+  h2 { font-size: 18px; }
+  h3 { font-size: 14px; }
+  h4 { font-size: 11.5px; }
+
+  .muted {
+    color: var(--muted);
+    font-size: 11.5px;
   }
-  
-  .card h3 { font-size: 14px; margin: 0 0 6px 0; color: #1f2937; }
-  /* asegurar que si por alguna razón hay tabla sin wrapper, el título también se considera */
-  .card > h3 + .table,
-  .card > .avoid-break-block { display: block; width: 100%; }
-  
-  img.chart { width: 100%; height: auto; border: 1px solid #e5e7eb; border-radius: 8px; display: block; }
-  .chart-portal { width: 100% !important; margin: 0 auto; }
-  .table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
-  .table th, .table td { border: 1px solid #e5e7eb; padding: 6px 8px; }
-  .table th { background: #f3f4f6; text-align: left; }
-  
-  /* Evitar que una tabla se corte: envolver la tabla en un contenedor con esta clase.
-     Tratamos el contenedor como inline-block para forzar que el conjunto se mueva a la
-     siguiente página si no cabe entero. Si la tabla es más alta que una página, seguirá cortándose. */
-  .avoid-break-block {
-    display: inline-block;
-    vertical-align: top;
-    width: 100%;
-    page-break-inside: avoid;
-    break-inside: avoid;
-    -webkit-column-break-inside: avoid;
-    -webkit-page-break-inside: avoid;
-    /* asegurar que el contenido pueda desbordar visualmente si es necesario */
-    overflow: visible;
-    white-space: normal;
+
+  /* ---------- HEADER ---------- */
+  .header {
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 10px;
+    margin-bottom: 14px;
   }
-  /* garantizar que la tabla mantenga su comportamiento y repita thead en impresión */
-  .avoid-break-block table {
+
+  .header-table {
     width: 100%;
     border-collapse: collapse;
-    display: table;
   }
 
-  /* reglas para que wkhtmltopdf/Chromium repitan encabezados y eviten cortes dentro de filas */
-  thead { display: table-header-group; }
-  tfoot { display: table-footer-group; }
-  tbody { display: table-row-group; }
-  .table tbody tr { page-break-inside: avoid; break-inside: avoid; -webkit-column-break-inside: avoid; }
+  .header-table td {
+    vertical-align: top;
+  }
 
-  .comments { white-space: pre-wrap; min-height: 60px; }
+  .logo {
+    height: 110px;
+  }
+
+  /* ---------- KPIs ---------- */
+  .kpis {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 10px;
+    margin: 10px 0 14px 0;
+  }
+
+  .kpi {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    background: linear-gradient(180deg, #ffffff, var(--bg-soft));
+  }
+
+  .kpi h4 {
+    color: var(--muted);
+    font-weight: 500;
+  }
+
+  .kpi .v {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--primary);
+  }
+
+  .kpi .ly {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  /* ---------- CARDS ---------- */
+  .card {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 12px 14px;
+    margin-top: 12px;
+    background: #ffffff;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .card h3 {
+    margin-bottom: 8px;
+  }
+
+  /* ---------- TABLES ---------- */
+  .table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11.5px;
+  }
+
+  .table th,
+  .table td {
+    border: 1px solid var(--border);
+    padding: 6px 8px;
+  }
+
+  .table th {
+    background: var(--primary-soft);
+    font-weight: 600;
+    color: #1f2937;
+    text-align: left;
+  }
+
+  .table td {
+    background: #ffffff;
+  }
+
+  .table tbody tr:nth-child(even) td {
+    background: #fafafa;
+  }
+
+  /* ---------- CHARTS ---------- */
+  img.chart {
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+
+  /* ---------- COMMENTS ---------- */
+  .comments {
+    white-space: pre-wrap;
+    min-height: 70px;
+    background: var(--bg-soft);
+    border: 1px dashed var(--border);
+    border-radius: 10px;
+    padding: 10px;
+    font-size: 11.5px;
+  }
+
+  /* ---------- PAGE BREAK CONTROL ---------- */
+  .avoid-break-block {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  thead { display: table-header-group; }
+  tbody tr { page-break-inside: avoid; }
 </style>
 </head>
 <body>
