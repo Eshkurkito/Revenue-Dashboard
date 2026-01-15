@@ -46,15 +46,26 @@
   .table th, .table td { border: 1px solid #e5e7eb; padding: 6px 8px; }
   .table th { background: #f3f4f6; text-align: left; }
 
-  /* Evitar que una tabla se corte: envolver la tabla en un contenedor con esta clase
-     o aplicar a .card (ya incluido). Si la tabla es más larga que una página, se dividirá. */
+  /* Evitar que una tabla se corte: envolver la tabla en un contenedor con esta clase.
+     Tratamos el contenedor como inline-block para forzar que el conjunto se mueva a la
+     siguiente página si no cabe entero. Si la tabla es más alta que una página, seguirá cortándose. */
   .avoid-break-block {
-    display: block;
+    display: inline-block;
+    vertical-align: top;
     width: 100%;
     page-break-inside: avoid;
     break-inside: avoid;
     -webkit-column-break-inside: avoid;
     -webkit-page-break-inside: avoid;
+    /* asegurar que el contenido pueda desbordar visualmente si es necesario */
+    overflow: visible;
+    white-space: normal;
+  }
+  /* garantizar que la tabla mantenga su comportamiento y repita thead en impresión */
+  .avoid-break-block table {
+    width: 100%;
+    border-collapse: collapse;
+    display: table;
   }
 
   /* reglas para que wkhtmltopdf/Chromium repitan encabezados y eviten cortes dentro de filas */
@@ -64,7 +75,6 @@
   .table tbody tr { page-break-inside: avoid; break-inside: avoid; -webkit-column-break-inside: avoid; }
 
   .comments { white-space: pre-wrap; min-height: 60px; }
-  .avoid-break-block { display: block; width: 100%; }
 </style>
 </head>
 <body>
