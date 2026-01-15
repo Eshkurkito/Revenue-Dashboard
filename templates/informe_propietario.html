@@ -135,16 +135,18 @@
   </table>
 
   <div class="card">
-    <h3>Indicadores operativos</h3>
-    <table class="table">
-      <thead><tr><th>Estancia media (LOS)</th><th>Antelación media</th></tr></thead>
-      <tbody><tr><td>{{ los_avg }} días</td><td>{{ lead_avg }} días</td></tr></tbody>
-    </table>
-  </div>
-
-  <div class="card">
-    <h3>Reservas por portal (periodo)</h3>
     <div class="avoid-break-block">
+      <h3>Indicadores operativos</h3>
+      <table class="table">
+        <thead><tr><th>Estancia media (LOS)</th><th>Antelación media</th></tr></thead>
+        <tbody><tr><td>{{ los_avg }} días</td><td>{{ lead_avg }} días</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+  
+  <div class="card">
+    <div class="avoid-break-block">
+      <h3>Reservas por portal (periodo)</h3>
       <table class="table">
         <thead><tr><th>Portal</th><th>Reservas</th></tr></thead>
         <tbody>
@@ -155,74 +157,56 @@
       </table>
     </div>
   </div>
-
+  
   <div class="card">
     <h3>ADR por {{ gran_label }} (ACT vs LY)</h3>
     <img class="chart" src="data:image/png;base64,{{ chart_adr }}" alt="ADR">
   </div>
 
-  <div class="card">
-    <h3>Resumen ACT vs LY</h3>
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Serie</th>
-          <th>Periodo</th>
-          <th>Ingresos (€)</th>
-          <th>ADR (€)</th>
-          <th>Noches</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr><td>ACT</td><td>{{ period_act }}</td><td>€{{ act.ingresos }}</td><td>€{{ act.adr }}</td><td>{{ act.noches }}</td></tr>
-        <tr><td>LY</td><td>{{ period_ly }}</td><td>€{{ ly.ingresos }}</td><td>€{{ ly.adr }}</td><td>{{ ly.noches }}</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <!-- Tabla general: Desglose mensual de TODOS los alojamientos (primera) -->
   <div class="card avoid-break-block" style="margin-top:4mm;">
-    <h3>Desglose mensual</h3>
-    <table class="table" style="width:100%; border-collapse:collapse; font-family: Arial, sans-serif; font-size:12px;">
-     <thead>
-       <tr style="background:#f2f2f2;">
-         <th style="text-align:left; padding:6px; border:1px solid #ddd;">Mes</th>
-         <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ingresos (ACT)</th>
-         <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ingresos (LY)</th>
-         <th style="text-align:right; padding:6px; border:1px solid #ddd;">Previsión</th>
-         <th style="text-align:right; padding:6px; border:1px solid #ddd;">ADR (ACT)</th>
-         <th style="text-align:right; padding:6px; border:1px solid #ddd;">ADR (LY)</th>
-         <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ocupación (ACT)</th>
-         <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ocupación (LY)</th>
-         <th style="text-align:right; padding:6px; border:1px solid #ddd;">Noches (ACT)</th>
-         <th style="text-align:right; padding:6px; border:1px solid #ddd;">Noches (LY)</th>
-       </tr>
-     </thead>
-     <tbody>
-       {% for r in monthly_rows %}
-       <tr>
-         <td style="padding:6px; border:1px solid #ddd;">{{ r.mes }}</td>
-         <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ing_act }}</td>
-         <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ing_ly }}</td>
-         <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.forecast }}</td>
-         <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.adr_act }}</td>
-         <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.adr_ly }}</td>
-         <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ocup_act }}</td>
-         <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ocup_ly }}</td>
-         <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.nights_act }}</td>
-         <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.nights_ly }}</td>
-       </tr>
-       {% endfor %}
-     </tbody>
-    </table>
+    <div class="avoid-break-block">
+      <h3>Desglose mensual</h3>
+      <table class="table" style="width:100%; border-collapse:collapse; font-family: Arial, sans-serif; font-size:12px;">
+       <thead>
+         <tr style="background:#f2f2f2;">
+           <th style="text-align:left; padding:6px; border:1px solid #ddd;">Mes</th>
+           <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ingresos (ACT)</th>
+           <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ingresos (LY)</th>
+           <th style="text-align:right; padding:6px; border:1px solid #ddd;">Previsión</th>
+           <th style="text-align:right; padding:6px; border:1px solid #ddd;">ADR (ACT)</th>
+           <th style="text-align:right; padding:6px; border:1px solid #ddd;">ADR (LY)</th>
+           <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ocupación (ACT)</th>
+           <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ocupación (LY)</th>
+           <th style="text-align:right; padding:6px; border:1px solid #ddd;">Noches (ACT)</th>
+           <th style="text-align:right; padding:6px; border:1px solid #ddd;">Noches (LY)</th>
+         </tr>
+       </thead>
+       <tbody>
+         {% for r in monthly_rows %}
+         <tr>
+           <td style="padding:6px; border:1px solid #ddd;">{{ r.mes }}</td>
+           <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ing_act }}</td>
+           <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ing_ly }}</td>
+           <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.forecast }}</td>
+           <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.adr_act }}</td>
+           <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.adr_ly }}</td>
+           <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ocup_act }}</td>
+           <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ocup_ly }}</td>
+           <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.nights_act }}</td>
+           <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.nights_ly }}</td>
+         </tr>
+         {% endfor %}
+       </tbody>
+      </table>
+    </div>
   </div>
 
   {# Si se solicitaron varios pisos, mostrar un desglose mensual por cada piso #}
    {% if monthly_by_property %}
      {% for mb in monthly_by_property %}
        <div class="card">
-         <h3>Desglose mensual — {{ mb.apto }}</h3>
          <div class="avoid-break-block">
+           <h3>Desglose mensual — {{ mb.apto }}</h3>
            <table style="width:100%; border-collapse:collapse; font-family: Arial, sans-serif; font-size:12px;">
             <thead>
               <tr style="background:#f2f2f2;">
@@ -262,8 +246,8 @@
 
   <!-- Tabla unificada: Reservas por portal + Ingresos + Share -->
   <div class="card">
-    <h3>Reservas por portal (periodo)</h3>
     <div class="avoid-break-block">
+      <h3>Reservas por portal (periodo)</h3>
       <table class="table">
         <thead>
           <tr>
@@ -290,8 +274,8 @@
   <!-- NUEVO: RevPAR y Top months -->
   <div class="card" style="display:flex; gap:12px;">
     <div style="flex:1;">
-      <h3>RevPAR (€/noche disponible)</h3>
       <div class="avoid-break-block">
+        <h3>RevPAR (€/noche disponible)</h3>
         <table class="table" style="width:100%;">
           <thead><tr><th>ACT</th><th>LY</th></tr></thead>
           <tbody><tr><td>{{ revpar.act }}</td><td>{{ revpar.ly }}</td></tr></tbody>
@@ -299,8 +283,8 @@
       </div>
     </div>
     <div style="flex:1;">
-      <h3>Top meses (ingresos)</h3>
       <div class="avoid-break-block">
+        <h3>Top meses (ingresos)</h3>
         <table class="table">
           <thead><tr><th>Mes</th><th>Ingresos</th></tr></thead>
           <tbody>
@@ -315,21 +299,23 @@
 
   <!-- NUEVO: Ocupación por día de la semana -->
   <div class="card">
-    <h3>Ocupación media por día de la semana</h3>
-    <table class="table">
-      <thead><tr><th>Día</th><th>Ocupación</th></tr></thead>
-      <tbody>
-        {% for w in weekday_rows %}
-        <tr><td>{{ w.day }}</td><td style="text-align:right">{{ w.pct }}</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="avoid-break-block">
+      <h3>Ocupación media por día de la semana</h3>
+      <table class="table">
+        <thead><tr><th>Día</th><th>Ocupación</th></tr></thead>
+        <tbody>
+          {% for w in weekday_rows %}
+          <tr><td>{{ w.day }}</td><td style="text-align:right">{{ w.pct }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
 
   <!-- NUEVO: LOS y Antelación (buckets) -->
   <div class="card">
-    <h3>Estancia media y antelación (buckets)</h3>
     <div class="avoid-break-block">
+      <h3>Estancia media y antelación (buckets)</h3>
       <table class="table">
        <thead><tr><th>Métrica</th><th>Valor</th></tr></thead>
        <tbody>
