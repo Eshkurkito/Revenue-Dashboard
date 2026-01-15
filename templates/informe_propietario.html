@@ -33,19 +33,27 @@
     border-radius: 10px;
     padding: 10px;
     margin-top: 10px;
-    /* evitar cortar la card (incluye tablas pequeñas) */
+    /* tratar la card como bloque atómico: moverla entera si no cabe en la página */
+    display: inline-block;
+    vertical-align: top;
+    width: 100%;
     page-break-inside: avoid;
     break-inside: avoid;
     -webkit-column-break-inside: avoid;
     -webkit-page-break-inside: avoid;
   }
+  
   .card h3 { font-size: 14px; margin: 0 0 6px 0; color: #1f2937; }
+  /* asegurar que si por alguna razón hay tabla sin wrapper, el título también se considera */
+  .card > h3 + .table,
+  .card > .avoid-break-block { display: block; width: 100%; }
+  
   img.chart { width: 100%; height: auto; border: 1px solid #e5e7eb; border-radius: 8px; display: block; }
   .chart-portal { width: 100% !important; margin: 0 auto; }
   .table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
   .table th, .table td { border: 1px solid #e5e7eb; padding: 6px 8px; }
   .table th { background: #f3f4f6; text-align: left; }
-
+  
   /* Evitar que una tabla se corte: envolver la tabla en un contenedor con esta clase.
      Tratamos el contenedor como inline-block para forzar que el conjunto se mueva a la
      siguiente página si no cabe entero. Si la tabla es más alta que una página, seguirá cortándose. */
