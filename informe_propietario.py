@@ -601,21 +601,20 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
         actp = (act.assign(Sem=act["Fecha"].dt.to_period("W-MON").dt.start_time)
                   .groupby("Sem", as_index=False)
                   .agg({"Ingresos":"sum","Noches":"sum"}))
-        actp["ADR"] = np.where(
-            actp["Noches"].to_numpy() > 0,
-            actp["Ingresos"].to_numpy() / actp["Noches"].to_numpy(),
-            0.0
-        )
+        # safe division: evitar ZeroDivisionError
+        _a_noches = actp["Noches"].to_numpy(dtype=float)
+        _a_ing = actp["Ingresos"].to_numpy(dtype=float)
+        _a_den = np.where(_a_noches == 0, 1.0, _a_noches)
+        actp["ADR"] = np.where(_a_noches > 0, _a_ing / _a_den, 0.0)
         actp = actp.rename(columns={"Sem":"Fecha"})
-
+ 
         lyp = (ly.assign(Sem=ly["Fecha"].dt.to_period("W-MON").dt.start_time)
                  .groupby("Sem", as_index=False)
                  .agg({"Ingresos":"sum","Noches":"sum"}))
-        lyp["ADR"] = np.where(
-            lyp["Noches"].to_numpy() > 0,
-            lyp["Ingresos"].to_numpy() / lyp["Noches"].to_numpy(),
-            0.0
-        )
+        _l_noches = lyp["Noches"].to_numpy(dtype=float)
+        _l_ing = lyp["Ingresos"].to_numpy(dtype=float)
+        _l_den = np.where(_l_noches == 0, 1.0, _l_noches)
+        lyp["ADR"] = np.where(_l_noches > 0, _l_ing / _l_den, 0.0)
         lyp = lyp.rename(columns={"Sem":"Fecha"})
     else:
         actp, lyp = act.copy(), ly.copy()
