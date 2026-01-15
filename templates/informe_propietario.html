@@ -165,38 +165,31 @@
   <div class="card avoid-break-block" style="margin-top:4mm;">
     <div class="avoid-break-block">
       <h3>Desglose mensual</h3>
-      <table class="table" style="width:100%; border-collapse:collapse; font-family: Arial, sans-serif; font-size:12px;">
-       <thead>
-         <tr style="background:#f2f2f2;">
-           <th style="text-align:left; padding:6px; border:1px solid #ddd;">Mes</th>
-           <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ingresos (ACT)</th>
-           <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ingresos (LY)</th>
-           <th style="text-align:right; padding:6px; border:1px solid #ddd;">Previsión</th>
-           <th style="text-align:right; padding:6px; border:1px solid #ddd;">ADR (ACT)</th>
-           <th style="text-align:right; padding:6px; border:1px solid #ddd;">ADR (LY)</th>
-           <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ocupación (ACT)</th>
-           <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ocupación (LY)</th>
-           <th style="text-align:right; padding:6px; border:1px solid #ddd;">Noches (ACT)</th>
-           <th style="text-align:right; padding:6px; border:1px solid #ddd;">Noches (LY)</th>
-         </tr>
-       </thead>
-       <tbody>
-         {% for r in monthly_rows %}
-         <tr>
-           <td style="padding:6px; border:1px solid #ddd;">{{ r.mes }}</td>
-           <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ing_act }}</td>
-           <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ing_ly }}</td>
-           <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.forecast }}</td>
-           <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.adr_act }}</td>
-           <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.adr_ly }}</td>
-           <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ocup_act }}</td>
-           <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ocup_ly }}</td>
-           <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.nights_act }}</td>
-           <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.nights_ly }}</td>
-         </tr>
-         {% endfor %}
-       </tbody>
-      </table>
+      {% set monthly_headers = [
+        {'label':'Mes'},
+        {'label':'Ingresos (ACT)','align':'right'},
+        {'label':'Ingresos (LY)','align':'right'},
+        {'label':'Previsión','align':'right'},
+        {'label':'ADR (ACT)','align':'right'},
+        {'label':'ADR (LY)','align':'right'},
+        {'label':'Ocupación (ACT)','align':'right'},
+        {'label':'Ocupación (LY)','align':'right'},
+        {'label':'Noches (ACT)','align':'right'},
+        {'label':'Noches (LY)','align':'right'}
+      ] %}
+      {% set monthly_cols = [
+        {'key':'mes'},
+        {'key':'ing_act','align':'right'},
+        {'key':'ing_ly','align':'right'},
+        {'key':'forecast','align':'right'},
+        {'key':'adr_act','align':'right'},
+        {'key':'adr_ly','align':'right'},
+        {'key':'ocup_act','align':'right'},
+        {'key':'ocup_ly','align':'right'},
+        {'key':'nights_act','align':'right'},
+        {'key':'nights_ly','align':'right'}
+      ] %}
+      {{ paginated_table(monthly_headers, monthly_rows, monthly_cols, rows_per_page=20, table_classes='table') }}
     </div>
   </div>
 
@@ -206,38 +199,9 @@
        <div class="card">
          <div class="avoid-break-block">
            <h3>Desglose mensual — {{ mb.apto }}</h3>
-           <table style="width:100%; border-collapse:collapse; font-family: Arial, sans-serif; font-size:12px;">
-            <thead>
-              <tr style="background:#ffffff;">
-                <th style="text-align:left; padding:6px; border:1px solid #ddd;">Mes</th>
-                <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ingresos (ACT)</th>
-                <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ingresos (LY)</th>
-                <th style="text-align:right; padding:6px; border:1px solid #ddd;">Previsión</th>
-                <th style="text-align:right; padding:6px; border:1px solid #ddd;">ADR (ACT)</th>
-                <th style="text-align:right; padding:6px; border:1px solid #ddd;">ADR (LY)</th>
-                <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ocupación (ACT)</th>
-                <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ocupación (LY)</th>
-                <th style="text-align:right; padding:6px; border:1px solid #ddd;">Noches (ACT)</th>
-                <th style="text-align:right; padding:6px; border:1px solid #ddd;">Noches (LY)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for r in mb.monthly_rows %}
-              <tr>
-                <td style="padding:6px; border:1px solid #ddd;">{{ r.mes }}</td>
-                <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ing_act }}</td>
-                <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ing_ly }}</td>
-                <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.forecast }}</td>
-                <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.adr_act }}</td>
-                <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.adr_ly }}</td>
-                <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ocup_act }}</td>
-                <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ocup_ly }}</td>
-                <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.nights_act }}</td>
-                <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.nights_ly }}</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+           {% set mb_headers = monthly_headers %}
+           {% set mb_cols = monthly_cols %}
+           {{ paginated_table(mb_headers, mb.monthly_rows, mb_cols, rows_per_page=20, table_classes='table') }}
          </div>
        </div>
      {% endfor %}
