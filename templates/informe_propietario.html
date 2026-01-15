@@ -27,10 +27,11 @@
  
    /* .sheet stays as content container with small inner padding */
    .sheet{
-     width: 210mm;
+     width: 100%;
+     max-width: 210mm;
      min-height: 297mm;
      margin: 0 auto;
-     padding: 3mm;
+     padding: 4mm 8mm; /* menos margen lateral para estirar contenido */
      box-sizing: border-box;
      background: transparent;
    }
@@ -60,11 +61,12 @@
   .logo{ height:100px; }
 
   /* KPIs */
-  .kpis{ width:100%; border-collapse:separate; border-spacing:12px; margin:12px 0 18px; }
-  .kpi{
+  .kpis{ width:100%; border-collapse:separate; border-spacing:12px; margin:10px 0 16px; }
+  .kpis td { width:33.333%; vertical-align:top; } /* repartir KPI en 3 columnas */
+   .kpi{
     background: linear-gradient(180deg, var(--card-bg), #fbfcfd);
-    border-radius:14px;
-    padding:16px 18px;   /* mayor padding */
+    border-radius:12px;
+    padding:12px 14px;   /* reducir padding para ganar espacio útil */
     box-shadow: 0 6px 18px rgba(15,23,36,0.05);
     border: 1px solid rgba(17,24,39,0.04);
   }
@@ -75,9 +77,9 @@
   /* cards */
   .card{
     background: var(--card-bg);
-    border-radius:14px;
-    padding:16px;        /* mayor padding */
-    margin-top:14px;
+    border-radius:12px;
+    padding:12px;        /* reducir padding para usar más ancho */
+    margin-top:10px;
     border: 1px solid var(--border);
     box-shadow: 0 10px 30px rgba(15,23,36,0.04);
     page-break-inside: avoid;
