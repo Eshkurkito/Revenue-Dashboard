@@ -4,7 +4,26 @@
 <meta charset="utf-8">
 <title>Informe de propietario · {{ apto or '—' }}</title>
 <style>
-  * { box-sizing: border-box; }
+  /* permitir fondo full-bleed en PDF */
+  @page { margin: 0; }
+
+  /* asegurar el fondo cubre todo el área de la página */
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: var(--bg);
+  }
+
+  /* mantener espacio interior visible desde el borde de la página */
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    color: var(--text);
+    /* padding interior (separación desde el borde del documento) */
+    padding: 20px;
+    font-size: 12.5px;
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+  }
 
   :root{
     --bg: #f7f9fb;
@@ -15,17 +34,6 @@
     --muted: #6b7280;
     --border: #e6eef3;
     --text: #0f1724;
-  }
-
-  body{
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-    color: var(--text);
-    background: var(--bg);
-    margin: 0;
-    padding: 20px;
-    font-size: 12.5px;
-    -webkit-font-smoothing:antialiased;
-    -moz-osx-font-smoothing:grayscale;
   }
 
   h1,h2,h3,h4{ margin:0 0 8px 0; font-weight:600; color: #122029; }
@@ -66,6 +74,25 @@
     break-inside: avoid;
   }
   .card h3{ margin-bottom:8px; color:#122029; }
+
+  /* ensure title + table have breathing room from the card edge */
+  .card > .avoid-break-block,
+  .card > h3 + table,
+  .card .avoid-break-block > table {
+    margin-top: 6px;
+    padding-top: 6px;
+  }
+
+  /* make table sit visually inside the card with rounded corners */
+  .card table {
+    border-collapse: separate !important;
+    border-spacing: 0;
+    border-radius: 8px;
+    overflow: hidden;
+    background: transparent;
+  }
+  .card table thead th:first-child { border-top-left-radius: 8px; }
+  .card table thead th:last-child  { border-top-right-radius: 8px; }
 
   /* tables (softer, premium) */
   .table{
