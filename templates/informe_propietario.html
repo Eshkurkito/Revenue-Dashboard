@@ -33,6 +33,11 @@
     border-radius: 10px;
     padding: 10px;
     margin-top: 10px;
+    /* evitar cortar la card (incluye tablas pequeñas) */
+    page-break-inside: avoid;
+    break-inside: avoid;
+    -webkit-column-break-inside: avoid;
+    -webkit-page-break-inside: avoid;
   }
   .card h3 { font-size: 14px; margin: 0 0 6px 0; color: #1f2937; }
   img.chart { width: 100%; height: auto; border: 1px solid #e5e7eb; border-radius: 8px; display: block; }
@@ -40,6 +45,24 @@
   .table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
   .table th, .table td { border: 1px solid #e5e7eb; padding: 6px 8px; }
   .table th { background: #f3f4f6; text-align: left; }
+
+  /* Evitar que una tabla se corte: envolver la tabla en un contenedor con esta clase
+     o aplicar a .card (ya incluido). Si la tabla es más larga que una página, se dividirá. */
+  .avoid-break-block {
+    display: block;
+    width: 100%;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    -webkit-column-break-inside: avoid;
+    -webkit-page-break-inside: avoid;
+  }
+
+  /* reglas para que wkhtmltopdf/Chromium repitan encabezados y eviten cortes dentro de filas */
+  thead { display: table-header-group; }
+  tfoot { display: table-footer-group; }
+  tbody { display: table-row-group; }
+  .table tbody tr { page-break-inside: avoid; break-inside: avoid; -webkit-column-break-inside: avoid; }
+
   .comments { white-space: pre-wrap; min-height: 60px; }
   .avoid-break-block { display: block; width: 100%; }
 </style>
