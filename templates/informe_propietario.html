@@ -54,14 +54,15 @@
   .table th { background: #f3f4f6; text-align: left; font-weight:600; }
 
   /* Evitar cortes dentro de tablas y repetir encabezados en PDF */
-  .avoid-break-block {
-    display: block;
+  .avoid-break-block{
+    display: table;               /* bloque atómico para impresión */
     width: 100%;
     page-break-inside: avoid;
     break-inside: avoid;
     -webkit-column-break-inside: avoid;
     -webkit-page-break-inside: avoid;
   }
+  .avoid-break-block > h3{ display: table-caption; caption-side: top; page-break-after: avoid; }
   thead { display: table-header-group; }
   tfoot { display: table-footer-group; }
   tbody { display: table-row-group; }
@@ -76,9 +77,10 @@
 </style>
 </head>
 <body>
-  {%- macro paginated_table(headers, rows, cols, rows_per_page=20, table_classes='table') -%}
+  {%- macro paginated_block(title, headers, rows, cols, rows_per_page=20, table_classes='table', repeat_title=false) -%}
     {%- for start in range(0, rows|length, rows_per_page) -%}
       <div class="avoid-break-block" style="margin-bottom:6px;">
+        {%- if repeat_title or loop.first -%}<h3>{{ title }}</h3>{%- endif -%}
         <table class="{{ table_classes }}" style="width:100%; border-collapse:collapse;">
           <thead>
             <tr>
@@ -192,49 +194,16 @@
   </div>
 
   <div class="card avoid-break-block" style="margin-top:4mm;">
-    <div class="avoid-break-block">
-      <h3>Desglose mensual</h3>
-      {% set monthly_headers = [
-        {'label':'Mes'},
-        {'label':'Ingresos (ACT)','align':'right'},
-        {'label':'Ingresos (LY)','align':'right'},
-        {'label':'Previsión','align':'right'},
-        {'label':'ADR (ACT)','align':'right'},
-        {'label':'ADR (LY)','align':'right'},
-        {'label':'Ocupación (ACT)','align':'right'},
-        {'label':'Ocupación (LY)','align':'right'},
-        {'label':'Noches (ACT)','align':'right'},
-        {'label':'Noches (LY)','align':'right'}
-      ] %}
-      {% set monthly_cols = [
-        {'key':'mes'},
-        {'key':'ing_act','align':'right'},
-        {'key':'ing_ly','align':'right'},
-        {'key':'forecast','align':'right'},
-        {'key':'adr_act','align':'right'},
-        {'key':'adr_ly','align':'right'},
-        {'key':'ocup_act','align':'right'},
-        {'key':'ocup_ly','align':'right'},
-        {'key':'nights_act','align':'right'},
-        {'key':'nights_ly','align':'right'}
-      ] %}
-      {{ paginated_table(monthly_headers, monthly_rows, monthly_cols, rows_per_page=20, table_classes='table') }}
-    </div>
+    {{ paginated_block('Desglose mensual', monthly_headers, monthly_rows, monthly_cols, rows_per_page=20, table_classes='table', repeat_title=false) }}
   </div>
 
-  {# Si se solicitaron varios pisos, mostrar un desglose mensual por cada piso #}
-   {% if monthly_by_property %}
-     {% for mb in monthly_by_property %}
-       <div class="card">
-         <div class="avoid-break-block">
-           <h3>Desglose mensual — {{ mb.apto }}</h3>
-           {% set mb_headers = monthly_headers %}
-           {% set mb_cols = monthly_cols %}
-           {{ paginated_table(mb_headers, mb.monthly_rows, mb_cols, rows_per_page=20, table_classes='table') }}
-         </div>
-       </div>
-     {% endfor %}
-   {% endif %}
+  {% if monthly_by_property %}
+    {% for mb in monthly_by_property %}
+      <div class="card">
+        {{ paginated_block('Desglose mensual — ' ~ mb.apto, monthly_headers, mb.monthly_rows, monthly_cols, rows_per_page=20, table_classes='table', repeat_title=false) }}
+      </div>
+    {% endfor %}
+  {% endif %}
 
   <!-- Tabla unificada: Reservas por portal + Ingresos + Share -->
   <div class="card">
