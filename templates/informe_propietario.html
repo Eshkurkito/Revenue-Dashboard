@@ -92,7 +92,8 @@
               <tr>
                 {%- for c in cols -%}
                   <td style="text-align:{{ c.align|default('left') }}; padding:6px; border:1px solid #e5e7eb;">
-                    {{ attribute(r, c.key) }}
+-                    {{ attribute(r, c.key) }}
++                    {{ r[c.key] }}
                   </td>
                 {%- endfor -%}
               </tr>
