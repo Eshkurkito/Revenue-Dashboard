@@ -597,19 +597,24 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
         actp = (act.assign(Sem=act["Fecha"].dt.to_period("W-MON").dt.start_time)
                   .groupby("Sem", as_index=False)
                   .agg({"Ingresos":"sum","Noches":"sum"}))
-        actp["ADR"] = np.where(actp["Noches"] > 0, actp["Ingresos"]/actp["Noches"], 0.0)
+        actp["ADR"] = np.where(
+            actp["Noches"].to_numpy() > 0,
+            actp["Ingresos"].to_numpy() / actp["Noches"].to_numpy(),
+            0.0
+        )
         actp = actp.rename(columns={"Sem":"Fecha"})
 
         lyp = (ly.assign(Sem=ly["Fecha"].dt.to_period("W-MON").dt.start_time)
                  .groupby("Sem", as_index=False)
                  .agg({"Ingresos":"sum","Noches":"sum"}))
-        lyp["ADR"] = np.where(lyp["Noches"] > 0, lyp["Ingresos"]/lyp["Noches"], 0.0)
+        lyp["ADR"] = np.where(
+            lyp["Noches"].to_numpy() > 0,
+            lyp["Ingresos"].to_numpy() / lyp["Noches"].to_numpy(),
+            0.0
+        )
         lyp = lyp.rename(columns={"Sem":"Fecha"})
     else:
-        actp = act[["Fecha","ADR"]].copy()
-        lyp  = ly[["Fecha","ADR"]].copy()
-
-    # Alinear LY al año de ACT
+        actp, lyp = act.copy(), ly.copy()
     lyp = lyp.copy()
     lyp["Fecha"] = lyp["Fecha"] + pd.DateOffset(years=1)
 
