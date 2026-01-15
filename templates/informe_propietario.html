@@ -16,31 +16,24 @@
     --text: #0f1724;
   }
 
-  /* forzar impresión exacta de colores y permitir fondo full-bleed */
+  /* forzar impresión exacta de colores y fondo full-bleed aplicado al body */
   html, body {
     height: 100%;
     margin: 0;
-    background: transparent;
+    background: var(--bg);              /* fondo aplicado a toda la página */
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-
-  .full-bleed-bg{
-    position: fixed;
-    inset: 0;
-    background: var(--bg);
-    z-index: -1000;
-  }
-
-  /* .sheet stays as content container with small inner padding */
-  .sheet{
-    width: 210mm;
-    min-height: 297mm;
-    margin: 0 auto;
-    padding: 3mm;           /* reducir padding para aprovechar más ancho/alto */
-    box-sizing: border-box;
-    background: transparent;
-  }
+ 
+   /* .sheet stays as content container with small inner padding */
+   .sheet{
+     width: 210mm;
+     min-height: 297mm;
+     margin: 0 auto;
+     padding: 3mm;           /* reducir padding para aprovechar más ancho/alto */
+     box-sizing: border-box;
+     background: transparent;
+   }
   
   /* restablecer body padding a 0 (el espacio interior lo da .sheet) */
   body {
