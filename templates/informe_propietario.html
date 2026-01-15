@@ -76,6 +76,35 @@
 </style>
 </head>
 <body>
+  {%- macro paginated_table(headers, rows, cols, rows_per_page=20, table_classes='table') -%}
+    {%- for start in range(0, rows|length, rows_per_page) -%}
+      <div class="avoid-break-block" style="margin-bottom:6px;">
+        <table class="{{ table_classes }}" style="width:100%; border-collapse:collapse;">
+          <thead>
+            <tr>
+              {%- for h in headers -%}
+                <th style="text-align:{{ h.align|default('left') }}; padding:6px; border:1px solid #e5e7eb;">{{ h.label }}</th>
+              {%- endfor -%}
+            </tr>
+          </thead>
+          <tbody>
+            {%- for r in rows[start:start+rows_per_page] -%}
+              <tr>
+                {%- for c in cols -%}
+                  <td style="text-align:{{ c.align|default('left') }}; padding:6px; border:1px solid #e5e7eb;">
+                    {{ attribute(r, c.key) }}
+                  </td>
+                {%- endfor -%}
+              </tr>
+            {%- endfor -%}
+          </tbody>
+        </table>
+      </div>
+      {%- if start + rows_per_page < rows|length -%}
+        <div style="page-break-after: always;"></div>
+      {%- endif -%}
+    {%- endfor -%}
+  {%- endmacro -%}
   <!-- full-bleed removed (background now white) -->
   <div class="sheet">
   <div class="header">
