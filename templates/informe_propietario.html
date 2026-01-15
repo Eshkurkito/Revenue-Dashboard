@@ -4,9 +4,7 @@
 <meta charset="utf-8">
 <title>Informe de propietario · {{ apto or '—' }}</title>
 <style>
-  /* Página A4 con márgenes muy reducidos (si la impresora lo permite) */
-  @page { size: A4; margin: 3mm; }
-
+  @page { size: A4; margin: 0; }
   :root{
     --bg: #f7f9fb;
     --card-bg: #ffffff;
@@ -18,21 +16,30 @@
     --text: #0f1724;
   }
 
-  /* aplicar el fondo a todo el documento para ocupar la página */
+  /* forzar impresión exacta de colores y permitir fondo full-bleed */
   html, body {
     height: 100%;
     margin: 0;
-    background: var(--bg);
+    background: transparent;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
-  /* mantener el contenido dentro de una "hoja" A4 con padding muy justo */
+  .full-bleed-bg{
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    z-index: -1000;
+  }
+
+  /* .sheet stays as content container with small inner padding */
   .sheet{
     width: 210mm;
     min-height: 297mm;
     margin: 0 auto;
-    padding: 6mm;          /* márgenes interiores pequeños */
+    padding: 6mm;
     box-sizing: border-box;
-    background: transparent; /* fondo ya aplicado en body para full-bleed */
+    background: transparent;
   }
 
   /* restablecer body padding a 0 (el espacio interior lo da .sheet) */
@@ -171,6 +178,7 @@
 </style>
 </head>
 <body>
+  <div class="full-bleed-bg"></div>
   <div class="sheet">
   <div class="header">
     <table class="header-table">
