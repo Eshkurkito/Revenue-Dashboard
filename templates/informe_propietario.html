@@ -20,21 +20,21 @@
   html, body {
     height: 100%;
     margin: 0;
-    background: var(--bg); /* ahora blanco */
+    background: var(--bg);
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
- 
-   /* .sheet stays as content container with small inner padding */
-   .sheet{
-     width: 100%;
-     max-width: 210mm;
-     min-height: 297mm;
-     margin: 0 auto;
-     padding: 4mm 8mm; /* menos margen lateral para estirar contenido */
-     box-sizing: border-box;
-     background: transparent;
-   }
+
+  /* .sheet stays as content container with small inner padding */
+  .sheet{
+    width: 100vw;
+    max-width: none;
+    min-height: 297mm;
+    margin: 0;
+    padding: 2mm 4mm;
+    box-sizing: border-box;
+    background: transparent;
+  }
   
   /* restablecer body padding a 0 (el espacio interior lo da .sheet) */
   body {
@@ -61,8 +61,8 @@
   .logo{ height:100px; }
 
   /* KPIs */
-  .kpis{ width:100%; border-collapse:separate; border-spacing:12px; margin:10px 0 16px; }
-  .kpis td { width:33.333%; vertical-align:top; } /* repartir KPI en 3 columnas */
+  .kpis{ width:100%; border-collapse:separate; border-spacing:10px; margin:8px 0 12px; }
+  .kpis td { width:33.333%; vertical-align:top; padding:0 6px; } /* repartir KPI en 3 columnas */
    .kpi{
     background: linear-gradient(180deg, var(--card-bg), #fbfcfd);
     border-radius:12px;
@@ -77,14 +77,14 @@
   /* cards */
   .card{
     background: var(--card-bg);
-    border-radius:12px;
-    padding:12px;        /* reducir padding para usar más ancho */
-    margin-top:10px;
-    border: 1px solid var(--border);
-    box-shadow: 0 10px 30px rgba(15,23,36,0.04);
-    page-break-inside: avoid;
-    break-inside: avoid;
-  }
+    border-radius:10px;
+    padding:10px;        /* padding reducido para ganar ancho útil */
+    margin:8px 0;
+     border: 1px solid var(--border);
+     box-shadow: 0 10px 30px rgba(15,23,36,0.04);
+     page-break-inside: avoid;
+     break-inside: avoid;
+   }
   .card h3{ margin-bottom:10px; color:#122029; font-size:16px; }
 
   /* ensure title + table have breathing room from the card edge */
@@ -109,14 +109,17 @@
   /* tables (bigger, más legibles) */
   .table{
     width:100%;
+    max-width: 100%;
     border-collapse:separate;
     border-spacing:0;
-    font-size:14.5px; /* Aumentado: tablas más grandes */
+    font-size:14.5px;
     color:#122029;
+    table-layout: fixed; /* repartir el ancho disponible */
+    word-break: break-word;
   }
   .table th,
   .table td{
-    padding:14px 16px; /* aumentado padding */
+    padding:12px 10px; /* padding compacto para aprovechar el ancho */
     vertical-align:middle;
     border-bottom: 1px solid rgba(17,24,39,0.05);
   }
@@ -171,6 +174,11 @@
     .card{ box-shadow:none; border-color:rgba(17,24,39,0.03); }
     .kpi .v{ font-size:26px; }
   }
+
+  /* Forzar que las tablas ocupen todo el ancho del "sheet" */
+  .sheet .card, .sheet .card table, .sheet .kpis, .sheet .kpis table { width: 100% !important; }
+  /* evitar márgenes colapsados en celdas internas */
+  .sheet table td, .sheet table th { white-space: nowrap; }
 </style>
 </head>
 <body>
