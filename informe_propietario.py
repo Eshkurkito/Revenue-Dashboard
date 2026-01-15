@@ -542,7 +542,18 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
 
     # Top months (por ingresos) — para mostrar en la portada/HTML también
     monthly_rows_raw = _monthly_summary(df, pd.to_datetime(start), pd.to_datetime(end), props, inv_units)
+    # intentar cargar forecast y añadir columna 'forecast' prorrateada por periodo
+    fdf = _load_forecast_db()
+    forecast_by_month, forecast_total = _forecast_for_period(fdf, pd.to_datetime(start), pd.to_datetime(end), props)
+    for r in monthly_rows_raw:
+        r["forecast"] = float(forecast_by_month.get(r.get("mes"), 0.0))
     top_months = sorted(monthly_rows_raw, key=lambda r: r.get("ing_act", 0.0), reverse=True)[:3]
+    # progreso global ACT vs forecast
+    forecast_total = float(forecast_total or sum(r.get("forecast", 0.0) for r in monthly_rows_raw))
+    prog_pct = int(min(100, round((k_act["ingresos"] / forecast_total * 100) if forecast_total > 0 else 0)))
+    st.subheader("Progreso ingresos vs previsión")
+    st.write(f"ACT: { _fmt_money(k_act['ingresos'],2) }  ·  Previsión periodo: { _fmt_money(forecast_total,2) }  ·  {prog_pct}%")
+    st.progress(prog_pct)
 
     # Portada
     st.markdown(f"### {apto or '—'}")
@@ -673,6 +684,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                         "mes": r.get("mes"),
                         "ing_act": _fmt_money(r.get("ing_act", 0.0), 2),
                         "ing_ly":  _fmt_money(r.get("ing_ly", 0.0), 2),
+                        "forecast": _fmt_money(r.get("forecast", 0.0), 2),
                         "adr_act": _fmt_money(r.get("adr_act", 2), 2),
                         "adr_ly":  _fmt_money(r.get("adr_ly", 2), 2),
                         "ocup_act": _fmt_pct(r.get("ocup_act", 0.0), 2),
@@ -718,12 +730,15 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                     if props and isinstance(props, (list, tuple)) and len(props) > 1:
                         for p in props:
                             mr_raw = _monthly_summary(df, pd.to_datetime(start), pd.to_datetime(end), [p], 1)
+                            # obtener forecast por mes para este piso (si hay DB)
+                            prop_forecast_map, _ = _forecast_for_period(fdf, pd.to_datetime(start), pd.to_datetime(end), [p])
                             mr_fmt = []
                             for r in mr_raw:
                                 mr_fmt.append({
                                     "mes": r.get("mes"),
                                     "ing_act": _fmt_money(r.get("ing_act", 0.0), 2),
                                     "ing_ly":  _fmt_money(r.get("ing_ly", 0.0), 2),
+                                    "forecast": _fmt_money(float(prop_forecast_map.get(r.get("mes"), 0.0)), 2),
                                     "adr_act": _fmt_money(r.get("adr_act", 2), 2),
                                     "adr_ly":  _fmt_money(r.get("adr_ly", 2), 2),
                                     "ocup_act": _fmt_pct(r.get("ocup_act", 0.0), 2),
@@ -759,6 +774,9 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                     "los_buckets": los_b_fmt,
                     "lead_buckets": lead_b_fmt,
                     "top_months": top_months_fmt,
+                    # Forecast / progreso
+                    "forecast_total": _fmt_money(forecast_total, 2),
+                    "forecast_progress_pct": f"{prog_pct}%",
                 }
                 # render
                 from jinja2 import Environment, FileSystemLoader
@@ -826,6 +844,17 @@ def _period_label(s: date | pd.Timestamp, e: date | pd.Timestamp) -> str:
     sd = pd.to_datetime(s).date()
     ed = pd.to_datetime(e).date()
     return f"{sd.strftime('%d/%m/%Y')} – {ed.strftime('%d/%m/%Y')}"
+    
+# Añadido: devuelve el logo como base64 (o None si no existe)
+def _logo_b64() -> str | None:
+    try:
+        p = Path(__file__).resolve().parent / "assets" / "florit.flats-logo.png"
+        if not p.exists():
+            return None
+        with open(p, "rb") as fh:
+            return base64.b64encode(fh.read()).decode("utf-8")
+    except Exception:
+        return None
 
 # --- NEW: rangos por mes y resumen mensual ---
 def _month_ranges(start: date | pd.Timestamp, end: date | pd.Timestamp):
@@ -884,30 +913,104 @@ def _monthly_summary(df_raw: pd.DataFrame, start: date, end: date, props: list[s
         })
     return rows
 
-def _logo_b64() -> str | None:
+# NUEVO: carga y cálculo de forecast desde data/forecast_db.csv
+def _parse_euro(s: str) -> float:
+    try:
+        if pd.isna(s):
+            return 0.0
+        t = str(s).replace("�", "").strip()
+        # eliminar espacios y normalizar
+        t = t.replace(" ", "")
+        # quitar miles '.' y convertir decimal ',' -> '.'
+        # si hay tanto '.' como ',' asumimos '.'=miles y ','=decimales
+        if t.count(",") == 1 and t.count(".") > 0:
+            t = t.replace(".", "").replace(",", ".")
+        else:
+            t = t.replace(",", ".").replace(" ", "")
+        # dejar sólo dígitos, punto y signo
+        t = re.sub(r"[^\d\.\-]", "", t)
+        return float(t) if t != "" else 0.0
+    except Exception:
+        return 0.0
+
+def _load_forecast_db() -> pd.DataFrame | None:
     base = Path(__file__).resolve().parent
-    candidates = [
-        base / "assets" / "images" / "florit-flats-logo.png",  # tu logo
-        base / "assets" / "florit-flats-logo.png",
-        base / "assets" / "florit.flats-logo.png",
-        base / "assets" / "logo.png",
-        base / "assets" / "logo.jpg",
-    ]
-    for p in candidates:
-        if p.exists():
-            try:
-                with open(p, "rb") as f:
-                    return base64.b64encode(f.read()).decode("utf-8")
-            except Exception:
-                return None
-    # fallback
-    for folder in [base / "assets", base / "assets" / "images"]:
-        if folder.exists():
-            for p in folder.iterdir():
-                if p.is_file() and "logo" in p.name.lower():
-                    try:
-                        with open(p, "rb") as f:
-                            return base64.b64encode(f.read()).decode("utf-8")
-                    except Exception:
-                        return None
-    return None
+    f = base / "data" / "forecast_db.csv"
+    if not f.exists():
+        return None
+    try:
+        df = pd.read_csv(f, sep=";", dtype=str, encoding="utf-8", engine="python")
+    except Exception:
+        try:
+            df = pd.read_csv(f, sep=";", dtype=str, encoding="latin-1", engine="python")
+        except Exception:
+            return None
+    # limpiar nombres de columnas
+    df.columns = [str(c).strip() for c in df.columns]
+    # normalizar apartment name column
+    first_col = df.columns[0]
+    df = df.rename(columns={first_col: "Apartamento"})
+    # parse numeric month columns
+    for c in df.columns[1:]:
+        df[c] = df[c].apply(_parse_euro)
+    # normalizar apartment key
+    df["__apt_key"] = df["Apartamento"].astype(str).str.strip().str.lower()
+    return df
+
+def _forecast_for_period(forecast_df: pd.DataFrame | None, start: date, end: date, props: list[str] | None) -> tuple[dict, float]:
+    """
+    Devuelve (dict mes->forecast, total_forecast) donde 'mes' coincide con monthly_summary 'mes' (p.e. 'Enero 2026').
+    Prorratea meses parciales según días cubiertos.
+    """
+    if forecast_df is None or forecast_df.empty:
+        return {}, 0.0
+    # columnas meses en el csv esperadas en español (encabezados)
+    meses_es = [c.strip() for c in forecast_df.columns[1:-1]] if "__apt_key" in forecast_df.columns else [c.strip() for c in forecast_df.columns[1:]]
+    # map apt keys if props given
+    selected_mask = None
+    if props and len(props) > 0:
+        keys = [str(p).strip().lower() for p in props]
+        selected_mask = forecast_df["__apt_key"].isin(keys)
+    else:
+        selected_mask = pd.Series(True, index=forecast_df.index)
+
+    months = _month_ranges(start, end)
+    out = {}
+    total = 0.0
+    for ms, me in months:
+        # nombre del mes en formato igual al que produce _monthly_summary: "Enero 2026"
+        mes_label = ms.strftime("%B %Y")
+        # buscar columna correspondiente en forecast_df (coincidir por nombre mes en español)
+        # intentar varias capitalizaciones/espacios
+        col_name = None
+        target = ms.month  # 1..12
+        # buscar columna cuyo nombre contiene número de mes en español
+        for c in forecast_df.columns[1:]:
+            cc = c.strip().lower()
+            # comparar por nombre de mes en español
+            meses_map = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"]
+            if meses_map[target-1] in cc:
+                col_name = c
+                break
+        # si no encontrado por nombre exacto, intentar por posición (asumir columnas están en orden enero..diciembre)
+        if col_name is None:
+            cols_months = [c for c in forecast_df.columns[1:] ]
+            if len(cols_months) >= target:
+                col_name = cols_months[target-1]
+        # si aún no hay columna, poner 0
+        if col_name is None:
+            f_val = 0.0
+        else:
+            # sumar filas seleccionadas y prorratear según días del mes que están en el periodo
+            days_in_month = (pd.to_datetime(me).date() - pd.to_datetime(ms).date()).days + 1
+            # overlap with period (in case start/end cut month)
+            ov_s = max(pd.to_datetime(ms).date(), pd.to_datetime(start).date())
+            ov_e = min(pd.to_datetime(me).date(), pd.to_datetime(end).date())
+            covered_days = (ov_e - ov_s).days + 1
+            covered_days = max(0, covered_days)
+            month_sum = float(forecast_df.loc[selected_mask, col_name].sum(skipna=True))
+            # prorrateo
+            f_val = month_sum * (covered_days / days_in_month) if days_in_month > 0 else 0.0
+        out[mes_label] = f_val
+        total += f_val
+    return out, total

@@ -5,40 +5,43 @@
 <title>Informe de propietario · {{ apto or '—' }}</title>
 <style>
   * { box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-         color:#111827; margin:0; padding:16px 18px; font-size:12px; }
-  h1,h2,h3 { margin: 0 0 8px 0; }
-  .muted { color:#6b7280; }
-  .header { width:100%; margin-bottom:12px; border-bottom:1px solid #e5e7eb; padding-bottom:8px; }
-  .header-table { width:100%; border-collapse:collapse; }
-  .header-table td { vertical-align:middle; }
-  .logo { height:130px; }
-  .kpis { width:100%; border-collapse:separate; border-spacing:8px; margin:6px 0 8px 0; }
-  .kpi { border:1px solid #e5e7eb; border-radius:10px; padding:10px 12px; background:#f8fafc; page-break-inside: avoid; }
-  .kpi h4 { margin:0 0 4px 0; font-size:12px; color:#374151; }
-  .kpi .v { font-size:18px; font-weight:700; }
-  .kpi .ly { font-size:11px; color:#6b7280; }
-  .card { border:1px solid #e5e7eb; border-radius:10px; padding:10px; page-break-inside: avoid; break-inside: avoid; margin-top:10px; }
-  .card h3 { font-size:14px; margin:0 0 6px 0; color:#1f2937; }
-  img.chart { width:100%; height:auto; border:1px solid #e5e7eb; border-radius:8px; display:block; }
-  .chart-portal { width:100% !important; margin:0 auto; }  /* ← mitad de ancho y centrado */
-  .table { width:100%; border-collapse:collapse; font-size:11.5px; page-break-inside:auto; break-inside:auto; }
-  .table th, .table td { border:1px solid #e5e7eb; padding:6px 8px; }
-  .table th { background:#f3f4f6; text-align:left; }
-  .table tbody tr { page-break-inside: avoid; break-inside: avoid; } /* evitar cortar filas */
-  .comments { white-space:pre-wrap; min-height:60px; }
-  /* helpers para controlar saltos si más adelante hace falta forzar */
-  .always-break { page-break-before: always; }
-  .avoid-break { page-break-inside: avoid; break-inside: avoid; }
-  /* Tratar tablas como bloques atómicos: si no caben, mover la tabla completa a la siguiente página */
-  .avoid-break-block {
-    page-break-inside: avoid;
-    break-inside: avoid;
-    -webkit-column-break-inside: avoid;
-    -webkit-page-break-inside: avoid;
-    display: inline-block;
-    width: 100%;
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    color: #111827;
+    margin: 0;
+    padding: 16px 18px;
+    font-size: 12px;
   }
+  h1,h2,h3 { margin: 0 0 8px 0; }
+  .muted { color: #6b7280; }
+  .header { width: 100%; margin-bottom: 12px; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; }
+  .header-table { width: 100%; border-collapse: collapse; }
+  .header-table td { vertical-align: middle; }
+  .logo { height: 130px; }
+  .kpis { width: 100%; border-collapse: separate; border-spacing: 8px; margin: 6px 0 8px 0; }
+  .kpi {
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: #f8fafc;
+  }
+  .kpi h4 { margin: 0 0 4px 0; font-size: 12px; color: #374151; }
+  .kpi .v { font-size: 18px; font-weight: 700; }
+  .kpi .ly { font-size: 11px; color: #6b7280; }
+  .card {
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 10px;
+    margin-top: 10px;
+  }
+  .card h3 { font-size: 14px; margin: 0 0 6px 0; color: #1f2937; }
+  img.chart { width: 100%; height: auto; border: 1px solid #e5e7eb; border-radius: 8px; display: block; }
+  .chart-portal { width: 100% !important; margin: 0 auto; }
+  .table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  .table th, .table td { border: 1px solid #e5e7eb; padding: 6px 8px; }
+  .table th { background: #f3f4f6; text-align: left; }
+  .comments { white-space: pre-wrap; min-height: 60px; }
+  .avoid-break-block { display: block; width: 100%; }
 </style>
 </head>
 <body>
@@ -52,6 +55,22 @@
             Apartamento: <b>{{ apto or '—' }}</b> · Propietario: <b>{{ owner or '—' }}</b><br>
             Periodo ACT: <b>{{ period_act }}</b> · Periodo LY: <b>{{ period_ly }}</b>
           </div>
+
+          <!-- Progreso ingresos vs previsión -->
+          <div style="margin-top:8px;">
+            <div style="font-size:12px; color:#374151; margin-bottom:4px;">
+              Ingresos ACT: <strong>{{ act.ingresos }}</strong> · Previsión periodo: <strong>{{ forecast_total }}</strong> · <strong>{{ forecast_progress_pct }}</strong>
+            </div>
+            <div style="background:#e5e7eb; border-radius:8px; height:12px; width:280px;">
+              <table style="height:12px; width:100%; border-collapse:collapse; table-layout:fixed;">
+                <tr>
+                  <td width="{{ forecast_progress_pct }}" style="background:#2e485f; height:12px; border-radius:8px;"></td>
+                  <td style="background:transparent; height:12px;"></td>
+                </tr>
+              </table>
+            </div>
+          </div>
+
         </td>
         <td style="text-align:right; width:180px;">
           {% if logo_b64 %}
@@ -137,6 +156,7 @@
          <th style="text-align:left; padding:6px; border:1px solid #ddd;">Mes</th>
          <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ingresos (ACT)</th>
          <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ingresos (LY)</th>
+         <th style="text-align:right; padding:6px; border:1px solid #ddd;">Previsión</th>
          <th style="text-align:right; padding:6px; border:1px solid #ddd;">ADR (ACT)</th>
          <th style="text-align:right; padding:6px; border:1px solid #ddd;">ADR (LY)</th>
          <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ocupación (ACT)</th>
@@ -151,6 +171,7 @@
          <td style="padding:6px; border:1px solid #ddd;">{{ r.mes }}</td>
          <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ing_act }}</td>
          <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ing_ly }}</td>
+         <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.forecast }}</td>
          <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.adr_act }}</td>
          <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.adr_ly }}</td>
          <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ocup_act }}</td>
@@ -175,6 +196,7 @@
                 <th style="text-align:left; padding:6px; border:1px solid #ddd;">Mes</th>
                 <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ingresos (ACT)</th>
                 <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ingresos (LY)</th>
+                <th style="text-align:right; padding:6px; border:1px solid #ddd;">Previsión</th>
                 <th style="text-align:right; padding:6px; border:1px solid #ddd;">ADR (ACT)</th>
                 <th style="text-align:right; padding:6px; border:1px solid #ddd;">ADR (LY)</th>
                 <th style="text-align:right; padding:6px; border:1px solid #ddd;">Ocupación (ACT)</th>
@@ -189,6 +211,7 @@
                 <td style="padding:6px; border:1px solid #ddd;">{{ r.mes }}</td>
                 <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ing_act }}</td>
                 <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ing_ly }}</td>
+                <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.forecast }}</td>
                 <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.adr_act }}</td>
                 <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.adr_ly }}</td>
                 <td style="text-align:right; padding:6px; border:1px solid #ddd;">{{ r.ocup_act }}</td>
