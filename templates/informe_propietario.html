@@ -334,15 +334,6 @@
   </div>
 
   <!-- Separar en dos tarjetas para que no se corten entre páginas -->
-  <div class="card">
-    <div class="avoid-break-block">
-      <h3>RevPAR (€/noche disponible)</h3>
-      <table class="table" style="width:100%;">
-        <thead><tr><th>ACT</th><th>LY</th></tr></thead>
-        <tbody><tr><td>{{ revpar.act }}</td><td>{{ revpar.ly }}</td></tr></tbody>
-      </table>
-    </div>
-  </div>
   <div class="card break-after">
     <div class="avoid-break-block">
       <h3>Top meses (ingresos)</h3>
@@ -410,6 +401,7 @@
       <p><strong>ACT (Actual):</strong> Periodo actual analizado.</p>
       <p><strong>LY (Last Year):</strong> Mismo periodo del año anterior.</p>
       <p><strong>Ingresos:</strong> Ingresos brutos generados por las reservas, sin incluir el importe de la limpieza.</p>
++     <p><em>Nota metodológica:</em> los ingresos se reconocen por fecha de estancia. Las reservas que abarcan varios meses se prorratean según el número de noches que cae en cada mes. Por esta imputación y ajustes operativos, pueden existir ligeras diferencias entre la suma de ingresos por portal y el total del periodo.</p>
       <p><strong>ADR (Average Daily Rate):</strong> Precio medio por noche vendida.</p>
       <p><strong>Noches vendidas:</strong> Total de noches ocupadas.</p>
       <p><strong>LOS (Length of Stay):</strong> Estancia media en noches por reserva.</p>
