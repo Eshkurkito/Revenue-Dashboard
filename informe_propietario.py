@@ -12,6 +12,26 @@ import matplotlib.dates as mdates
 import re
 import calendar
 
+# Meses ES → nº
+MONTHS_ES = {
+    "enero":1,"febrero":2,"marzo":3,"abril":4,"mayo":5,"junio":6,
+    "julio":7,"agosto":8,"septiembre":9,"setiembre":9,
+    "octubre":10,"noviembre":11,"diciembre":12
+}
+
+# CONVERSIÓN NÚMEROS EUROPEOS → float
+def _eu_money_to_float(x) -> float:
+    """Convierte '1.234,56 €' → 1234.56; vacío/NaN → 0."""
+    if x is None or (isinstance(x, float) and pd.isna(x)):
+        return 0.0
+    s = str(x).replace("\xa0"," ").strip()
+    s = s.replace(".", "").replace(",", ".")
+    s = re.sub(r"[^0-9\.\-]", "", s)
+    try:
+        return float(s) if s not in ("", ".", "-", "-.", ".-") else 0.0
+    except Exception:
+        return 0.0
+
 TITLE = "Informe de propietario"
 BUILD = "v1.9-portales"
 
@@ -441,85 +461,74 @@ def _monthly_summary(df_raw: pd.DataFrame, start_ts: pd.Timestamp, end_ts: pd.Ti
     return rows
 
 def _load_forecast_db() -> pd.DataFrame:
-    """Carga forecast desde data/assets (forecast_db.* o forecast.*) probando varias filas como cabecera."""
-    here = Path(__file__).resolve().parent
-    candidates = [
-        here / "data" / "forecast_db.csv",
-        here / "data" / "forecast_db.xlsx",
-        here / "assets" / "forecast_db.csv",
-        here / "assets" / "forecast_db.xlsx",
-        here / "data" / "forecast.csv",
-        here / "assets" / "forecast.csv",
-        here / "data" / "forecast.xlsx",
-        here / "assets" / "forecast.xlsx",
-    ]
-    def read_any(p: Path) -> pd.DataFrame:
-        if not p.exists():
-            return pd.DataFrame()
-        try:
-            if p.suffix.lower() in (".xlsx", ".xls"):
-                for hdr in (0,1,2,3,4,5):
-                    try:
-                        df = pd.read_excel(p, header=hdr)
-                        if df.shape[1] >= 2 and not df.dropna(how="all").empty:
-                            return df
-                    except Exception:
-                        pass
-            else:
-                for enc in ("utf-8-sig","latin-1"):
-                    for hdr in (0,1,2,3,4,5):
-                        try:
-                            df = pd.read_csv(p, sep=None, engine="python", header=hdr, encoding=enc)
-                            if df.shape[1] >= 2 and not df.dropna(how="all").empty:
-                                return df
-                        except Exception:
-                            pass
-        except Exception:
-            return pd.DataFrame()
+    """Lee data/forecast_db.csv (formato ancho con ';') y normaliza encabezados."""
+    p = Path(__file__).resolve().parent / "data" / "forecast_db.csv"
+    if not p.exists():
         return pd.DataFrame()
-
-    for p in candidates:
-        df = read_any(p)
-        if not df.empty:
-            return df
-    return pd.DataFrame()
+    try:
+        df = pd.read_csv(p, sep=";", header=0, encoding="utf-8-sig")
+    except Exception:
+        df = pd.read_csv(p, sep=";", header=0, encoding="latin-1")
+    df.columns = [str(c).strip() for c in df.columns]
+    return df
 
 def _forecast_for_period(fdf: pd.DataFrame, start_ts: pd.Timestamp, end_ts: pd.Timestamp,
                          props: list[str] | None) -> tuple[dict, float]:
-    """Devuelve mapa {mes_label: forecast} y total del periodo. Si no hay DB, todo 0."""
+    """Soporta forecast ancho (meses como columnas en ES) y largo. Devuelve { 'MonthName Year': valor } + total."""
+    months = list(_month_range(start_ts, end_ts))
+    keys = [f"{calendar.month_name[m.month]} {m.year}" for m in months]
     if fdf is None or fdf.empty:
-        month_map = { _month_label(m): 0.0 for m in _month_range(start_ts, end_ts) }
-        return month_map, 0.0
+        return {k: 0.0 for k in keys}, 0.0
 
     df = fdf.copy()
-    if props and "Alojamiento" in df.columns:
-        df = df[df["Alojamiento"].astype(str).isin(props)]
+    norm = {c: str(c).strip().lower() for c in df.columns}
+    prop_col = next((c for c, n in norm.items() if n in ("apartamento","alojamiento","propiedad","listing","unidad")), None)
+    if props and prop_col:
+        df = df[df[prop_col].astype(str).isin(props)]
 
-    # Normaliza etiqueta de mes (soporta columnas no fechadas)
-    if "Mes" in df.columns:
-        mes_dt = pd.to_datetime(df["Mes"], errors="coerce")
-    else:
-        mes_dt = pd.to_datetime(df.iloc[:, 0], errors="coerce")
-    df["MesLabel"] = mes_dt.dt.to_period("M").dt.to_timestamp().map(_month_label)
+    # Detecta columnas de meses en español (formato ancho)
+    month_cols = {}
+    for col in df.columns:
+        n = str(col).strip().lower()
+        base = re.sub(r"\s+", " ", n).replace("mes ","").split("(")[0].split("/")[0].strip()
+        if base in MONTHS_ES:
+            month_cols[col] = MONTHS_ES[base]
 
-    # Columna de valor y saneo numérico
-    val_col = next((c for c in df.columns if str(c).lower() in ("forecast","prevision","previsión","ingresos")), None)
-    if val_col is None:
-        month_map = { _month_label(m): 0.0 for m in _month_range(start_ts, end_ts) }
-        return month_map, 0.0
-    df[val_col] = pd.to_numeric(df[val_col], errors="coerce").fillna(0.0)
+    if month_cols:
+        for c in month_cols.keys():
+            df[c] = df[c].apply(_eu_money_to_float)
+        sums_by_m = {m: float(df[c].sum()) for c, m in month_cols.items()}
+        out = {}
+        total = 0.0
+        for m in months:
+            lbl = f"{calendar.month_name[m.month]} {m.year}"
+            val = float(sums_by_m.get(m.month, 0.0))
+            out[lbl] = val
+            total += val
+        return out, total
 
-    # Filtra filas con MesLabel válido y dentro del rango
-    valid = [ _month_label(m) for m in _month_range(start_ts, end_ts) ]
-    df = df[df["MesLabel"].isin(valid)]
-
-    if df.empty:
-        return {k: 0.0 for k in valid}, 0.0
-
-    g = df.groupby("MesLabel", as_index=False)[val_col].sum()
-    month_map = { str(r["MesLabel"]): float(r[val_col]) for _, r in g.iterrows() }
-    total = float(g[val_col].sum())
-    return month_map, total
+    # Fallback: formato largo (columna Mes + valor)
+    c_mes = norm.get("mes") or norm.get("month") or norm.get("fecha") or list(df.columns)[0]
+    c_val = (norm.get("forecast") or norm.get("prevision") or norm.get("previsión")
+             or norm.get("ingresos") or list(df.columns)[-1])
+    # Mes puede ser nombre en ES o fecha
+    raw = df[c_mes].astype(str).str.strip().str.lower()
+    mnum = raw.map(lambda s: MONTHS_ES.get(s.split()[0], np.nan))
+    if mnum.isna().all():
+        mes_dt = pd.to_datetime(df[c_mes], errors="coerce")
+        mnum = mes_dt.dt.month
+    df["_m"] = mnum
+    df[c_val] = df[c_val].apply(_eu_money_to_float)
+    val_by_m = df.groupby("_m", as_index=False)[c_val].sum()
+    sums_by_m = {int(r["_m"]): float(r[c_val]) for _, r in val_by_m.iterrows()}
+    out = {}
+    total = 0.0
+    for m in months:
+        lbl = f"{calendar.month_name[m.month]} {m.year}"
+        val = float(sums_by_m.get(m.month, 0.0))
+        out[lbl] = val
+        total += val
+    return out, total
 
 def _load_logo_b64() -> str | None:
     """Intenta leer el logo y devolverlo en base64."""
@@ -744,15 +753,14 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
     # Top months (por ingresos) — para mostrar en la portada/HTML también
     monthly_rows_raw = _monthly_summary(df, pd.to_datetime(start), pd.to_datetime(end), props, inv_units)
     fdf = _load_forecast_db()
-    forecast_by_month, forecast_total = _forecast_for_period(fdf, pd.to_datetime(start), pd.to_datetime(end), props)
+    forecast_by_month, forecast_total_num = _forecast_for_period(fdf, pd.to_datetime(start), pd.to_datetime(end), props)
     for r in monthly_rows_raw:
         r["forecast"] = float(forecast_by_month.get(r.get("mes"), 0.0))
     top_months = sorted(monthly_rows_raw, key=lambda r: r.get("ing_act", 0.0), reverse=True)[:3]
     # progreso global ACT vs forecast
-    forecast_total = float(forecast_total or sum(r.get("forecast", 0.0) for r in monthly_rows_raw))
-    prog_pct = int(min(100, round((k_act["ingresos"] / forecast_total * 100) if forecast_total > 0 else 0)))
+    prog_pct = int(min(100, round((k_act["ingresos"] / forecast_total_num * 100) if forecast_total_num > 0 else 0)))
     st.subheader("Progreso ingresos vs previsión")
-    st.write(f"ACT: { _fmt_money(k_act['ingresos'],2) }  ·  Previsión periodo: { _fmt_money(forecast_total,2) }  ·  {prog_pct}%")
+    st.write(f"ACT: { _fmt_money(k_act['ingresos'],2) }  ·  Previsión periodo: { _fmt_money(forecast_total_num,2) }  ·  {prog_pct}%")
     st.progress(prog_pct)
 
     # Portada
@@ -979,7 +987,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                     "los_buckets": los_b_fmt,
                     "lead_buckets": lead_b_fmt,
                     "top_months": top_months_fmt,
-                    "forecast_total": _fmt_money(forecast_total, 2),
+                    "forecast_total": _fmt_money(forecast_total_num, 2),
                     "forecast_progress_pct": f"{prog_pct}%",
                     **font_src,  # ← añade inter400/600/700 (uri + b64)
                 }
