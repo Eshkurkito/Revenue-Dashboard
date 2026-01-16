@@ -853,21 +853,54 @@ def _period_label(s: date | pd.Timestamp, e: date | pd.Timestamp) -> str:
     ed = pd.to_datetime(e).date()
     return f"{sd.strftime('%d/%m/%Y')} – {ed.strftime('%d/%m/%Y')}"
     
-# Añadido: devuelve el logo como base64 (o None si no existe)
-def _load_logo_b64() -> str | None:
-    """Devuelve el logo en base64 si existe."""
+import base64
+from pathlib import Path
+
+def _b64_file(p: Path) -> str | None:
+    try:
+        return base64.b64encode(p.read_bytes()).decode("ascii")
+    except Exception:
+        return None
+
+def _find_inter_font(weight_names: tuple[str, ...]) -> Path | None:
     here = Path(__file__).resolve().parent
-    candidates = [
-        here / "assets" / "florit-flats-logo.png",
-        here.parent / "assets" / "florit-flats-logo.png",
-        here / "assets" / "logo.png",
-    ]
-    for p in candidates:
-        try:
-            if p.exists():
-                return base64.b64encode(p.read_bytes()).decode("ascii")
-        except Exception:
-            pass
+    fonts_dir = here / "assets" / "fonts"
+    if not fonts_dir.exists():
+        return None
+    files = list(fonts_dir.rglob("*.ttf"))
+    if not files:
+        return None
+    # Preferencia por tamaño óptico 18pt → 24pt → 28pt
+    sizes = ("18pt", "24pt", "28pt")
+    low = {f.name.lower(): f for f in files}
+    for sz in sizes:
+        for wt in weight_names:
+            name = f"inter_{sz}-{wt}.ttf".lower()
+            if name in low:
+                return low[name]
+    # Fallback: contiene el peso en el nombre
+    for f in files:
+        n = f.name.lower()
+        if any(wt.lower() in n for wt in weight_names):
+            return f
+    return None
+
+def _load_font_b64() -> dict:
+    reg = _find_inter_font(("Regular",))
+    semi = _find_inter_font(("SemiBold", "Semibold", "Medium"))  # usa Medium si no hay SemiBold
+    bold = _find_inter_font(("Bold",))
+    return {
+        "inter400_b64": _b64_file(reg) if reg else None,
+        "inter600_b64": _b64_file(semi) if semi else None,
+        "inter700_b64": _b64_file(bold) if bold else None,
+    }
+
+def _load_logo_b64() -> str | None:
+    here = Path(__file__).resolve().parent
+    for p in [here / "assets" / "florit-flats-logo.png",
+              here.parent / "assets" / "florit-flats-logo.png"]:
+        if p.exists():
+            return _b64_file(p)
     return None
 
 # --- NEW: rangos por mes y resumen mensual ---
