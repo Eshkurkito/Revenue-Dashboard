@@ -769,7 +769,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                     "chart_adr": chart_adr_b64,
                     "gran_label": gran.lower(),
                     "comments": st.session_state.get("inf_comments") or "",
-                    "logo_b64": _logo_b64(),
+                    "logo_b64": _load_logo_b64(),
                     "los_avg": f"{stats['los_avg']:.1f}" if stats["los_avg"] is not None else "—",
                     "lead_avg": f"{stats['lead_avg']:.0f}" if stats["lead_avg"] is not None else "—",
                     "monthly_rows": monthly_rows,   # ← existente
@@ -854,15 +854,21 @@ def _period_label(s: date | pd.Timestamp, e: date | pd.Timestamp) -> str:
     return f"{sd.strftime('%d/%m/%Y')} – {ed.strftime('%d/%m/%Y')}"
     
 # Añadido: devuelve el logo como base64 (o None si no existe)
-def _logo_b64() -> str | None:
-    try:
-        p = Path(__file__).resolve().parent / "assets" / "florit.flats-logo.png"
-        if not p.exists():
-            return None
-        with open(p, "rb") as fh:
-            return base64.b64encode(fh.read()).decode("utf-8")
-    except Exception:
-        return None
+def _load_logo_b64() -> str | None:
+    """Devuelve el logo en base64 si existe."""
+    here = Path(__file__).resolve().parent
+    candidates = [
+        here / "assets" / "florit-flats-logo.png",
+        here.parent / "assets" / "florit-flats-logo.png",
+        here / "assets" / "logo.png",
+    ]
+    for p in candidates:
+        try:
+            if p.exists():
+                return base64.b64encode(p.read_bytes()).decode("ascii")
+        except Exception:
+            pass
+    return None
 
 # --- NEW: rangos por mes y resumen mensual ---
 def _month_ranges(start: date | pd.Timestamp, end: date | pd.Timestamp):

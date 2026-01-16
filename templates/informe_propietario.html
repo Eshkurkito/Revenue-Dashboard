@@ -17,10 +17,16 @@
   h1,h2,h3 { margin: 0 0 8px 0; font-weight:600; color:#122029; }
   .muted { color: #6b7280; font-size: 11.5px; }
 
-  .header { width: 100%; margin-bottom: 12px; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; }
+  .header { width: 100%; margin-bottom: 12px; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; position: relative; }
+  .header-logo {
+    position: absolute;
+    top: 0; right: 0;
+    height: 64px;           /* ajusta tamaño si quieres */
+    max-width: 180px;
+  }
   .header-table { width: 100%; border-collapse: collapse; }
   .header-table td { vertical-align: middle; }
-  .logo { height: 104px; }
+  .logo { height: 104px; }  /* puedes bajar esta si usas header-logo */
 
   .kpis { width: 100%; border-collapse: separate; border-spacing: 8px; margin: 6px 0 8px 0; }
   .kpi {
@@ -169,7 +175,7 @@
         </td>
         <td style="text-align:right; width:180px;">
           {% if logo_b64 %}
-            <img class="logo" src="data:image/png;base64,{{ logo_b64 }}" alt="Logo">
+            <img class="logo header-logo" src="data:image/png;base64,{{ logo_b64 }}" alt="Logo">
           {% endif %}
         </td>
       </tr>
