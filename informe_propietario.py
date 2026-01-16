@@ -383,8 +383,11 @@ def _booking_stats(df_raw: pd.DataFrame, start: date, end: date, props: list[str
     return {"los_avg": los_avg, "lead_avg": lead_avg}
 
 # ----------------- Resumen mensual + Forecast -----------------
-def _month_label(ts: pd.Timestamp) -> str:
-    # Ej: "January 2026"
+def _month_label(ts) -> str | None:
+    """Devuelve 'January 2026' o None si ts es NaT/NaN."""
+    if ts is None or (pd.isna(ts)):
+        return None
+    ts = pd.Timestamp(ts)
     return f"{calendar.month_name[int(ts.month)]} {ts.year}"
 
 def _month_range(start_ts: pd.Timestamp, end_ts: pd.Timestamp):
@@ -487,25 +490,35 @@ def _forecast_for_period(fdf: pd.DataFrame, start_ts: pd.Timestamp, end_ts: pd.T
     if fdf is None or fdf.empty:
         month_map = { _month_label(m): 0.0 for m in _month_range(start_ts, end_ts) }
         return month_map, 0.0
-    # Intento de mapeo flexible: columnas 'Mes','Alojamiento','Forecast'
+
     df = fdf.copy()
     if props and "Alojamiento" in df.columns:
         df = df[df["Alojamiento"].astype(str).isin(props)]
-    # Normaliza etiqueta de mes
+
+    # Normaliza etiqueta de mes (soporta columnas no fechadas)
     if "Mes" in df.columns:
-        df["MesLabel"] = pd.to_datetime(df["Mes"], errors="coerce").dt.to_period("M").dt.to_timestamp().map(_month_label)
+        mes_dt = pd.to_datetime(df["Mes"], errors="coerce")
     else:
-        df["MesLabel"] = pd.to_datetime(df.iloc[:,0], errors="coerce").dt.to_period("M").dt.to_timestamp().map(_month_label)
-    val_col = next((c for c in df.columns if str(c).lower() in ("forecast","prevision","ingresos")), None)
+        mes_dt = pd.to_datetime(df.iloc[:, 0], errors="coerce")
+    df["MesLabel"] = mes_dt.dt.to_period("M").dt.to_timestamp().map(_month_label)
+
+    # Columna de valor y saneo numérico
+    val_col = next((c for c in df.columns if str(c).lower() in ("forecast","prevision","previsión","ingresos")), None)
     if val_col is None:
         month_map = { _month_label(m): 0.0 for m in _month_range(start_ts, end_ts) }
         return month_map, 0.0
-    # Rango
+    df[val_col] = pd.to_numeric(df[val_col], errors="coerce").fillna(0.0)
+
+    # Filtra filas con MesLabel válido y dentro del rango
     valid = [ _month_label(m) for m in _month_range(start_ts, end_ts) ]
-    g = (df[df["MesLabel"].isin(valid)]
-         .groupby("MesLabel", as_index=False)[val_col].sum())
-    month_map = { r["MesLabel"]: float(r[val_col]) for _, r in g.iterrows() }
-    total = float(g[val_col].sum()) if not g.empty else 0.0
+    df = df[df["MesLabel"].isin(valid)]
+
+    if df.empty:
+        return {k: 0.0 for k in valid}, 0.0
+
+    g = df.groupby("MesLabel", as_index=False)[val_col].sum()
+    month_map = { str(r["MesLabel"]): float(r[val_col]) for _, r in g.iterrows() }
+    total = float(g[val_col].sum())
     return month_map, total
 
 def _load_logo_b64() -> str | None:
