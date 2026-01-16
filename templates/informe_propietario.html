@@ -43,8 +43,10 @@
     -webkit-column-break-inside: avoid;
     -webkit-page-break-inside: avoid;
     background: #ffffff;
+    overflow: visible; /* evita recortes por overflow en PDF */
   }
   .card h3 { font-size: 14px; margin: 0 0 6px 0; color: #1f2937; }
+  .always-break { page-break-before: always; }
 
   img.chart { width: 100%; height: auto; border: 1px solid #e5e7eb; border-radius: 8px; display: block; }
   .chart-portal { width: 100% !important; margin: 0 auto; }
@@ -107,6 +109,32 @@
       {%- endif -%}
     {%- endfor -%}
   {%- endmacro -%}
+
+  {# Definiciones de columnas/headers para el desglose mensual #}
+  {% set monthly_headers = [
+    {'label':'Mes'},
+    {'label':'Ingresos (ACT)','align':'right'},
+    {'label':'Ingresos (LY)','align':'right'},
+    {'label':'Previsión','align':'right'},
+    {'label':'ADR (ACT)','align':'right'},
+    {'label':'ADR (LY)','align':'right'},
+    {'label':'Ocupación (ACT)','align':'right'},
+    {'label':'Ocupación (LY)','align':'right'},
+    {'label':'Noches (ACT)','align':'right'},
+    {'label':'Noches (LY)','align':'right'}
+  ] %}
+  {% set monthly_cols = [
+    {'key':'mes'},
+    {'key':'ing_act','align':'right'},
+    {'key':'ing_ly','align':'right'},
+    {'key':'forecast','align':'right'},
+    {'key':'adr_act','align':'right'},
+    {'key':'adr_ly','align':'right'},
+    {'key':'ocup_act','align':'right'},
+    {'key':'ocup_ly','align':'right'},
+    {'key':'nights_act','align':'right'},
+    {'key':'nights_ly','align':'right'}
+  ] %}
   <!-- full-bleed removed (background now white) -->
   <div class="sheet">
   <div class="header">
@@ -193,6 +221,30 @@
     <img class="chart" src="data:image/png;base64,{{ chart_adr }}" alt="ADR">
   </div>
 
+  <!-- Separar en dos tarjetas para que no se corten entre páginas -->
+  <div class="card">
+    <div class="avoid-break-block">
+      <h3>RevPAR (€/noche disponible)</h3>
+      <table class="table" style="width:100%;">
+        <thead><tr><th>ACT</th><th>LY</th></tr></thead>
+        <tbody><tr><td>{{ revpar.act }}</td><td>{{ revpar.ly }}</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card">
+    <div class="avoid-break-block">
+      <h3>Top meses (ingresos)</h3>
+      <table class="table">
+        <thead><tr><th>Mes</th><th>Ingresos</th></tr></thead>
+        <tbody>
+          {% for m in top_months %}
+          <tr><td>{{ m.mes }}</td><td>{{ m.ing }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <div class="card avoid-break-block" style="margin-top:4mm;">
     {{ paginated_block('Desglose mensual', monthly_headers, monthly_rows, monthly_cols, rows_per_page=20, table_classes='table', repeat_title=false) }}
   </div>
@@ -231,68 +283,6 @@
        </table>
      </div>
    </div>
-
-  <!-- NUEVO: RevPAR y Top months -->
-  <div class="card" style="display:flex; gap:12px;">
-    <div style="flex:1;">
-      <div class="avoid-break-block">
-        <h3>RevPAR (€/noche disponible)</h3>
-        <table class="table" style="width:100%;">
-          <thead><tr><th>ACT</th><th>LY</th></tr></thead>
-          <tbody><tr><td>{{ revpar.act }}</td><td>{{ revpar.ly }}</td></tr></tbody>
-        </table>
-      </div>
-    </div>
-    <div style="flex:1;">
-      <div class="avoid-break-block">
-        <h3>Top meses (ingresos)</h3>
-        <table class="table">
-          <thead><tr><th>Mes</th><th>Ingresos</th></tr></thead>
-          <tbody>
-            {% for m in top_months %}
-            <tr><td>{{ m.mes }}</td><td>{{ m.ing }}</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
-  <!-- NUEVO: Ocupación por día de la semana -->
-  <div class="card">
-    <div class="avoid-break-block">
-      <h3>Ocupación media por día de la semana</h3>
-      <table class="table">
-        <thead><tr><th>Día</th><th>Ocupación</th></tr></thead>
-        <tbody>
-          {% for w in weekday_rows %}
-          <tr><td>{{ w.day }}</td><td style="text-align:right">{{ w.pct }}</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- NUEVO: LOS y Antelación (buckets) -->
-  <div class="card">
-    <div class="avoid-break-block">
-      <h3>Estancia media y antelación (buckets)</h3>
-      <table class="table">
-       <thead><tr><th>Métrica</th><th>Valor</th></tr></thead>
-       <tbody>
-         <tr><td>LOS mediana</td><td>{{ los_median }} días</td></tr>
-         <tr><td>LOS buckets</td>
-           <td>
-             1 noche: {{ los_buckets["1"] }} · 2: {{ los_buckets["2"] }} · 3-6: {{ los_buckets["3-6"] }} · 7+: {{ los_buckets["7+"] }}
-           </td>
-         </tr>
-         <tr><td>Antelación buckets</td>
-           <td>&lt;7d: {{ lead_buckets["<7d"] }} · 7-30d: {{ lead_buckets["7-30d"] }} · &gt;30d: {{ lead_buckets[">30d"] }}</td>
-         </tr>
-       </tbody>
-      </table>
-    </div>
-  </div>
 
    <div class="card">
      <h3>Comentarios del Revenue Manager</h3>
