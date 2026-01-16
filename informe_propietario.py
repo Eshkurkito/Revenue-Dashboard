@@ -438,19 +438,47 @@ def _monthly_summary(df_raw: pd.DataFrame, start_ts: pd.Timestamp, end_ts: pd.Ti
     return rows
 
 def _load_forecast_db() -> pd.DataFrame:
-    """Carga una tabla de forecast si existe; si no, devuelve DF vacío."""
+    """Carga forecast desde data/assets (forecast_db.* o forecast.*) probando varias filas como cabecera."""
     here = Path(__file__).resolve().parent
     candidates = [
-        here / "assets" / "forecast.csv",
-        here.parent / "assets" / "forecast.csv",
+        here / "data" / "forecast_db.csv",
+        here / "data" / "forecast_db.xlsx",
+        here / "assets" / "forecast_db.csv",
+        here / "assets" / "forecast_db.xlsx",
         here / "data" / "forecast.csv",
+        here / "assets" / "forecast.csv",
+        here / "data" / "forecast.xlsx",
+        here / "assets" / "forecast.xlsx",
     ]
-    for p in candidates:
+    def read_any(p: Path) -> pd.DataFrame:
+        if not p.exists():
+            return pd.DataFrame()
         try:
-            if p.exists():
-                return pd.read_csv(p)
+            if p.suffix.lower() in (".xlsx", ".xls"):
+                for hdr in (0,1,2,3,4,5):
+                    try:
+                        df = pd.read_excel(p, header=hdr)
+                        if df.shape[1] >= 2 and not df.dropna(how="all").empty:
+                            return df
+                    except Exception:
+                        pass
+            else:
+                for enc in ("utf-8-sig","latin-1"):
+                    for hdr in (0,1,2,3,4,5):
+                        try:
+                            df = pd.read_csv(p, sep=None, engine="python", header=hdr, encoding=enc)
+                            if df.shape[1] >= 2 and not df.dropna(how="all").empty:
+                                return df
+                        except Exception:
+                            pass
         except Exception:
-            pass
+            return pd.DataFrame()
+        return pd.DataFrame()
+
+    for p in candidates:
+        df = read_any(p)
+        if not df.empty:
+            return df
     return pd.DataFrame()
 
 def _forecast_for_period(fdf: pd.DataFrame, start_ts: pd.Timestamp, end_ts: pd.Timestamp,
