@@ -363,9 +363,11 @@
 
   {% if monthly_by_property %}
     {% for mb in monthly_by_property %}
-      <div class="card start-new-page">
-        {{ paginated_block('Desglose mensual — ' ~ mb.apto, monthly_headers, mb.monthly_rows, monthly_cols, rows_per_page=18, table_classes='table', repeat_title=false) }}
-      </div>
+      <div class="card">
+        <div class="avoid-break-block">
+           {{ paginated_block('Desglose mensual — ' ~ mb.apto, monthly_headers, mb.monthly_rows, monthly_cols, rows_per_page=18, table_classes='table', repeat_title=false) }}
++        </div>
+       </div>
     {% endfor %}
   {% endif %}
 
