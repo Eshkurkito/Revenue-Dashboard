@@ -17,10 +17,11 @@
   h1,h2,h3 { margin: 0 0 8px 0; font-weight:600; color:#122029; }
   .muted { color: #6b7280; font-size: 11.5px; }
 
-  .header { width: 100%; margin-bottom: 12px; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; position: relative; min-height: 140px; }
+  .header { width: 100%; margin-bottom: 12px; border-bottom: 1px solid #e5e7eb; padding-bottom: 12px; position: relative; min-height: 150px; }
   .header-logo {
     position: absolute;
-    top: 0; right: 0;
+    top: -8px;           /* subir un poco para que no toque la línea */
+    right: 4px;
     height: 140px;         /* tamaño del logo */
     max-width: 300px;
     object-fit: contain;
