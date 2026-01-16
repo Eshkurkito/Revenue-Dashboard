@@ -461,52 +461,51 @@ def _monthly_summary(df_raw: pd.DataFrame, start_ts: pd.Timestamp, end_ts: pd.Ti
     return rows
 
 def _load_forecast_db() -> pd.DataFrame:
-    """Lee data/forecast_db.csv (formato ancho con ';') y normaliza encabezados."""
-    p = Path(__file__).resolve().parent / "data" / "forecast_db.csv"
-    if not p.exists():
-        return pd.DataFrame()
+    """Lee data/forecast_db.csv (formato ancho con ';') y normaliza encabezados/valores."""
     try:
-        df = pd.read_csv(p, sep=";", header=0, encoding="utf-8-sig")
+        p = Path(__file__).resolve().parent / "data" / "forecast_db.csv"
+        # usar separador ';' y codificación latin1 para evitar '�'
+        df = pd.read_csv(p, sep=";", encoding="latin1", engine="python", dtype=str)
+        # strip espacios en headers y celdas
+        df.columns = [c.strip() for c in df.columns]
+        df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
+        # limpiar símbolos problemáticos (€, �, NBSP) en todo el dataframe
+        df = df.replace({"\xa0": " ", "€": "", "�": ""}, regex=True)
+        return df
     except Exception:
-        df = pd.read_csv(p, sep=";", header=0, encoding="latin-1")
-    df.columns = [str(c).strip() for c in df.columns]
-    return df
+        return pd.DataFrame()
 
 def _forecast_for_period(fdf: pd.DataFrame, start_ts: pd.Timestamp, end_ts: pd.Timestamp,
                          props: list[str] | None) -> tuple[dict, float]:
     """Soporta forecast ancho (meses como columnas en ES) y largo. Devuelve { 'MonthName Year': valor } + total."""
-    months = list(_month_range(start_ts, end_ts))
-    keys = [f"{calendar.month_name[m.month]} {m.year}" for m in months]
+    # si no se pasó df, cargarlo
     if fdf is None or fdf.empty:
-        return {k: 0.0 for k in keys}, 0.0
-
+        fdf = _load_forecast_db()
+    # normaliza y detecta columnas de meses en ES
     df = fdf.copy()
     norm = {c: str(c).strip().lower() for c in df.columns}
     prop_col = next((c for c, n in norm.items() if n in ("apartamento","alojamiento","propiedad","listing","unidad")), None)
     if props and prop_col:
         df = df[df[prop_col].astype(str).isin(props)]
-
-    # Detecta columnas de meses en español (formato ancho)
+    # Detecta y convierte columnas mensuales
     month_cols = {}
     for col in df.columns:
         n = str(col).strip().lower()
-        base = re.sub(r"\s+", " ", n).replace("mes ","").split("(")[0].split("/")[0].strip()
+        base = re.sub(r"\s+", " ", n).replace("mes ", "").split("(")[0].split("/")[0].strip()
         if base in MONTHS_ES:
             month_cols[col] = MONTHS_ES[base]
-
     if month_cols:
         for c in month_cols.keys():
             df[c] = df[c].apply(_eu_money_to_float)
         sums_by_m = {m: float(df[c].sum()) for c, m in month_cols.items()}
-        out = {}
-        total = 0.0
+        months = list(_month_range(start_ts, end_ts))
+        out, total = {}, 0.0
         for m in months:
             lbl = f"{calendar.month_name[m.month]} {m.year}"
             val = float(sums_by_m.get(m.month, 0.0))
             out[lbl] = val
             total += val
         return out, total
-
     # Fallback: formato largo (columna Mes + valor)
     c_mes = norm.get("mes") or norm.get("month") or norm.get("fecha") or list(df.columns)[0]
     c_val = (norm.get("forecast") or norm.get("prevision") or norm.get("previsión")
