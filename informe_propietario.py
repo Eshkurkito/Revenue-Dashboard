@@ -18,6 +18,12 @@ MONTHS_ES = {
     "julio":7,"agosto":8,"septiembre":9,"setiembre":9,
     "octubre":10,"noviembre":11,"diciembre":12
 }
+MONTHS_ES_INV = {v:k for k,v in MONTHS_ES.items()}
+
+def _norm_header(s: str) -> str:
+    # limpia NBSP, múltiples espacios y acentos básicos
+    x = re.sub(r"\s+", " ", str(s).replace("\xa0"," ")).strip().lower()
+    return x
 
 # CONVERSIÓN NÚMEROS EUROPEOS → float
 def _eu_money_to_float(x) -> float:
@@ -461,13 +467,13 @@ def _monthly_summary(df_raw: pd.DataFrame, start_ts: pd.Timestamp, end_ts: pd.Ti
     return rows
 
 def _load_forecast_db() -> pd.DataFrame:
-    """Lee data/forecast_db.csv (formato ancho con ';') y normaliza encabezados/valores."""
+    """Lee data/forecast_db.csv con ';' y limpia headers/valores."""
     try:
         p = Path(__file__).resolve().parent / "data" / "forecast_db.csv"
         df = pd.read_csv(p, sep=";", encoding="latin1", engine="python", dtype=str)
-        # limpia headers: NBSP, espacios múltiples, trim
-        df.columns = [re.sub(r"\s+", " ", str(c).replace("\xa0"," ")).strip() for c in df.columns]
-        # strip en celdas y quitar símbolos
+        # normaliza headers
+        df.columns = [_norm_header(c) for c in df.columns]
+        # strip celdas y quita símbolos
         df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
         df = df.replace({"\xa0": " ", "€": "", "�": ""}, regex=True)
         return df
@@ -476,7 +482,7 @@ def _load_forecast_db() -> pd.DataFrame:
 
 def _forecast_for_period(fdf: pd.DataFrame, start_ts: pd.Timestamp, end_ts: pd.Timestamp,
                          props: list[str] | None) -> tuple[dict, float]:
-    """Suma columnas mensuales (ES) del CSV ancho y devuelve { 'MonthName Year': valor } + total."""
+    """Suma columnas por mes (ES) del CSV ancho, tolerando espacios/NBSP."""
     months = list(_month_range(start_ts, end_ts))
     keys = [f"{calendar.month_name[m.month]} {m.year}" for m in months]
 
@@ -484,33 +490,23 @@ def _forecast_for_period(fdf: pd.DataFrame, start_ts: pd.Timestamp, end_ts: pd.T
         return {k: 0.0 for k in keys}, 0.0
 
     df = fdf.copy()
-    # detectar columna Apartamento y filtrar si procede
-    norm = {c: re.sub(r"\s+", " ", str(c).replace("\xa0"," ")).strip().lower() for c in df.columns}
-    prop_col = next((c for c, n in norm.items() if n in ("apartamento","alojamiento","propiedad","listing","unidad")), None)
+    # columna apartamento (normalizada)
+    prop_col = next((c for c in df.columns if _norm_header(c) in ("apartamento","alojamiento","propiedad","listing","unidad")), None)
     if props and prop_col:
         df = df[df[prop_col].astype(str).isin(props)]
 
-    # detectar columnas de meses (robusto a espacios/NBSP)
-    month_cols = {}
-    for col in df.columns:
-        n = re.sub(r"\s+", " ", str(col).replace("\xa0"," ")).strip().lower()
-        base = n.replace("mes ","").split("(")[0].split("/")[0].strip()
-        if base in MONTHS_ES:
-            month_cols[col] = MONTHS_ES[base]
-
-    if not month_cols:
-        return {k: 0.0 for k in keys}, 0.0
-
-    # convertir números europeos y sumar por mes
-    for c in month_cols.keys():
-        df[c] = df[c].apply(_eu_money_to_float)
-    sums_by_m = {m: float(df[c].sum()) for c, m in month_cols.items()}
+    # mapa header normalizado → nombre real
+    name_map = { _norm_header(c): c for c in df.columns }
 
     out, total = {}, 0.0
     for m in months:
+        es_key = MONTHS_ES_INV.get(m.month)  # 'enero','febrero',...
+        col = name_map.get(es_key)
+        val = 0.0
+        if col:
+            # convierte números europeos y suma
+            val = float(pd.Series(df[col]).apply(_eu_money_to_float).sum())
         lbl = f"{calendar.month_name[m.month]} {m.year}"
-        val = float(sums_by_m.get(m.month, 0.0))
-        out(lbl) if False else None  # no-op to keep structure
         out[lbl] = val
         total += val
     return out, total
