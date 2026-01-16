@@ -464,12 +464,11 @@ def _load_forecast_db() -> pd.DataFrame:
     """Lee data/forecast_db.csv (formato ancho con ';') y normaliza encabezados/valores."""
     try:
         p = Path(__file__).resolve().parent / "data" / "forecast_db.csv"
-        # usar separador ';' y codificación latin1 para evitar '�'
         df = pd.read_csv(p, sep=";", encoding="latin1", engine="python", dtype=str)
-        # strip espacios en headers y celdas
-        df.columns = [c.strip() for c in df.columns]
+        # limpia headers: NBSP, espacios múltiples, trim
+        df.columns = [re.sub(r"\s+", " ", str(c).replace("\xa0"," ")).strip() for c in df.columns]
+        # strip en celdas y quitar símbolos
         df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
-        # limpiar símbolos problemáticos (€, �, NBSP) en todo el dataframe
         df = df.replace({"\xa0": " ", "€": "", "�": ""}, regex=True)
         return df
     except Exception:
@@ -477,54 +476,41 @@ def _load_forecast_db() -> pd.DataFrame:
 
 def _forecast_for_period(fdf: pd.DataFrame, start_ts: pd.Timestamp, end_ts: pd.Timestamp,
                          props: list[str] | None) -> tuple[dict, float]:
-    """Soporta forecast ancho (meses como columnas en ES) y largo. Devuelve { 'MonthName Year': valor } + total."""
-    # si no se pasó df, cargarlo
+    """Suma columnas mensuales (ES) del CSV ancho y devuelve { 'MonthName Year': valor } + total."""
+    months = list(_month_range(start_ts, end_ts))
+    keys = [f"{calendar.month_name[m.month]} {m.year}" for m in months]
+
     if fdf is None or fdf.empty:
-        fdf = _load_forecast_db()
-    # normaliza y detecta columnas de meses en ES
+        return {k: 0.0 for k in keys}, 0.0
+
     df = fdf.copy()
-    norm = {c: str(c).strip().lower() for c in df.columns}
+    # detectar columna Apartamento y filtrar si procede
+    norm = {c: re.sub(r"\s+", " ", str(c).replace("\xa0"," ")).strip().lower() for c in df.columns}
     prop_col = next((c for c, n in norm.items() if n in ("apartamento","alojamiento","propiedad","listing","unidad")), None)
     if props and prop_col:
         df = df[df[prop_col].astype(str).isin(props)]
-    # Detecta y convierte columnas mensuales
+
+    # detectar columnas de meses (robusto a espacios/NBSP)
     month_cols = {}
     for col in df.columns:
-        n = str(col).strip().lower()
-        base = re.sub(r"\s+", " ", n).replace("mes ", "").split("(")[0].split("/")[0].strip()
+        n = re.sub(r"\s+", " ", str(col).replace("\xa0"," ")).strip().lower()
+        base = n.replace("mes ","").split("(")[0].split("/")[0].strip()
         if base in MONTHS_ES:
             month_cols[col] = MONTHS_ES[base]
-    if month_cols:
-        for c in month_cols.keys():
-            df[c] = df[c].apply(_eu_money_to_float)
-        sums_by_m = {m: float(df[c].sum()) for c, m in month_cols.items()}
-        months = list(_month_range(start_ts, end_ts))
-        out, total = {}, 0.0
-        for m in months:
-            lbl = f"{calendar.month_name[m.month]} {m.year}"
-            val = float(sums_by_m.get(m.month, 0.0))
-            out[lbl] = val
-            total += val
-        return out, total
-    # Fallback: formato largo (columna Mes + valor)
-    c_mes = norm.get("mes") or norm.get("month") or norm.get("fecha") or list(df.columns)[0]
-    c_val = (norm.get("forecast") or norm.get("prevision") or norm.get("previsión")
-             or norm.get("ingresos") or list(df.columns)[-1])
-    # Mes puede ser nombre en ES o fecha
-    raw = df[c_mes].astype(str).str.strip().str.lower()
-    mnum = raw.map(lambda s: MONTHS_ES.get(s.split()[0], np.nan))
-    if mnum.isna().all():
-        mes_dt = pd.to_datetime(df[c_mes], errors="coerce")
-        mnum = mes_dt.dt.month
-    df["_m"] = mnum
-    df[c_val] = df[c_val].apply(_eu_money_to_float)
-    val_by_m = df.groupby("_m", as_index=False)[c_val].sum()
-    sums_by_m = {int(r["_m"]): float(r[c_val]) for _, r in val_by_m.iterrows()}
-    out = {}
-    total = 0.0
+
+    if not month_cols:
+        return {k: 0.0 for k in keys}, 0.0
+
+    # convertir números europeos y sumar por mes
+    for c in month_cols.keys():
+        df[c] = df[c].apply(_eu_money_to_float)
+    sums_by_m = {m: float(df[c].sum()) for c, m in month_cols.items()}
+
+    out, total = {}, 0.0
     for m in months:
         lbl = f"{calendar.month_name[m.month]} {m.year}"
         val = float(sums_by_m.get(m.month, 0.0))
+        out(lbl) if False else None  # no-op to keep structure
         out[lbl] = val
         total += val
     return out, total
