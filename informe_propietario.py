@@ -422,7 +422,8 @@ def _month_range(start_ts: pd.Timestamp, end_ts: pd.Timestamp):
     cur = s
     while cur <= e:
         yield cur
-        cur = (cur + pd.offsets.MonthBegin(2)).replace(day=1)  # avanzar 1 mes
+        # avanzar exactamente 1 mes
+        cur = (cur + pd.offsets.MonthBegin(1)).replace(day=1)
 
 def _monthly_summary(df_raw: pd.DataFrame, start_ts: pd.Timestamp, end_ts: pd.Timestamp,
                      props: list[str] | None, inv_units: int) -> list[dict]:
