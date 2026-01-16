@@ -17,12 +17,13 @@
   h1,h2,h3 { margin: 0 0 8px 0; font-weight:600; color:#122029; }
   .muted { color: #6b7280; font-size: 11.5px; }
 
-  .header { width: 100%; margin-bottom: 12px; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; position: relative; }
+  .header { width: 100%; margin-bottom: 12px; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; position: relative; min-height: 100px; }
   .header-logo {
     position: absolute;
     top: 0; right: 0;
-    height: 80px;           /* ajusta tamaño si quieres */
-    max-width: 180px;
+    height: 120px;         /* tamaño del logo */
+    max-width: 260px;
+    object-fit: contain;
   }
   .header-table { width: 100%; border-collapse: collapse; }
   .header-table td { vertical-align: middle; }
