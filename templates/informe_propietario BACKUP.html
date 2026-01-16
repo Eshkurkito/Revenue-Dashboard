@@ -4,144 +4,83 @@
 <meta charset="utf-8">
 <title>Informe de propietario · {{ apto or '—' }}</title>
 <style>
-  /* Fuente y paleta */
-  /* Si wkhtmltopdf permite recursos remotos, puedes descomentar:
-     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap'); */
-  :root{
-    --bg: #ffffff;
-    --text: #0f172a;      /* slate-900 */
-    --muted: #64748b;     /* slate-500 */
-    --border: #e2e8f0;    /* slate-200 */
-    --header: #111827;    /* gray-900 */
-    --th: #f8fafc;        /* slate-50 */
-    --row-alt: #fbfdff;   /* very light for zebra */
-    --accent: #2e485f;    /* azul corporativo del progress */
-    --card-bg: #ffffff;
-  }
-
   * { box-sizing: border-box; }
 
   body {
-    font-family: "Inter", "Segoe UI", Roboto, "Helvetica Neue", Arial, system-ui, -apple-system;
-    color: var(--text);
-    background: var(--bg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    color: #111827;
     margin: 0;
     padding: 16px 18px;
-    font-size: 11.75px;
-    line-height: 1.5;
+    font-size: 12px;
   }
 
-  h1,h2,h3{
-    margin: 0 0 10px 0;
-    font-weight: 700;
-    color: var(--header);
-    letter-spacing: -0.01em;
-  }
-  .muted { color: var(--muted); font-size: 11.25px; }
+  h1,h2,h3 { margin: 0 0 8px 0; font-weight:600; color:#122029; }
+  .muted { color: #6b7280; font-size: 11.5px; }
 
-  /* Header + logo */
-  .header {
-    width: 100%;
-    margin-bottom: 14px;
-    border-bottom: 1px solid var(--border);
-    padding-bottom: 12px;
-    position: relative;
-    min-height: 150px;
-  }
+  .header { width: 100%; margin-bottom: 12px; border-bottom: 1px solid #e5e7eb; padding-bottom: 12px; position: relative; min-height: 150px; }
   .header-logo {
     position: absolute;
-    top: -8px;
+    top: -8px;           /* subir un poco para que no toque la línea */
     right: 4px;
-    height: 140px;
+    height: 140px;         /* tamaño del logo */
     max-width: 300px;
     object-fit: contain;
   }
   .header-table { width: 100%; border-collapse: collapse; }
   .header-table td { vertical-align: middle; }
-  .logo { height: auto; }
+  .logo { height: auto; }  /* elimina la altura fija del .logo para no interferir */
 
-  /* KPIs */
-  .kpis { width: 100%; border-collapse: separate; border-spacing: 10px; margin: 8px 0 10px 0; }
-  .kpi{
-    background: var(--card-bg);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 12px 14px;
-    box-shadow: 0 1px 2px rgba(15,23,42,.04);
+  .kpis { width: 100%; border-collapse: separate; border-spacing: 8px; margin: 6px 0 8px 0; }
+  .kpi {
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: #f8fafc;
   }
-  .kpi h4{
-    margin: 0 0 6px 0;
-    font-size: 11px;
-    color: #334155;               /* slate-700 */
-    text-transform: uppercase;
-    letter-spacing: .02em;
-  }
-  .kpi .v { font-size: 19px; font-weight: 700; color: #0f172a; }
-  .kpi .ly{ font-size: 11px; color: var(--muted); }
+  .kpi h4 { margin: 0 0 4px 0; font-size: 12px; color: #374151; }
+  .kpi .v { font-size: 18px; font-weight: 700; color:#17384a; }
+  .kpi .ly { font-size: 11px; color: #6b7280; }
 
-  /* Cards */
-  .card{
-    background: var(--card-bg);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 12px;
-    margin-top: 12px;
-    box-shadow: 0 1px 2px rgba(15,23,42,.04);
+  .card {
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 10px;
+    margin-top: 10px;
     page-break-inside: avoid;
     break-inside: avoid;
     -webkit-column-break-inside: avoid;
     -webkit-page-break-inside: avoid;
-    overflow: visible;
+    background: #ffffff;
+    overflow: visible; /* evita recortes por overflow en PDF */
   }
-  .card h3 { font-size: 14px; margin: 0 0 8px 0; color: var(--header); }
+  .card h3 { font-size: 14px; margin: 0 0 6px 0; color: #1f2937; }
   .always-break { page-break-before: always; }
 
-  /* Tablas */
-  .table{
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 11.5px;
-    color: var(--text);
-    table-layout: auto;
-  }
-  .table th, .table td { border: 1px solid var(--border); padding: 7px 10px; }
-  .table th{
-    background: var(--th);
-    text-align: left;
-    font-weight: 600;
-    color: #111827;
-  }
-  .table tbody tr:nth-child(even){ background: var(--row-alt); }
-  .table tbody tr { page-break-inside: avoid; break-inside: avoid; -webkit-column-break-inside: avoid; }
-
-  /* Gráficos */
-  img.chart{
-    width: 100%;
-    height: auto;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    display: block;
-  }
+  img.chart { width: 100%; height: auto; border: 1px solid #e5e7eb; border-radius: 8px; display: block; }
   .chart-portal { width: 100% !important; margin: 0 auto; }
 
-  /* Bloques no divisibles */
+  .table { width: 100%; border-collapse: collapse; font-size: 11.5px; color:#111827; }
+  .table th, .table td { border: 1px solid #e5e7eb; padding: 6px 8px; }
+  .table th { background: #f3f4f6; text-align: left; font-weight:600; }
+
+  /* Evitar cortes dentro de tablas y repetir encabezados en PDF */
   .avoid-break-block{
-    display: inline-block;
+    display: inline-block;        /* bloque atómico más compatible */
     width: 100%;
     page-break-inside: avoid;
     break-inside: avoid;
     -webkit-column-break-inside: avoid;
     -webkit-page-break-inside: avoid;
   }
-  .avoid-break-block > h3{ page-break-after: avoid; margin-bottom: 8px; }
+  .avoid-break-block > h3{ page-break-after: avoid; margin-bottom: 6px; }
 
-  /* Saltos controlados */
+  /* utilidades de salto controlado */
   .start-new-page { page-break-before: always; -webkit-page-break-before: always; }
-  .break-after     { page-break-after: always; -webkit-page-break-after: always; }
-
+  .break-after { page-break-after: always; -webkit-page-break-after: always; }
   thead { display: table-header-group; }
   tfoot { display: table-footer-group; }
   tbody { display: table-row-group; }
+  .table tbody tr { page-break-inside: avoid; break-inside: avoid; -webkit-column-break-inside: avoid; }
 
   .comments { white-space: pre-wrap; min-height: 60px; }
 
