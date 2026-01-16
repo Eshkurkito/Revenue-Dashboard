@@ -497,6 +497,47 @@ def _load_logo_b64() -> str | None:
             pass
     return None
 
+# ===== Fuentes Inter (file:// + base64) =====
+def _b64_file(p: Path) -> str | None:
+    try:
+        return base64.b64encode(p.read_bytes()).decode("ascii")
+    except Exception:
+        return None
+
+def _find_inter_font(weight_names: tuple[str, ...]) -> Path | None:
+    fonts_dir = Path(__file__).resolve().parent / "assets" / "fonts"
+    if not fonts_dir.exists():
+        return None
+    files = list(fonts_dir.rglob("*.ttf"))
+    if not files:
+        return None
+    pref_sizes = ("18pt","24pt","28pt")
+    low = {f.name.lower(): f for f in files}
+    for sz in pref_sizes:
+        for wt in weight_names:
+            name = f"inter_{sz}-{wt}.ttf".lower()
+            if name in low:
+                return low[name]
+    for f in files:
+        n = f.name.lower()
+        if any(wt.lower() in n for wt in weight_names):
+            return f
+    return None
+
+def _load_font_sources() -> dict:
+    reg = _find_inter_font(("Regular",))
+    semi = _find_inter_font(("SemiBold","Semibold","Medium"))
+    bold = _find_inter_font(("Bold",))
+    def srcs(p: Path | None):
+        if not p: return {"b64": None, "uri": None}
+        return {"b64": _b64_file(p), "uri": p.resolve().as_uri()}
+    r = srcs(reg); s = srcs(semi); b = srcs(bold)
+    return {
+        "inter400_b64": r["b64"], "inter400_uri": r["uri"],
+        "inter600_b64": s["b64"], "inter600_uri": s["uri"],
+        "inter700_b64": b["b64"], "inter700_uri": b["uri"],
+    }
+
 # ----------------- Render -----------------
 def render_informe_propietario(raw: pd.DataFrame | None = None):
     st.header(TITLE)
@@ -873,6 +914,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                     monthly_by_property = []
 
                 # Contexto para la plantilla
+                font_src = _load_font_sources()
                 ctx = {
                     "apto": apto, "owner": owner,
                     "period_act": _period_label(start, end),
@@ -898,6 +940,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                     "top_months": top_months_fmt,
                     "forecast_total": _fmt_money(forecast_total, 2),
                     "forecast_progress_pct": f"{prog_pct}%",
+                    **font_src,  # ← añade inter400/600/700 (uri + b64)
                 }
                 # render
                 from jinja2 import Environment, FileSystemLoader
