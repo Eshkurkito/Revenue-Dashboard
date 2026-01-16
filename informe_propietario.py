@@ -296,11 +296,15 @@ def _fmt_pct(x: float, decimals: int = 2) -> str:
         return f"{x:.{decimals}f} %"
 
 # NUEVO: reservas por portal en el periodo (por fecha de alta si existe; si no, por check-in)
-def _bookings_by_portal(df_raw: pd.DataFrame, start: date, end: date, props: list[str] | None) -> pd.DataFrame:
+def _bookings_by_portal(df_raw: pd.DataFrame, start: date, end: date, props: list[str] | None, basis: str = "checkin") -> pd.DataFrame:
     d = _preprocess(df_raw)
     if props and "Alojamiento" in d.columns:
         d = d[d["Alojamiento"].astype(str).isin(props)].copy()
-    ref = d["Fecha alta"] if "Fecha alta" in d.columns else d["Fecha entrada"]
+    # Filtra por check-in (Fecha entrada) por defecto. Usa "booking" para Fecha alta.
+    if basis == "booking" and "Fecha alta" in d.columns:
+        ref = d["Fecha alta"]
+    else:
+        ref = d["Fecha entrada"]
     mask = (ref >= pd.to_datetime(start)) & (ref <= pd.to_datetime(end))
     d = d.loc[mask].copy()
 
@@ -308,11 +312,9 @@ def _bookings_by_portal(df_raw: pd.DataFrame, start: date, end: date, props: lis
     if "Portal" not in d.columns:
         d["Portal"] = "FloritFlats"
     else:
-        # sustituye NA o cadenas vacías por "FloritFlats" antes de normalizar
         d["Portal"] = d["Portal"].where(d["Portal"].notna() & d["Portal"].astype(str).str.strip().ne(""), "FloritFlats")
 
     d["Portal"] = d["Portal"].astype(str).map(_canon_portal)
-    # asegurar que no queden vacíos
     d.loc[d["Portal"].eq("") | d["Portal"].isna(), "Portal"] = "FloritFlats"
 
     g = (d.groupby("Portal", dropna=False)
@@ -678,7 +680,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
     revpar_ly  = k_ly["ingresos"]  / (max(1, inv_units) * total_days) if total_days > 0 else 0.0
 
     # Top portals con % share (para UI y PDF)
-    portal_df = _bookings_by_portal(df, start, end, props)
+    portal_df = _bookings_by_portal(df, start, end, props, basis="checkin")
     total_portal_ing = float(portal_df["Ingresos"].sum()) if not portal_df.empty else 0.0
     if not portal_df.empty and total_portal_ing > 0:
         portal_df = portal_df.assign(Share=lambda x: x["Ingresos"] / total_portal_ing * 100.0)
