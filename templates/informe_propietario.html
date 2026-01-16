@@ -4,18 +4,42 @@
 <meta charset="utf-8">
 <title>Informe de propietario · {{ apto or '—' }}</title>
 <style>
-  /* Fuentes Inter embebidas */
-  {% if inter400_b64 %}
-  @font-face{ font-family:"Inter"; font-style:normal; font-weight:400; src:url(data:font/ttf;base64,{{ inter400_b64 }}) format("truetype"); }
+  /* Inter embebida + fallback por ruta local */
+  {% if inter400_uri or inter400_b64 %}
+  @font-face{
+    font-family:"Inter";
+    font-style:normal;
+    font-weight:400;
+    src:
+      {% if inter400_uri %} url("{{ inter400_uri }}") format("truetype"), {% endif %}
+      {% if inter400_b64 %} url(data:application/font-ttf;base64,{{ inter400_b64 }}) format("truetype"), {% endif %}
+      local("Inter");
+  }
   {% endif %}
-  {% if inter600_b64 %}
-  @font-face{ font-family:"Inter"; font-style:normal; font-weight:600; src:url(data:font/ttf;base64,{{ inter600_b64 }}) format("truetype"); }
+  {% if inter600_uri or inter600_b64 %}
+  @font-face{
+    font-family:"Inter";
+    font-style:normal;
+    font-weight:600;
+    src:
+      {% if inter600_uri %} url("{{ inter600_uri }}") format("truetype"), {% endif %}
+      {% if inter600_b64 %} url(data:application/font-ttf;base64,{{ inter600_b64 }}) format("truetype"), {% endif %}
+      local("Inter");
+  }
   {% endif %}
-  {% if inter700_b64 %}
-  @font-face{ font-family:"Inter"; font-style:normal; font-weight:700; src:url(data:font/ttf;base64,{{ inter700_b64 }}) format("truetype"); }
+  {% if inter700_uri or inter700_b64 %}
+  @font-face{
+    font-family:"Inter";
+    font-style:normal;
+    font-weight:700;
+    src:
+      {% if inter700_uri %} url("{{ inter700_uri }}") format("truetype"), {% endif %}
+      {% if inter700_b64 %} url(data:application/font-ttf;base64,{{ inter700_b64 }}) format("truetype"), {% endif %}
+      local("Inter");
+  }
   {% endif %}
 
-  body { font-family:"Inter","Segoe UI",Roboto,"Helvetica Neue",Arial,system-ui,-apple-system; }
+  body{ font-family:"Inter","Segoe UI",Roboto,"Helvetica Neue",Arial,system-ui,-apple-system; }
   h1,h2,h3 { font-weight:700; }
   .table th { font-weight:600; }
 

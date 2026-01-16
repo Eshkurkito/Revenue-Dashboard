@@ -382,6 +382,121 @@ def _booking_stats(df_raw: pd.DataFrame, start: date, end: date, props: list[str
 
     return {"los_avg": los_avg, "lead_avg": lead_avg}
 
+# ----------------- Resumen mensual + Forecast -----------------
+def _month_label(ts: pd.Timestamp) -> str:
+    # Ej: "January 2026"
+    return f"{calendar.month_name[int(ts.month)]} {ts.year}"
+
+def _month_range(start_ts: pd.Timestamp, end_ts: pd.Timestamp):
+    s = pd.Timestamp(start_ts).normalize().replace(day=1)
+    e = pd.Timestamp(end_ts).normalize().replace(day=1)
+    cur = s
+    while cur <= e:
+        yield cur
+        cur = (cur + pd.offsets.MonthBegin(2)).replace(day=1)  # avanzar 1 mes
+
+def _monthly_summary(df_raw: pd.DataFrame, start_ts: pd.Timestamp, end_ts: pd.Timestamp,
+                     props: list[str] | None, inv_units: int) -> list[dict]:
+    d = _preprocess(df_raw)
+    if props and "Alojamiento" in d.columns:
+        d = d[d["Alojamiento"].astype(str).isin(props)].copy()
+
+    rows = []
+    for mstart in _month_range(start_ts, end_ts):
+        mend = (mstart + pd.offsets.MonthEnd(1))
+        # ACT
+        act = _overlap_nights_rows(d, mstart, mend)
+        a_n = float(act["Noches"].sum())
+        a_i = float(act["Ingresos"].sum())
+        a_adr = (a_i / a_n) if a_n > 0 else 0.0
+        days_in_month = int((mend - mstart).days) + 1
+        a_cap = max(1, int(inv_units)) * days_in_month
+        a_ocup = (a_n / a_cap * 100.0) if a_cap > 0 else 0.0
+
+        # LY (mismo mes del año anterior)
+        ly_start = mstart - pd.DateOffset(years=1)
+        ly_end   = mend   - pd.DateOffset(years=1)
+        ly = _overlap_nights_rows(d, ly_start, ly_end)
+        l_n = float(ly["Noches"].sum())
+        l_i = float(ly["Ingresos"].sum())
+        l_adr = (l_i / l_n) if l_n > 0 else 0.0
+        l_cap = a_cap  # misma capacidad
+        l_ocup = (l_n / l_cap * 100.0) if l_cap > 0 else 0.0
+
+        rows.append({
+            "mes": _month_label(mstart),
+            "ing_act": a_i,
+            "ing_ly":  l_i,
+            "forecast": 0.0,            # se rellena luego si hay DB
+            "adr_act": a_adr,
+            "adr_ly":  l_adr,
+            "ocup_act": a_ocup,
+            "ocup_ly":  l_ocup,
+            "nights_act": int(a_n),
+            "nights_ly":  int(l_n),
+        })
+    return rows
+
+def _load_forecast_db() -> pd.DataFrame:
+    """Carga una tabla de forecast si existe; si no, devuelve DF vacío."""
+    here = Path(__file__).resolve().parent
+    candidates = [
+        here / "assets" / "forecast.csv",
+        here.parent / "assets" / "forecast.csv",
+        here / "data" / "forecast.csv",
+    ]
+    for p in candidates:
+        try:
+            if p.exists():
+                return pd.read_csv(p)
+        except Exception:
+            pass
+    return pd.DataFrame()
+
+def _forecast_for_period(fdf: pd.DataFrame, start_ts: pd.Timestamp, end_ts: pd.Timestamp,
+                         props: list[str] | None) -> tuple[dict, float]:
+    """Devuelve mapa {mes_label: forecast} y total del periodo. Si no hay DB, todo 0."""
+    if fdf is None or fdf.empty:
+        month_map = { _month_label(m): 0.0 for m in _month_range(start_ts, end_ts) }
+        return month_map, 0.0
+    # Intento de mapeo flexible: columnas 'Mes','Alojamiento','Forecast'
+    df = fdf.copy()
+    if props and "Alojamiento" in df.columns:
+        df = df[df["Alojamiento"].astype(str).isin(props)]
+    # Normaliza etiqueta de mes
+    if "Mes" in df.columns:
+        df["MesLabel"] = pd.to_datetime(df["Mes"], errors="coerce").dt.to_period("M").dt.to_timestamp().map(_month_label)
+    else:
+        df["MesLabel"] = pd.to_datetime(df.iloc[:,0], errors="coerce").dt.to_period("M").dt.to_timestamp().map(_month_label)
+    val_col = next((c for c in df.columns if str(c).lower() in ("forecast","prevision","ingresos")), None)
+    if val_col is None:
+        month_map = { _month_label(m): 0.0 for m in _month_range(start_ts, end_ts) }
+        return month_map, 0.0
+    # Rango
+    valid = [ _month_label(m) for m in _month_range(start_ts, end_ts) ]
+    g = (df[df["MesLabel"].isin(valid)]
+         .groupby("MesLabel", as_index=False)[val_col].sum())
+    month_map = { r["MesLabel"]: float(r[val_col]) for _, r in g.iterrows() }
+    total = float(g[val_col].sum()) if not g.empty else 0.0
+    return month_map, total
+
+def _load_logo_b64() -> str | None:
+    """Intenta leer el logo y devolverlo en base64."""
+    here = Path(__file__).resolve().parent
+    candidates = [
+        here / "assets" / "florit-flats-logo.png",
+        here / "assets" / "florit.flats-logo.png",   # variantes
+        here.parent / "assets" / "florit-flats-logo.png",
+        here.parent / "assets" / "florit.flats-logo.png",
+    ]
+    for p in candidates:
+        try:
+            if p.exists():
+                return base64.b64encode(p.read_bytes()).decode("ascii")
+        except Exception:
+            pass
+    return None
+
 # ----------------- Render -----------------
 def render_informe_propietario(raw: pd.DataFrame | None = None):
     st.header(TITLE)
@@ -546,7 +661,6 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
 
     # Top months (por ingresos) — para mostrar en la portada/HTML también
     monthly_rows_raw = _monthly_summary(df, pd.to_datetime(start), pd.to_datetime(end), props, inv_units)
-    # intentar cargar forecast y añadir columna 'forecast' prorrateada por periodo
     fdf = _load_forecast_db()
     forecast_by_month, forecast_total = _forecast_for_period(fdf, pd.to_datetime(start), pd.to_datetime(end), props)
     for r in monthly_rows_raw:
@@ -758,6 +872,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                 except Exception:
                     monthly_by_property = []
 
+                # Contexto para la plantilla
                 ctx = {
                     "apto": apto, "owner": owner,
                     "period_act": _period_label(start, end),
@@ -774,7 +889,6 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                     "lead_avg": f"{stats['lead_avg']:.0f}" if stats["lead_avg"] is not None else "—",
                     "monthly_rows": monthly_rows,   # ← existente
                     "monthly_by_property": monthly_by_property,
-                    # NUEVOS campos:
                     "revpar": {"act": _fmt_money(revpar_act,2), "ly": _fmt_money(revpar_ly,2)},
                     "top_portals": tp_formatted,
                     "weekday_rows": wd_formatted,
@@ -782,7 +896,6 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                     "los_buckets": los_b_fmt,
                     "lead_buckets": lead_b_fmt,
                     "top_months": top_months_fmt,
-                    # Forecast / progreso
                     "forecast_total": _fmt_money(forecast_total, 2),
                     "forecast_progress_pct": f"{prog_pct}%",
                 }
@@ -794,7 +907,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                 # pdfkit
                 import pdfkit
                 options = {
-                    "enable-local-file-access": None,
+                    "enable-local-file-access": True,  # necesario para file:// de fuentes
                     "page-size": "A4",
                     "margin-top": "12mm",
                     "margin-bottom": "12mm",
@@ -802,7 +915,7 @@ def render_informe_propietario(raw: pd.DataFrame | None = None):
                     "margin-right": "12mm",
                     "encoding": "UTF-8",
                     "quiet": "",
-                    "disable-smart-shrinking": None,  # ← evita que encoja
+                    "disable-smart-shrinking": None,
                     "zoom": "1.0",
                     "footer-right": "Generado: " + date.today().isoformat() + "   |   Página [page]/[toPage]",
                     "footer-font-size": "8",
@@ -852,212 +965,3 @@ def _period_label(s: date | pd.Timestamp, e: date | pd.Timestamp) -> str:
     sd = pd.to_datetime(s).date()
     ed = pd.to_datetime(e).date()
     return f"{sd.strftime('%d/%m/%Y')} – {ed.strftime('%d/%m/%Y')}"
-    
-import base64
-from pathlib import Path
-
-def _b64_file(p: Path) -> str | None:
-    try:
-        return base64.b64encode(p.read_bytes()).decode("ascii")
-    except Exception:
-        return None
-
-def _find_inter_font(weight_names: tuple[str, ...]) -> Path | None:
-    here = Path(__file__).resolve().parent
-    fonts_dir = here / "assets" / "fonts"
-    if not fonts_dir.exists():
-        return None
-    files = list(fonts_dir.rglob("*.ttf"))
-    if not files:
-        return None
-    # Preferencia por tamaño óptico 18pt → 24pt → 28pt
-    sizes = ("18pt", "24pt", "28pt")
-    low = {f.name.lower(): f for f in files}
-    for sz in sizes:
-        for wt in weight_names:
-            name = f"inter_{sz}-{wt}.ttf".lower()
-            if name in low:
-                return low[name]
-    # Fallback: contiene el peso en el nombre
-    for f in files:
-        n = f.name.lower()
-        if any(wt.lower() in n for wt in weight_names):
-            return f
-    return None
-
-def _load_font_b64() -> dict:
-    reg = _find_inter_font(("Regular",))
-    semi = _find_inter_font(("SemiBold", "Semibold", "Medium"))  # usa Medium si no hay SemiBold
-    bold = _find_inter_font(("Bold",))
-    return {
-        "inter400_b64": _b64_file(reg) if reg else None,
-        "inter600_b64": _b64_file(semi) if semi else None,
-        "inter700_b64": _b64_file(bold) if bold else None,
-    }
-
-def _load_logo_b64() -> str | None:
-    here = Path(__file__).resolve().parent
-    for p in [here / "assets" / "florit-flats-logo.png",
-              here.parent / "assets" / "florit-flats-logo.png"]:
-        if p.exists():
-            return _b64_file(p)
-    return None
-
-# --- NEW: rangos por mes y resumen mensual ---
-def _month_ranges(start: date | pd.Timestamp, end: date | pd.Timestamp):
-    s = pd.to_datetime(start).date().replace(day=1)
-    e = pd.to_datetime(end).date()
-    out = []
-    cur = s
-    while cur <= e:
-        y, m = cur.year, cur.month
-        last = calendar.monthrange(y, m)[1]
-        ms = pd.Timestamp(date(y, m, 1))
-        me = pd.Timestamp(date(y, m, last))
-        out.append((ms, me))
-        # next month
-        if m == 12:
-            cur = date(y + 1, 1, 1)
-        else:
-            cur = date(y, m + 1, 1)
-    return out
-
-def _monthly_summary(df_raw: pd.DataFrame, start: date, end: date, props: list[str] | None, inv_units: int) -> list[dict]:
-    """
-    Devuelve lista de dicts por mes con métricas ACT vs LY:
-    {'mes': 'Enero 2026', 'ing_act':float, 'ing_ly':float, 'adr_act':float, 'adr_ly':float, 'ocup_act':float, 'ocup_ly':float}
-    """
-    d = _preprocess(df_raw)
-    if props and "Alojamiento" in d.columns:
-        d = d[d["Alojamiento"].astype(str).isin(props)].copy()
-    months = _month_ranges(start, end)
-    rows = []
-    for ms, me in months:
-        # ACT
-        daily_act = _overlap_nights_rows(d, ms, me)
-        nights_act = int(daily_act["Noches"].sum()) if not daily_act.empty else 0
-        ing_act = float(daily_act["Ingresos"].sum()) if not daily_act.empty else 0.0
-        adr_act = (ing_act / nights_act) if nights_act > 0 else 0.0
-        days_month = (pd.to_datetime(me).date() - pd.to_datetime(ms).date()).days + 1
-        ocup_act = (nights_act / (max(1, int(inv_units)) * days_month) * 100.0) if days_month > 0 else 0.0
-
-        # LY (mismo mes año anterior)
-        ms_ly = ms - pd.DateOffset(years=1)
-        me_ly = me - pd.DateOffset(years=1)
-        daily_ly = _overlap_nights_rows(d, ms_ly, me_ly)
-        nights_ly = int(daily_ly["Noches"].sum()) if not daily_ly.empty else 0
-        ing_ly = float(daily_ly["Ingresos"].sum()) if not daily_ly.empty else 0.0
-        adr_ly = (ing_ly / nights_ly) if nights_ly > 0 else 0.0
-        ocup_ly = (nights_ly / (max(1, int(inv_units)) * days_month) * 100.0) if days_month > 0 else 0.0
-
-        rows.append({
-            "mes": ms.strftime("%B %Y"),
-            "ing_act": ing_act, "ing_ly": ing_ly,
-            "adr_act": adr_act, "adr_ly": adr_ly,
-            "ocup_act": ocup_act, "ocup_ly": ocup_ly,
-            "days": days_month,
-            "nights_act": nights_act, "nights_ly": nights_ly,
-        })
-    return rows
-
-# NUEVO: carga y cálculo de forecast desde data/forecast_db.csv
-def _parse_euro(s: str) -> float:
-    try:
-        if pd.isna(s):
-            return 0.0
-        t = str(s).replace("�", "").strip()
-        # eliminar espacios y normalizar
-        t = t.replace(" ", "")
-        # quitar miles '.' y convertir decimal ',' -> '.'
-        # si hay tanto '.' como ',' asumimos '.'=miles y ','=decimales
-        if t.count(",") == 1 and t.count(".") > 0:
-            t = t.replace(".", "").replace(",", ".")
-        else:
-            t = t.replace(",", ".").replace(" ", "")
-        # dejar sólo dígitos, punto y signo
-        t = re.sub(r"[^\d\.\-]", "", t)
-        return float(t) if t != "" else 0.0
-    except Exception:
-        return 0.0
-
-def _load_forecast_db() -> pd.DataFrame | None:
-    base = Path(__file__).resolve().parent
-    f = base / "data" / "forecast_db.csv"
-    if not f.exists():
-        return None
-    try:
-        df = pd.read_csv(f, sep=";", dtype=str, encoding="utf-8", engine="python")
-    except Exception:
-        try:
-            df = pd.read_csv(f, sep=";", dtype=str, encoding="latin-1", engine="python")
-        except Exception:
-            return None
-    # limpiar nombres de columnas
-    df.columns = [str(c).strip() for c in df.columns]
-    # normalizar apartment name column
-    first_col = df.columns[0]
-    df = df.rename(columns={first_col: "Apartamento"})
-    # parse numeric month columns
-    for c in df.columns[1:]:
-        df[c] = df[c].apply(_parse_euro)
-    # normalizar apartment key
-    df["__apt_key"] = df["Apartamento"].astype(str).str.strip().str.lower()
-    return df
-
-def _forecast_for_period(forecast_df: pd.DataFrame | None, start: date, end: date, props: list[str] | None) -> tuple[dict, float]:
-    """
-    Devuelve (dict mes->forecast, total_forecast) donde 'mes' coincide con monthly_summary 'mes' (p.e. 'Enero 2026').
-    Prorratea meses parciales según días cubiertos.
-    """
-    if forecast_df is None or forecast_df.empty:
-        return {}, 0.0
-    # columnas meses en el csv esperadas en español (encabezados)
-    meses_es = [c.strip() for c in forecast_df.columns[1:-1]] if "__apt_key" in forecast_df.columns else [c.strip() for c in forecast_df.columns[1:]]
-    # map apt keys if props given
-    selected_mask = None
-    if props and len(props) > 0:
-        keys = [str(p).strip().lower() for p in props]
-        selected_mask = forecast_df["__apt_key"].isin(keys)
-    else:
-        selected_mask = pd.Series(True, index=forecast_df.index)
-
-    months = _month_ranges(start, end)
-    out = {}
-    total = 0.0
-    for ms, me in months:
-        # nombre del mes en formato igual al que produce _monthly_summary: "Enero 2026"
-        mes_label = ms.strftime("%B %Y")
-        # buscar columna correspondiente en forecast_df (coincidir por nombre mes en español)
-        # intentar varias capitalizaciones/espacios
-        col_name = None
-        target = ms.month  # 1..12
-        # buscar columna cuyo nombre contiene número de mes en español
-        for c in forecast_df.columns[1:]:
-            cc = c.strip().lower()
-            # comparar por nombre de mes en español
-            meses_map = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"]
-            if meses_map[target-1] in cc:
-                col_name = c
-                break
-        # si no encontrado por nombre exacto, intentar por posición (asumir columnas están en orden enero..diciembre)
-        if col_name is None:
-            cols_months = [c for c in forecast_df.columns[1:] ]
-            if len(cols_months) >= target:
-                col_name = cols_months[target-1]
-        # si aún no hay columna, poner 0
-        if col_name is None:
-            f_val = 0.0
-        else:
-            # sumar filas seleccionadas y prorratear según días del mes que están en el periodo
-            days_in_month = (pd.to_datetime(me).date() - pd.to_datetime(ms).date()).days + 1
-            # overlap with period (in case start/end cut month)
-            ov_s = max(pd.to_datetime(ms).date(), pd.to_datetime(start).date())
-            ov_e = min(pd.to_datetime(me).date(), pd.to_datetime(end).date())
-            covered_days = (ov_e - ov_s).days + 1
-            covered_days = max(0, covered_days)
-            month_sum = float(forecast_df.loc[selected_mask, col_name].sum(skipna=True))
-            # prorrateo
-            f_val = month_sum * (covered_days / days_in_month) if days_in_month > 0 else 0.0
-        out[mes_label] = f_val
-        total += f_val
-    return out, total
