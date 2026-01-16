@@ -57,14 +57,18 @@
 
   /* Evitar cortes dentro de tablas y repetir encabezados en PDF */
   .avoid-break-block{
-    display: table;               /* bloque atómico para impresión */
+    display: inline-block;        /* bloque atómico más compatible */
     width: 100%;
     page-break-inside: avoid;
     break-inside: avoid;
     -webkit-column-break-inside: avoid;
     -webkit-page-break-inside: avoid;
   }
-  .avoid-break-block > h3{ display: table-caption; caption-side: top; page-break-after: avoid; }
+  .avoid-break-block > h3{ page-break-after: avoid; margin-bottom: 6px; }
+
+  /* utilidades de salto controlado */
+  .start-new-page { page-break-before: always; -webkit-page-break-before: always; }
+  .break-after { page-break-after: always; -webkit-page-break-after: always; }
   thead { display: table-header-group; }
   tfoot { display: table-footer-group; }
   tbody { display: table-row-group; }
@@ -231,7 +235,7 @@
       </table>
     </div>
   </div>
-  <div class="card">
+  <div class="card break-after">
     <div class="avoid-break-block">
       <h3>Top meses (ingresos)</h3>
       <table class="table">
@@ -245,14 +249,14 @@
     </div>
   </div>
 
-  <div class="card avoid-break-block" style="margin-top:4mm;">
+  <div class="card avoid-break-block start-new-page" style="margin-top:4mm;">
     {{ paginated_block('Desglose mensual', monthly_headers, monthly_rows, monthly_cols, rows_per_page=20, table_classes='table', repeat_title=false) }}
   </div>
 
   {% if monthly_by_property %}
     {% for mb in monthly_by_property %}
-      <div class="card">
-        {{ paginated_block('Desglose mensual — ' ~ mb.apto, monthly_headers, mb.monthly_rows, monthly_cols, rows_per_page=20, table_classes='table', repeat_title=false) }}
+      <div class="card start-new-page">
+        {{ paginated_block('Desglose mensual — ' ~ mb.apto, monthly_headers, mb.monthly_rows, monthly_cols, rows_per_page=18, table_classes='table', repeat_title=false) }}
       </div>
     {% endfor %}
   {% endif %}
