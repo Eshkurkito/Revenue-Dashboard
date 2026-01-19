@@ -437,10 +437,11 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
         int(inv_pro_ly) if inv_pro_ly > 0 else None,
         props_pro if props_pro else None,
     )
-    a1, a2, a3 = st.columns(3)
+    a1, a2, a3, a4 = st.columns(4)
     a1.metric("ADR actual (€)", f"{tot_now['adr']:.2f}")
     a2.metric("ADR LY (€)", f"{tot_ly_cut['adr']:.2f}")
-    a3.metric("ADR LY-2 (€)", f"{tot_ly2_cut['adr']:.2f}")
+    a3.metric("ADR LY final (€)", f"{tot_ly_final['adr']:.2f}")
+    a4.metric("ADR LY-2 (€)", f"{tot_ly2_cut['adr']:.2f}")
 
     # === ADR entre semana vs fin de semana (periodo seleccionado, uplift vie/sáb = 25%) ===
     u = 0.25  # uplift fines de semana (viernes y sábado)
