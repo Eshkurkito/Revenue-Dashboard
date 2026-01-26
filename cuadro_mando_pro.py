@@ -480,7 +480,6 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
         months_window=1,
     )
 
-    st.caption(f"Apartamentos activos al corte: Act {actives_act} · LY {actives_ly} · LY-2 {actives_ly2}")
     st.caption(f"Apartamentos con reservas en el periodo: Act {n_props_act_res} · LY {n_props_ly_res} · LY-2 {n_props_ly2_res}")
     st.caption(f"Apartamentos activos (±1 mes del periodo): Act {act_adj_act} · LY {act_adj_ly} · LY-2 {act_adj_ly2}")
 
