@@ -283,6 +283,40 @@ def _count_props_with_data(df: pd.DataFrame, period_start, period_end, cutoff) -
     overlap = (d["Fecha entrada"] < end_inclusive) & (d["Fecha salida"] > start_dt)
     return int(d.loc[overlap, "Alojamiento"].astype(str).nunique())
 
+def _count_props_active_adjacent(df: pd.DataFrame, period_start, period_end, cutoff, months_window: int = 1) -> int:
+    """
+    Cuenta alojamientos 'activos' si tienen alguna reserva con Fecha alta ≤ corte
+    que intersecta el periodo extendido ±N meses respecto al periodo visible.
+    """
+    if df is None or df.empty:
+        return 0
+    needed = {"Alojamiento", "Fecha alta", "Fecha entrada", "Fecha salida"}
+    if not needed.issubset(set(df.columns)):
+        return 0
+
+    d = df.copy()
+    for c in ["Fecha alta", "Fecha entrada", "Fecha salida"]:
+        d[c] = pd.to_datetime(d[c], errors="coerce")
+    d = d.dropna(subset=["Alojamiento", "Fecha alta", "Fecha entrada", "Fecha salida"])
+
+    cut_dt = pd.to_datetime(cutoff).normalize()
+    # Limita a reservas confirmadas al corte
+    d = d[d["Fecha alta"] <= cut_dt]
+
+    # Ventana extendida: desde el inicio del mes anterior al periodo hasta el fin del mes siguiente
+    p_start = pd.to_datetime(period_start)
+    p_end = pd.to_datetime(period_end)
+    start_m = pd.Period(p_start, freq="M")
+    end_m = pd.Period(p_end, freq="M")
+    ext_start_m = start_m - months_window
+    ext_end_m = end_m + months_window
+    ext_start = ext_start_m.start_time.normalize()
+    ext_end = ext_end_m.end_time.normalize()
+    ext_end_inclusive = ext_end + pd.Timedelta(days=1)
+
+    overlap_ext = (d["Fecha entrada"] < ext_end_inclusive) & (d["Fecha salida"] > ext_start)
+    return int(d.loc[overlap_ext, "Alojamiento"].astype(str).nunique())
+
 def _count_props_active_by_first_booking(df: pd.DataFrame, cutoff) -> int:
     """Cuenta apartamentos activos al corte según la primera 'Fecha alta' (primer booking) por alojamiento."""
     if df is None or df.empty:
@@ -429,8 +463,26 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
         pd.to_datetime(pro_cut) - pd.DateOffset(years=2),
     )
 
+    # Activos por actividad en meses adyacentes (±1 mes del periodo)
+    act_adj_act = _count_props_active_adjacent(df, pro_start, pro_end, pro_cut, months_window=1)
+    act_adj_ly  = _count_props_active_adjacent(
+        df,
+        pd.to_datetime(pro_start) - pd.DateOffset(years=1),
+        pd.to_datetime(pro_end) - pd.DateOffset(years=1),
+        pd.to_datetime(pro_cut) - pd.DateOffset(years=1),
+        months_window=1,
+    )
+    act_adj_ly2 = _count_props_active_adjacent(
+        df,
+        pd.to_datetime(pro_start) - pd.DateOffset(years=2),
+        pd.to_datetime(pro_end) - pd.DateOffset(years=2),
+        pd.to_datetime(pro_cut) - pd.DateOffset(years=2),
+        months_window=1,
+    )
+
     st.caption(f"Apartamentos activos al corte: Act {actives_act} · LY {actives_ly} · LY-2 {actives_ly2}")
     st.caption(f"Apartamentos con reservas en el periodo: Act {n_props_act_res} · LY {n_props_ly_res} · LY-2 {n_props_ly2_res}")
+    st.caption(f"Apartamentos activos (±1 mes del periodo): Act {act_adj_act} · LY {act_adj_ly} · LY-2 {act_adj_ly2}")
 
     # ---- Forecast: carga desde data/forecast_db.csv por defecto (sin subir) ----
     with st.expander("Forecast mensual (opcional): usar data/forecast_db.csv o subir archivo para reemplazar", expanded=False):
