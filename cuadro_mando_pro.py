@@ -283,6 +283,20 @@ def _count_props_with_data(df: pd.DataFrame, period_start, period_end, cutoff) -
     overlap = (d["Fecha entrada"] < end_inclusive) & (d["Fecha salida"] > start_dt)
     return int(d.loc[overlap, "Alojamiento"].astype(str).nunique())
 
+def _count_props_active_by_first_booking(df: pd.DataFrame, cutoff) -> int:
+    """Cuenta apartamentos activos al corte según la primera 'Fecha alta' (primer booking) por alojamiento."""
+    if df is None or df.empty:
+        return 0
+    if not {"Alojamiento", "Fecha alta"}.issubset(df.columns):
+        return 0
+    d = df.copy()
+    d["Alojamiento"] = d["Alojamiento"].astype(str)
+    d["Fecha alta"] = pd.to_datetime(d["Fecha alta"], errors="coerce")
+    d = d.dropna(subset=["Alojamiento", "Fecha alta"])
+    first_booking = d.groupby("Alojamiento", as_index=False)["Fecha alta"].min()
+    cut_dt = pd.to_datetime(cutoff).normalize()
+    return int(first_booking.loc[first_booking["Fecha alta"] <= cut_dt, "Alojamiento"].nunique())
+
 def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
     # --- validación ---
     if not isinstance(raw, pd.DataFrame) or raw.empty:
@@ -396,21 +410,27 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
     g4.metric("Ingresos LY-2 a este corte (€)", f"{tot_ly2_cut_ing['ingresos']:.2f}")
     g5.metric("Ingresos LY-2 final (€)", f"{tot_ly2_final_ing['ingresos']:.2f}")
 
-    # Nuevo: conteo de apartamentos con datos en el periodo (Act, LY y LY-2)
-    n_props_act = _count_props_with_data(df, pro_start, pro_end, pro_cut)
-    n_props_ly = _count_props_with_data(
+    # Nuevo: conteo de apartamentos activos al corte y con reservas en el periodo (Act, LY y LY-2)
+    actives_act = _count_props_active_by_first_booking(df, pro_cut)
+    actives_ly  = _count_props_active_by_first_booking(df, pd.to_datetime(pro_cut) - pd.DateOffset(years=1))
+    actives_ly2 = _count_props_active_by_first_booking(df, pd.to_datetime(pro_cut) - pd.DateOffset(years=2))
+
+    n_props_act_res = _count_props_with_data(df, pro_start, pro_end, pro_cut)
+    n_props_ly_res  = _count_props_with_data(
         df,
         pd.to_datetime(pro_start) - pd.DateOffset(years=1),
         pd.to_datetime(pro_end) - pd.DateOffset(years=1),
         pd.to_datetime(pro_cut) - pd.DateOffset(years=1),
     )
-    n_props_ly2 = _count_props_with_data(
+    n_props_ly2_res = _count_props_with_data(
         df,
         pd.to_datetime(pro_start) - pd.DateOffset(years=2),
         pd.to_datetime(pro_end) - pd.DateOffset(years=2),
         pd.to_datetime(pro_cut) - pd.DateOffset(years=2),
     )
-    st.caption(f"Apartamentos con datos en el periodo: Act {n_props_act} · LY {n_props_ly} · LY-2 {n_props_ly2}")
+
+    st.caption(f"Apartamentos activos al corte: Act {actives_act} · LY {actives_ly} · LY-2 {actives_ly2}")
+    st.caption(f"Apartamentos con reservas en el periodo: Act {n_props_act_res} · LY {n_props_ly_res} · LY-2 {n_props_ly2_res}")
 
     # ---- Forecast: carga desde data/forecast_db.csv por defecto (sin subir) ----
     with st.expander("Forecast mensual (opcional): usar data/forecast_db.csv o subir archivo para reemplazar", expanded=False):
