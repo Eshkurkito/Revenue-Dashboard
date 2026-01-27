@@ -1045,4 +1045,4 @@ def _to_dt(s: pd.Series) -> pd.Series:
 def _period_label(s: date | pd.Timestamp, e: date | pd.Timestamp) -> str:
     sd = pd.to_datetime(s).date()
     ed = pd.to_datetime(e).date()
-    return f"{sd.strftime('%d/%m/%Y')} – {ed.strftime('%d/%m/%Y')}
+    return f"{sd.strftime('%d/%m/%Y')} – {ed.strftime('%d/%m/%Y')}"
