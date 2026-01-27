@@ -18,7 +18,10 @@ MONTHS_ES = {
     "julio":7,"agosto":8,"septiembre":9,"setiembre":9,
     "octubre":10,"noviembre":11,"diciembre":12
 }
-MONTHS_ES_INV = {v:k for k,v in MONTHS_ES.items()}
+MONTHS_ES_INV = {v:k for k,v in MONTHS_ES.items()}  # ← se deja, pero no se usará para forecast
+# Helper: candidatos de nombre ES por nº de mes
+def _month_es_keys(n: int) -> list[str]:
+    return [k for k, v in MONTHS_ES.items() if v == n]
 
 def _norm_header(s: str) -> str:
     # limpia NBSP, múltiples espacios y acentos básicos
@@ -485,7 +488,7 @@ def _load_forecast_db() -> pd.DataFrame:
 
 def _forecast_for_period(fdf: pd.DataFrame, start_ts: pd.Timestamp, end_ts: pd.Timestamp,
                          props: list[str] | None) -> tuple[dict, float]:
-    """Suma columnas por mes (ES) del CSV ancho, tolerando espacios/NBSP."""
+    """Suma columnas por mes (ES) del CSV ancho, tolerando espacios/NBSP y variantes ('septiembre'/'setiembre')."""
     months = list(_month_range(start_ts, end_ts))
     keys = [f"{calendar.month_name[m.month]} {m.year}" for m in months]
 
@@ -498,17 +501,19 @@ def _forecast_for_period(fdf: pd.DataFrame, start_ts: pd.Timestamp, end_ts: pd.T
     if props and prop_col:
         df = df[df[prop_col].astype(str).isin(props)]
 
-    # mapa header normalizado → nombre real
+    # headers normalizados → nombre real (ya normalizados en _load_forecast_db)
     name_map = { _norm_header(c): c for c in df.columns }
 
     out, total = {}, 0.0
     for m in months:
-        es_key = MONTHS_ES_INV.get(m.month)  # 'enero','febrero',...
-        col = name_map.get(es_key)
+        # probar todas las variantes del mes en ES
+        es_candidates = _month_es_keys(int(m.month))  # p.ej. ['septiembre','setiembre']
+        col = next((name_map.get(k) for k in es_candidates if k in name_map), None)
+
         val = 0.0
         if col:
-            # convierte números europeos y suma
             val = float(pd.Series(df[col]).apply(_eu_money_to_float).sum())
+
         lbl = f"{calendar.month_name[m.month]} {m.year}"
         out[lbl] = val
         total += val
@@ -1040,4 +1045,4 @@ def _to_dt(s: pd.Series) -> pd.Series:
 def _period_label(s: date | pd.Timestamp, e: date | pd.Timestamp) -> str:
     sd = pd.to_datetime(s).date()
     ed = pd.to_datetime(e).date()
-    return f"{sd.strftime('%d/%m/%Y')} – {ed.strftime('%d/%m/%Y')}"
+    return f"{sd.strftime('%d/%m/%Y')} – {ed.strftime('%d/%m/%Y')}
