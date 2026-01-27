@@ -212,36 +212,57 @@ def _render_forecast_vs_actual(df: pd.DataFrame, forecast: pd.DataFrame, start: 
     """
     Construye y muestra comparativa Forecast vs Actual por mes.
     - forecast: salida de _load_forecast_table (mes_num 1..12)
-    - usa [`compute_kpis`](utils.py) para obtener 'ingresos' por mes.
+    - Actual ahora se filtra SOLO por alojamientos presentes en el forecast (y, si hay selección, por la intersección).
     """
+    # Determina alojamientos válidos para la comparación
+    forecast_props = []
+    if forecast is not None and not forecast.empty and "Alojamiento" in forecast.columns:
+        forecast_props = (
+            forecast["Alojamiento"].astype(str).str.strip().dropna().unique().tolist()
+        )
+
+    # props_use: si hay selección del usuario, usa la intersección; si no, usa todo el set del forecast
+    if props:
+        props_use = [p for p in props if p in forecast_props] if forecast_props else props
+    else:
+        props_use = forecast_props
+
     months = pd.period_range(pd.to_datetime(start).to_period("M"), pd.to_datetime(end).to_period("M"), freq="M")
     rows = []
     for p in months:
         s = p.to_timestamp(how="start")
         e = p.to_timestamp(how="end")
-        _, tot = compute_kpis(  # see: utils.py
-            df,
-            pd.to_datetime(cutoff),
-            pd.to_datetime(s),
-            pd.to_datetime(e),
-            inventory_override=int(inv_override) if (inv_override is not None and int(inv_override) > 0) else None,
-            filter_props=props if props else None,
-        )
-        actual_ing = float(tot.get("ingresos", 0.0))
-        if not forecast.empty:
+
+        # Si no hay ningún alojamiento que coincida con el forecast, los actual = 0
+        if props_use is not None and len(props_use) == 0:
+            actual_ing = 0.0
+        else:
+            _, tot = compute_kpis(
+                df,
+                pd.to_datetime(cutoff),
+                pd.to_datetime(s),
+                pd.to_datetime(e),
+                inventory_override=int(inv_override) if (inv_override is not None and int(inv_override) > 0) else None,
+                filter_props=props_use if props_use else None,  # ← filtro restringido al forecast
+            )
+            actual_ing = float(tot.get("ingresos", 0.0))
+
+        # Suma forecast del mes restringido a los props_use
+        if forecast is not None and not forecast.empty:
             fmask = forecast["mes_num"] == int(p.month)
-            if props:
-                fmask &= forecast["Alojamiento"].isin(props)
+            if props_use:
+                fmask &= forecast["Alojamiento"].isin(props_use)
             forecast_ing = float(forecast.loc[fmask, "Forecast"].sum()) if fmask.any() else 0.0
         else:
             forecast_ing = 0.0
+
         diff = actual_ing - forecast_ing
         pct = (diff / forecast_ing * 100.0) if forecast_ing != 0 else np.nan
         rows.append({"Mes": p.strftime("%Y-%m"), "Forecast": forecast_ing, "Actual": actual_ing, "Diff": diff, "DiffPct": pct})
+
     df_cmp = pd.DataFrame(rows)
     st.subheader("📊 Comparativa Forecast vs Actual (mensual)")
 
-    # Asegura dtype numérico para evitar ValueError al aplicar formato
     for col in ["Forecast", "Actual", "Diff", "DiffPct"]:
         if col in df_cmp.columns:
             df_cmp[col] = pd.to_numeric(df_cmp[col], errors="coerce")
