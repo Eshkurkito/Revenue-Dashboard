@@ -113,7 +113,7 @@ def render_evolucion_corte(raw):
         inv_e_prev = st.number_input("Inventario año anterior (opcional)", min_value=0, value=0, step=1, key="inv_evo_prev")
 
         kpi_options = ["Ocupación %", "ADR (€)", "RevPAR (€)", "Ingresos (€)"]
-        selected_kpis = st.multiselect("KPIs a mostrar", kpi_options, default=["Ocupación %"], key="kpi_multi")
+        selected_kpis = st.multiselect("KPIs a mostrar", kpi_options, default=["Ocupación %"], key="kpi_multi_evo")
 
         compare_e = st.checkbox("Mostrar LY (alineado por día)", value=False, key="cmp_evo")
 
