@@ -72,7 +72,7 @@ def render_evolucion_corte(raw):
         st.stop()
     
     if not isinstance(raw, pd.DataFrame):
-        st.error("No se han cargado datos o el formato no es correcto.")
+        st.error("No se han cargados datos o el formato no es correcto.")
         st.stop()
     if "Alojamiento" not in raw.columns:
         st.error("El archivo no contiene la columna 'Alojamiento'.")
@@ -112,7 +112,7 @@ def render_evolucion_corte(raw):
         inv_e      = st.number_input("Inventario actual (opcional)", min_value=0, value=0, step=1, key="inv_evo")
         inv_e_prev = st.number_input("Inventario año anterior (opcional)", min_value=0, value=0, step=1, key="inv_evo_prev")
 
-        kpi_options = ["Ocupación %", "ADR (€)", "RevPAR (€)"]
+        kpi_options = ["Ocupación %", "ADR (€)", "RevPAR (€)", "Ingresos (€)"]
         selected_kpis = st.multiselect("KPIs a mostrar", kpi_options, default=["Ocupación %"], key="kpi_multi")
 
         compare_e = st.checkbox("Mostrar LY (alineado por día)", value=False, key="cmp_evo")
@@ -194,6 +194,7 @@ def render_evolucion_corte(raw):
             "Ocupación %": ("ocupacion_pct", "occ"),
             "ADR (€)":     ("adr", "eur"),
             "RevPAR (€)":  ("revpar", "eur"),
+            "Ingresos (€)": ("ingresos", "eur"),
         }
         sel_items = [(k, *kpi_map[k]) for k in selected_kpis]
 
@@ -230,9 +231,11 @@ def render_evolucion_corte(raw):
                 "Ocupación %": "#1f77b4",
                 "ADR (€)": "#ff7f0e",
                 "RevPAR (€)": "#2ca02c",
+                "Ingresos (€)": "#9467bd",
                 "Ocupación % (LY)": "#1f77b4",
                 "ADR (€) (LY)": "#ff7f0e",
                 "RevPAR (€) (LY)": "#2ca02c",
+                "Ingresos (€) (LY)": "#9467bd",
             }
             line = (
                 alt.Chart(dfk)
