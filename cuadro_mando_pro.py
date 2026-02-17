@@ -471,17 +471,18 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
     actives_ly2 = _count_props_active_by_first_booking(df, pd.to_datetime(pro_cut) - pd.DateOffset(years=2))
 
     n_props_act_res = _count_props_with_data(df, pro_start, pro_end, pro_cut)
+    # Usar para LY/LY-2 el corte "final" (fin del periodo del año correspondiente)
     n_props_ly_res  = _count_props_with_data(
         df,
         pd.to_datetime(pro_start) - pd.DateOffset(years=1),
         pd.to_datetime(pro_end) - pd.DateOffset(years=1),
-        pd.to_datetime(pro_cut) - pd.DateOffset(years=1),
+        cutoff_ly_final,
     )
     n_props_ly2_res = _count_props_with_data(
         df,
         pd.to_datetime(pro_start) - pd.DateOffset(years=2),
         pd.to_datetime(pro_end) - pd.DateOffset(years=2),
-        pd.to_datetime(pro_cut) - pd.DateOffset(years=2),
+        cutoff_ly2_final,
     )
 
     # Activos por actividad en meses adyacentes (±1 mes del periodo)
@@ -503,11 +504,12 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
 
     # Ingreso medio por piso = ingresos del periodo / número de pisos con reservas (proteger división por 0)
     avg_act = float(tot_now.get("ingresos", 0.0)) / n_props_act_res if n_props_act_res > 0 else 0.0
-    avg_ly  = float(tot_ly_cut.get("ingresos", 0.0)) / n_props_ly_res if n_props_ly_res > 0 else 0.0
-    avg_ly2 = float(tot_ly2_cut_ing.get("ingresos", 0.0)) / n_props_ly2_res if n_props_ly2_res > 0 else 0.0
+    # Para años anteriores dividir los ingresos "finales" (no a fecha de corte)
+    avg_ly  = float(tot_ly_final.get("ingresos", 0.0)) / n_props_ly_res if n_props_ly_res > 0 else 0.0
+    avg_ly2 = float(tot_ly2_final_ing.get("ingresos", 0.0)) / n_props_ly2_res if n_props_ly2_res > 0 else 0.0
     st.caption(
         f"Apartamentos con reservas en el periodo: Act {n_props_act_res} · LY {n_props_ly_res} · LY-2 {n_props_ly2_res} · "
-        f"Ingreso medio por piso: Act €{avg_act:,.2f} · LY €{avg_ly:,.2f} · LY-2 €{avg_ly2:,.2f}"
+        f"Ingreso medio por piso: Act €{avg_act:,.2f} · LY final €{avg_ly:,.2f} · LY-2 final €{avg_ly2:,.2f}"
     )
     st.caption(f"Apartamentos activos (±1 mes del periodo): Act {act_adj_act} · LY {act_adj_ly} · LY-2 {act_adj_ly2}")
 
