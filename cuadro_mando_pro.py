@@ -501,7 +501,14 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
         months_window=1,
     )
 
-    st.caption(f"Apartamentos con reservas en el periodo: Act {n_props_act_res} · LY {n_props_ly_res} · LY-2 {n_props_ly2_res}")
+    # Ingreso medio por piso = ingresos del periodo / número de pisos con reservas (proteger división por 0)
+    avg_act = float(tot_now.get("ingresos", 0.0)) / n_props_act_res if n_props_act_res > 0 else 0.0
+    avg_ly  = float(tot_ly_cut.get("ingresos", 0.0)) / n_props_ly_res if n_props_ly_res > 0 else 0.0
+    avg_ly2 = float(tot_ly2_cut_ing.get("ingresos", 0.0)) / n_props_ly2_res if n_props_ly2_res > 0 else 0.0
+    st.caption(
+        f"Apartamentos con reservas en el periodo: Act {n_props_act_res} · LY {n_props_ly_res} · LY-2 {n_props_ly2_res} · "
+        f"Ingreso medio por piso: Act €{avg_act:,.2f} · LY €{avg_ly:,.2f} · LY-2 €{avg_ly2:,.2f}"
+    )
     st.caption(f"Apartamentos activos (±1 mes del periodo): Act {act_adj_act} · LY {act_adj_ly} · LY-2 {act_adj_ly2}")
 
     # ---- Forecast: carga desde data/forecast_db.csv por defecto (sin subir) ----
