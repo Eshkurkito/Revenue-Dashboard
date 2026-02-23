@@ -544,7 +544,6 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
         months_window=1,
     )
 
-    # Ingreso medio por piso = ingresos del periodo / número de pisos con reservas (proteger división por 0)
     avg_act = float(tot_now.get("ingresos", 0.0)) / n_props_act_res if n_props_act_res > 0 else 0.0
     # Para años anteriores dividir los ingresos "finales" (no a fecha de corte)
     avg_ly  = float(tot_ly_final.get("ingresos", 0.0)) / n_props_ly_res if n_props_ly_res > 0 else 0.0
