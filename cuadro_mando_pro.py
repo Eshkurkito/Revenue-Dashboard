@@ -457,6 +457,25 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
     )
 
     # ====== Ingresos ======
+    # Calcula Rev par (ingreso por apartamento) para mostrar como métricas principales
+    n_props_act_res = _count_props_with_data(df, pro_start, pro_end, pro_cut)
+    n_props_ly_res  = _count_props_with_data(
+        df,
+        pd.to_datetime(pro_start) - pd.DateOffset(years=1),
+        pd.to_datetime(pro_end) - pd.DateOffset(years=1),
+        cutoff_ly_final,
+    )
+    n_props_ly2_res = _count_props_with_data(
+        df,
+        pd.to_datetime(pro_start) - pd.DateOffset(years=2),
+        pd.to_datetime(pro_end) - pd.DateOffset(years=2),
+        cutoff_ly2_final,
+    )
+
+    avg_act = float(tot_now.get("ingresos", 0.0)) / n_props_act_res if n_props_act_res > 0 else 0.0
+    avg_ly  = float(tot_ly_final.get("ingresos", 0.0)) / n_props_ly_res if n_props_ly_res > 0 else 0.0
+    avg_ly2 = float(tot_ly2_final_ing.get("ingresos", 0.0)) / n_props_ly2_res if n_props_ly2_res > 0 else 0.0
+
     st.subheader("💶 Ingresos (periodo seleccionado)")
     g1, g2, g3, g4, g5 = st.columns(5)
     g1.metric("Ingresos actuales (€)", f"{tot_now['ingresos']:.2f}")
@@ -464,6 +483,12 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
     g3.metric("Ingresos LY final (€)", f"{tot_ly_final['ingresos']:.2f}")
     g4.metric("Ingresos LY-2 a este corte (€)", f"{tot_ly2_cut_ing['ingresos']:.2f}")
     g5.metric("Ingresos LY-2 final (€)", f"{tot_ly2_final_ing['ingresos']:.2f}")
+
+    # Rev par principales (mostrar como métricas separadas)
+    rp1, rp2, rp3 = st.columns(3)
+    rp1.metric("Rev par actual (€)", f"{avg_act:,.2f}".replace(",","."))
+    rp2.metric("Rev par LY final (€)", f"{avg_ly:,.2f}".replace(",","."))
+    rp3.metric("Rev par LY-2 final (€)", f"{avg_ly2:,.2f}".replace(",","."))
 
     # Nuevo: conteo de apartamentos activos al corte y con reservas en el periodo (Act, LY y LY-2)
     actives_act = _count_props_active_by_first_booking(df, pro_cut)
