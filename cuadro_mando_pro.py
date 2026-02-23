@@ -484,11 +484,28 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
     g4.metric("Ingresos LY-2 a este corte (€)", f"{tot_ly2_cut_ing['ingresos']:.2f}")
     g5.metric("Ingresos LY-2 final (€)", f"{tot_ly2_final_ing['ingresos']:.2f}")
 
-    # Rev par principales (mostrar como métricas separadas)
+    # RevPAR: usa inventario cuando esté disponible; si no, ADR * ocupación (fracción)
+    days_period = (pd.to_datetime(pro_end) - pd.to_datetime(pro_start)).days + 1
+    def _compute_revpar(total_ing, adr, occ_pct, inv):
+        if isinstance(inv, (int, float)) and int(inv) > 0:
+            return float(total_ing) / (int(inv) * max(int(days_period), 1))
+        # fallback a ADR * ocupación (ocupacion en % -> fracción)
+        return float(adr) * (float(occ_pct or 0.0) / 100.0)
+
+    revpar_act = _compute_revpar(tot_now.get("ingresos", 0.0), tot_now.get("adr", 0.0), tot_now.get("ocupacion_pct", 0.0), inv_pro)
+    revpar_ly  = _compute_revpar(tot_ly_final.get("ingresos", 0.0), tot_ly_final.get("adr", 0.0), tot_ly_final.get("ocupacion_pct", 0.0), inv_pro_ly)
+    revpar_ly2 = _compute_revpar(tot_ly2_final_ing.get("ingresos", 0.0), tot_ly2_final_ing.get("adr", 0.0), tot_ly2_final_ing.get("ocupacion_pct", 0.0), None)
+
     rp1, rp2, rp3 = st.columns(3)
-    rp1.metric("Rev par actual (€)", f"{avg_act:,.2f}".replace(",","."))
-    rp2.metric("Rev par LY final (€)", f"{avg_ly:,.2f}".replace(",","."))
-    rp3.metric("Rev par LY-2 final (€)", f"{avg_ly2:,.2f}".replace(",","."))
+    rp1.metric("RevPAR actual (€)", f"{revpar_act:,.2f}".replace(",","."))
+    rp2.metric("RevPAR LY final (€)", f"{revpar_ly:,.2f}".replace(",","."))
+    rp3.metric("RevPAR LY-2 final (€)", f"{revpar_ly2:,.2f}".replace(",","."))
+
+    st.caption(
+        f"Apartamentos con reservas en el periodo: Act {n_props_act_res} · LY {n_props_ly_res} · LY-2 {n_props_ly2_res} · "
+        f"RevPAR estimado: Act €{revpar_act:,.2f} · LY final €{revpar_ly:,.2f} · LY-2 final €{revpar_ly2:,.2f}"
+    )
+    st.caption(f"Apartamentos activos (±1 mes del periodo): Act {act_adj_act} · LY {act_adj_ly} · LY-2 {act_adj_ly2}")
 
     # Nuevo: conteo de apartamentos activos al corte y con reservas en el periodo (Act, LY y LY-2)
     actives_act = _count_props_active_by_first_booking(df, pro_cut)
