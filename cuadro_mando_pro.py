@@ -505,7 +505,6 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
         f"Apartamentos con reservas en el periodo: Act {n_props_act_res} · LY {n_props_ly_res} · LY-2 {n_props_ly2_res} · "
         f"RevPAR estimado: Act €{revpar_act:,.2f} · LY final €{revpar_ly:,.2f} · LY-2 final €{revpar_ly2:,.2f}"
     )
-    st.caption(f"Apartamentos activos (±1 mes del periodo): Act {act_adj_act} · LY {act_adj_ly} · LY-2 {act_adj_ly2}")
 
     # Nuevo: conteo de apartamentos activos al corte y con reservas en el periodo (Act, LY y LY-2)
     actives_act = _count_props_active_by_first_booking(df, pro_cut)
@@ -526,6 +525,8 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
         pd.to_datetime(pro_cut) - pd.DateOffset(years=2),
         months_window=1,
     )
+    
+    st.caption(f"Apartamentos activos (±1 mes del periodo): Act {act_adj_act} · LY {act_adj_ly} · LY-2 {act_adj_ly2}")
 
     avg_act = float(tot_now.get("ingresos", 0.0)) / n_props_act_res if n_props_act_res > 0 else 0.0
     # Para años anteriores dividir los ingresos "finales" (no a fecha de corte)
