@@ -525,8 +525,6 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
         pd.to_datetime(pro_cut) - pd.DateOffset(years=2),
         months_window=1,
     )
-    
-    st.caption(f"Apartamentos activos (±1 mes del periodo): Act {act_adj_act} · LY {act_adj_ly} · LY-2 {act_adj_ly2}")
 
     avg_act = float(tot_now.get("ingresos", 0.0)) / n_props_act_res if n_props_act_res > 0 else 0.0
     # Para años anteriores dividir los ingresos "finales" (no a fecha de corte)
