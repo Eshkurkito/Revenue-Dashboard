@@ -511,23 +511,6 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
     actives_act = _count_props_active_by_first_booking(df, pro_cut)
     actives_ly  = _count_props_active_by_first_booking(df, pd.to_datetime(pro_cut) - pd.DateOffset(years=1))
     actives_ly2 = _count_props_active_by_first_booking(df, pd.to_datetime(pro_cut) - pd.DateOffset(years=2))
-
-    n_props_act_res = _count_props_with_data(df, pro_start, pro_end, pro_cut)
-    # Usar para LY/LY-2 el corte "final" (fin del periodo del año correspondiente)
-    n_props_ly_res  = _count_props_with_data(
-        df,
-        pd.to_datetime(pro_start) - pd.DateOffset(years=1),
-        pd.to_datetime(pro_end) - pd.DateOffset(years=1),
-        cutoff_ly_final,
-    )
-    n_props_ly2_res = _count_props_with_data(
-        df,
-        pd.to_datetime(pro_start) - pd.DateOffset(years=2),
-        pd.to_datetime(pro_end) - pd.DateOffset(years=2),
-        cutoff_ly2_final,
-    )
-
-    # Activos por actividad en meses adyacentes (±1 mes del periodo)
     act_adj_act = _count_props_active_adjacent(df, pro_start, pro_end, pro_cut, months_window=1)
     act_adj_ly  = _count_props_active_adjacent(
         df,
