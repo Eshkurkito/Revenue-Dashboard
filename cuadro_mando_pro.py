@@ -501,11 +501,6 @@ def render_cuadro_mando_pro(raw: pd.DataFrame | None = None):
     rp2.metric("RevPAR LY final (€)", f"{revpar_ly:,.2f}".replace(",","."))
     rp3.metric("RevPAR LY-2 final (€)", f"{revpar_ly2:,.2f}".replace(",","."))
 
-    st.caption(
-        f"Apartamentos con reservas en el periodo: Act {n_props_act_res} · LY {n_props_ly_res} · LY-2 {n_props_ly2_res} · "
-        f"RevPAR estimado: Act €{revpar_act:,.2f} · LY final €{revpar_ly:,.2f} · LY-2 final €{revpar_ly2:,.2f}"
-    )
-
     # Nuevo: conteo de apartamentos activos al corte y con reservas en el periodo (Act, LY y LY-2)
     actives_act = _count_props_active_by_first_booking(df, pro_cut)
     actives_ly  = _count_props_active_by_first_booking(df, pd.to_datetime(pro_cut) - pd.DateOffset(years=1))
